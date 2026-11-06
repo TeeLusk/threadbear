@@ -144,7 +144,7 @@ private struct PullRequestCard: View {
             Button("Open on GitHub", systemImage: "arrow.up.forward") { app.openExternally(url) }
         }
         Button("Copy link", systemImage: "link") { app.copyToPasteboard(pr.url) }
-        if failing {
+        if PRBadge.canFixChecks(pr) {
             Divider()
             if fixSent {
                 Button("Asked the thread to fix them", systemImage: "checkmark") {}

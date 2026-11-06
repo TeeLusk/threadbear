@@ -787,8 +787,8 @@ From the top, and only when there's something to show:
   pushed to, with its state, each check (failed ones first, and open when
   one has failed), its review, any merge conflicts, and when it was last
   checked. Click the title to open it; its ••• menu has Open on GitHub,
-  Copy link and, when checks fail, Fix failing checks, which asks the
-  thread to find the cause and push a fix.
+  Copy link and, when an open or draft PR's checks fail, Fix failing
+  checks, which asks the thread to find the cause and push a fix.
 - The thread's projects, each under its icon and name with its links,
   such as a live site or an admin page, and its task board if it has one
   (see [Projects](#projects)). The ⓘ beside a project's name

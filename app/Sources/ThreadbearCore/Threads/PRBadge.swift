@@ -50,10 +50,13 @@ public enum PRBadge {
     }
 
     /// Under a card's title: "widgets #683 · Merged". The repo's name
-    /// without its owner, as GitHub's own lists show it.
+    /// without its owner, as GitHub's own lists show it. No state word for a
+    /// PR never fetched: the runner's state for it is a placeholder, and the
+    /// card's footer says "Not checked yet".
     public static func subtitle(_ pr: ThreadPR) -> String {
         let name = pr.repo.split(separator: "/").last.map(String.init) ?? pr.repo
         let head = name.isEmpty ? "#\(pr.number)" : "\(name) #\(pr.number)"
+        guard pr.checkedAt != nil else { return head }
         let word: String? = switch pr.state {
         case .open: "Open"
         case .draft: "Draft"
@@ -109,6 +112,12 @@ public enum PRBadge {
         if seconds < 60 { return "Checked \(Int(seconds) / 10 * 10)s ago" }
         if seconds < 86_400 { return "Checked \(RelativeTime.short(checkedAt, now: now)) ago" }
         return "Checked \(RelativeTime.short(checkedAt, now: now))"
+    }
+
+    /// Whether a card offers "Fix failing checks": not on a merged or
+    /// closed PR, which a push can't help.
+    public static func canFixChecks(_ pr: ThreadPR) -> Bool {
+        pr.checks?.state == .failing && (pr.state == .open || pr.state == .draft)
     }
 
     /// What "Fix failing checks" sends the thread, naming the PR, as a

@@ -119,6 +119,9 @@ final class PullRequestsTests: XCTestCase {
     func testCardLines() {
         XCTAssertEqual(PRBadge.subtitle(pr(683, .merged)), "widgets #683 · Merged")
         XCTAssertEqual(PRBadge.subtitle(pr(5, .unknown)), "widgets #5")
+        // Never fetched: the runner's "open" is a placeholder, so no state word.
+        XCTAssertEqual(PRBadge.subtitle(pr(6, .open, checkedAt: nil)), "widgets #6")
+        XCTAssertEqual(PRBadge.subtitle(pr(6, .open)), "widgets #6 · Open")
         XCTAssertEqual(PRBadge.checksLine(pr(1, .open, checks: .failing)), "Checks · 1 of 2 passed")
         XCTAssertNil(PRBadge.checksLine(pr(1, .open)))
         let now = Date()
@@ -128,6 +131,16 @@ final class PullRequestsTests: XCTestCase {
         XCTAssertEqual(PRBadge.checkedLine(nil, now: now), "Not checked yet")
         XCTAssertTrue(PRBadge.fixChecksPrompt("https://github.com/acme/widgets/pull/7")
             .hasPrefix("This pull request's checks are failing: https://github.com/acme/widgets/pull/7. Look with `gh pr checks https://github.com/acme/widgets/pull/7`"))
+    }
+
+    func testFixFailingChecksOnlyForOpenOrDraft() {
+        XCTAssertTrue(PRBadge.canFixChecks(pr(1, .open, checks: .failing)))
+        XCTAssertTrue(PRBadge.canFixChecks(pr(1, .draft, checks: .failing)))
+        XCTAssertFalse(PRBadge.canFixChecks(pr(1, .merged, checks: .failing)))
+        XCTAssertFalse(PRBadge.canFixChecks(pr(1, .closed, checks: .failing)))
+        XCTAssertFalse(PRBadge.canFixChecks(pr(1, .unknown, checks: .failing)))
+        XCTAssertFalse(PRBadge.canFixChecks(pr(1, .open, checks: .passing)))
+        XCTAssertFalse(PRBadge.canFixChecks(pr(1, .open)))
     }
 
     func testChecksSortFailedFirst() {

@@ -148,3 +148,41 @@ test('a thread handed over by a draining runner is watched by the new one', asyn
   await flush();
   assert.equal(asked, 1, 'the handed-over thread\'s open PR is looked at');
 });
+
+test('after an unarchive, threads.prs starts polling again', async () => {
+  const h = makeHarness();
+  let asked = 0;
+  const counting: Gh = { ...gh, graphql: async (q) => (asked++, gh.graphql(q)) };
+  const ps = new PrStatus({ clock: h.clock, log: nullLogger, host: prRecordHost(h.runner), gh: async () => counting, now: () => new Date(h.clock.now()).toISOString() });
+  h.runner.prStatus = ps;
+  ps.start();
+  const id = createPr(h);
+  h.clock.advance(1_000);
+  await flush();
+  assert.equal(asked, 1);
+  h.runner.update({ threadId: id, archived: true });
+  h.clock.advance(60_000);
+  await flush();
+  const before = asked;
+  h.clock.advance(10 * 60_000);
+  await flush();
+  assert.equal(asked, before, 'nothing polled while archived');
+  h.runner.update({ threadId: id, archived: false });
+  h.clock.advance(10 * 60_000);
+  await flush();
+  assert.equal(asked, before, 'unarchiving alone does not restart it');
+
+  const server = new RpcServer({ host: '127.0.0.1', port: 0, token: readToken(h.home), runner: h.runner, log: nullLogger });
+  const { port } = await server.listen();
+  const c = await RunnerClient.connect(`ws://127.0.0.1:${port}/rpc`, readToken(h.home));
+  try {
+    await c.call('hello', { client: 'test', version: '1' });
+    await c.call('threads.prs', { threadId: id });
+  } finally {
+    c.close();
+    await server.close();
+  }
+  h.clock.advance(10_000);
+  await flush();
+  assert.equal(asked, before + 1, 'opening the pane watches the open PR again');
+});

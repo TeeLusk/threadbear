@@ -732,8 +732,11 @@ export class RpcServer {
         return r.markSeen(reqString(p, 'threadId'), reqNumber(p, 'seq'));
       case 'threads.highlights':
         return r.highlights(reqString(p, 'threadId'));
-      case 'threads.prs':
-        return { prs: r.prStatus?.details(r.mustGet(reqString(p, 'threadId')).rec.prs) ?? [] };
+      case 'threads.prs': {
+        const { rec } = r.mustGet(reqString(p, 'threadId'));
+        r.prStatus?.adopt(rec.id, []); // polls again if it had stopped (an unarchive)
+        return { prs: r.prStatus?.details(rec.prs) ?? [] };
+      }
       case 'threads.explain': {
         const selection = reqString(p, 'selection');
         if (!selection.trim()) throw bad('selection is empty');

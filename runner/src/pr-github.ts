@@ -4,7 +4,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loginShell } from './system-tools.ts';
-import type { Logger } from './log.ts';
 import { parsePrUrl } from './pr-find.ts';
 import type { PrCheck, PrDetail, PrOutcome, PrReview, ThreadPr } from './pr-status-types.ts';
 
@@ -152,23 +151,22 @@ export type Gh = {
   prForBranch(cwd: string, branch?: string): Promise<string | undefined>;
 };
 
-// Finds `gh` the way a terminal would (the runner's own PATH is short), once.
-// Undefined when it's missing or not logged in: the feature is then off.
-export async function ghFromLoginShell(log: Logger): Promise<Gh | undefined> {
+// Finds `gh` the way a terminal would (the runner's own PATH is short).
+// Undefined when it's missing or not logged in. It says nothing itself: it's
+// tried again every round, and PrStatus logs that once.
+export async function ghFromLoginShell(how: string[] = loginShell()): Promise<Gh | undefined> {
   let bin: string;
   try {
-    const [shell, ...flags] = loginShell();
+    const [shell, ...flags] = how;
     const { stdout } = await run(shell!, [...flags, 'command -v gh'], { timeout: 10_000 });
     bin = stdout.trim().split('\n').pop() ?? '';
     if (!bin) throw new Error('empty');
   } catch {
-    log.info('pr status: gh not found, PR status is off');
     return undefined;
   }
   try {
     await run(bin, ['auth', 'status'], { timeout: 10_000 });
   } catch {
-    log.info('pr status: gh is not logged in, PR status is off');
     return undefined;
   }
   return {

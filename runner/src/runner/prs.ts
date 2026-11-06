@@ -24,5 +24,5 @@ export function prRecordHost(runner: Pick<Runner, 'threads' | 'markDirty'>): PrR
 
 // The tracker for main.ts, asking GitHub through the user's own gh.
 export function makePrStatus(runner: Pick<Runner, 'threads' | 'markDirty'>, clock: Clock, log: Logger): PrStatus {
-  return new PrStatus({ clock, log, host: prRecordHost(runner), gh: () => ghFromLoginShell(log), now: () => new Date(clock.now()).toISOString() });
+  return new PrStatus({ clock, log, host: prRecordHost(runner), gh: () => ghFromLoginShell(), now: () => new Date(clock.now()).toISOString() });
 }

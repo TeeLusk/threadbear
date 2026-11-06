@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildQuery, isSafeBranch, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
+import { buildQuery, ghFromLoginShell, isSafeBranch, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
 import type { PrDetail } from '../../src/pr-status-types.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/pr-graphql.json', import.meta.url), 'utf8'));
@@ -132,4 +132,9 @@ test('a check link that is not http or https is dropped', () => {
   const url = 'https://github.com/acme/widgets/pull/7';
   const d = parseAnswer({ data: { p0: { pullRequest: pr } } }, [{ url }], NOW).get(url)!;
   assert.deepEqual(d.checkList.map((c) => c.url), ['https://github.com/acme/widgets/actions/runs/1', undefined, undefined, 'http://ci.example.com/7']);
+});
+
+// It takes no logger, so it can't log on each retry; PrStatus logs once ('no gh').
+test('no gh: ghFromLoginShell finds nothing', async () => {
+  assert.equal(await ghFromLoginShell(['/usr/bin/false']), undefined);
 });

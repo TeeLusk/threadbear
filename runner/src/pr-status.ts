@@ -13,6 +13,8 @@ export const FAST_MS = 30_000;
 export const OPEN_MS = 60_000;
 // A new PR or a push is looked at after this, so a burst of events asks once.
 const SOON_MS = 1_000;
+// A PR missing from this many answers in a row (deleted, no access) is final.
+export const GIVE_UP_ROUNDS = 5;
 
 export type PrRecordHost = {
   threads(): { id: string; cwd: string; archived: boolean; prs?: TrackedPr[] }[];
@@ -32,6 +34,12 @@ export class PrStatus {
   private running = false;
   private wanted = false;
   private stopped = true;
+  // Answered rounds in a row each PR was missing from, by URL.
+  private misses = new Map<string, number>();
+  // Archived threads' never-fetched PRs to ask about in the next round, and
+  // every one ever queued, so each gets one look.
+  private once = new Set<string>();
+  private queuedOnce = new Set<string>();
 
   constructor(deps: Deps) {
     this.deps = deps;
@@ -49,20 +57,37 @@ export class PrStatus {
     this.timer = this.soon = undefined;
   }
 
+  // Runs inside Runner.emit, so nothing here may throw into a turn.
   observe(threadId: string, cwd: string, e: PersistedEvent): void {
-    let finder = this.finders.get(threadId);
-    if (!finder) this.finders.set(threadId, (finder = new PrFinder()));
-    const found = finder.observe(e, cwd);
-    if (!found.length) return;
-    for (const f of found) {
-      if (f.kind === 'url') this.add(threadId, f.url, f.how);
-      else void this.lookUpPush(threadId, f.cwd, f.branches);
+    try {
+      let finder = this.finders.get(threadId);
+      if (!finder) this.finders.set(threadId, (finder = new PrFinder()));
+      const found = finder.observe(e, cwd);
+      if (!found.length) return;
+      for (const f of found) {
+        if (f.kind === 'url') this.add(threadId, f.url, f.how);
+        else void this.lookUpPush(threadId, f.cwd, f.branches);
+      }
+      this.lookSoon();
+    } catch (err) {
+      this.deps.log.warn('pr status: could not read an event', { error: String(err) });
     }
-    this.lookSoon();
   }
 
+  // Also called with no URLs to start polling again (threads.prs, after an
+  // unarchive). An archived thread isn't polled, but its never-fetched PRs
+  // get one look, so they show their real state rather than a placeholder.
   adopt(threadId: string, urls: string[]): void {
     for (const u of urls) this.add(threadId, u, 'created');
+    const thread = this.deps.host.threads().find((t) => t.id === threadId);
+    if (thread?.archived) {
+      const fresh = (thread.prs ?? []).filter((p) => !p.snapshot && !p.final && !this.queuedOnce.has(p.url));
+      for (const p of fresh) {
+        this.queuedOnce.add(p.url);
+        this.once.add(p.url);
+      }
+      if (fresh.length) this.lookSoon();
+    }
     this.arm();
   }
 
@@ -174,15 +199,16 @@ export class PrStatus {
     for (const id of this.finders.keys()) if (!listed.some((t) => t.id === id)) this.finders.delete(id);
     const asked = new Map<string, NonNullable<ReturnType<typeof parsePrUrl>>>();
     for (const t of listed) {
-      if (t.archived) continue;
       for (const p of t.prs ?? []) {
-        const parsed = p.final ? undefined : parsePrUrl(p.url);
+        if (p.final || (t.archived && !this.once.has(p.url))) continue;
+        const parsed = parsePrUrl(p.url);
         if (parsed) asked.set(parsed.url, parsed);
       }
     }
     if (!asked.size) return;
     const gh = await this.resolveGh();
     if (!gh) return;
+    this.once.clear();
     const all = [...asked.values()];
     for (let i = 0; i < all.length; i += BATCH) {
       const batch = all.slice(i, i + BATCH);
@@ -194,6 +220,25 @@ export class PrStatus {
         continue;
       }
       this.store(answer);
+      this.countMisses(batch.map((b) => b.url), answer);
+    }
+  }
+
+  // A PR GitHub answers without (null: deleted, or no access) would be asked
+  // about every minute for ever, so after a few answers in a row it's final.
+  private countMisses(urls: string[], answer: Map<string, PrDetail>): void {
+    const gone = new Set<string>();
+    for (const url of urls) {
+      const n = answer.has(url) ? 0 : (this.misses.get(url) ?? 0) + 1;
+      if (n === 0 || n >= GIVE_UP_ROUNDS) this.misses.delete(url);
+      else this.misses.set(url, n);
+      if (n >= GIVE_UP_ROUNDS) gone.add(url);
+    }
+    if (!gone.size) return;
+    this.deps.log.info('pr status: GitHub has not shown these PRs, no longer asking', { prs: [...gone] });
+    for (const t of this.deps.host.threads()) {
+      if (!t.prs?.some((p) => gone.has(p.url) && !p.final)) continue;
+      this.deps.host.setPrs(t.id, t.prs.map((p) => (gone.has(p.url) ? { ...p, final: true as const } : p)));
     }
   }
 

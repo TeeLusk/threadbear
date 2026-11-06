@@ -319,3 +319,77 @@ test('a failed round leaves checkedAt as it was', async () => {
   assert.equal(t.s.summary(t.threads[0]!.prs)![0]!.checkedAt, before);
   assert.equal(t.sets.length, sets);
 });
+
+test('observe never throws, whatever goes wrong inside', () => {
+  const t = setup();
+  const host = { threads: () => { throw new Error('boom'); }, setPrs() {} };
+  const s = new PrStatus({ clock: t.clock, log: { info: (m) => t.logs.push(m), warn: (m) => t.logs.push(m), error: (m) => t.logs.push(m), debug() {} }, host, gh: async () => t.g.gh, now: () => 'x' });
+  s.start();
+  assert.doesNotThrow(() => created('a', URL1).forEach((e) => s.observe('t1', '/w', e)));
+  assert.ok(t.logs.some((l) => /pr status/i.test(l)));
+});
+
+test('a PR GitHub never returns is final after 5 answered rounds', async () => {
+  const t = setup();
+  // acme/widgets#12 is unknown to the fake: its alias comes back without a PR.
+  t.s.start();
+  t.observe('t1', created('a', URL1));
+  await t.advance(1000);
+  for (let i = 0; i < 3; i++) await t.advance(OPEN_MS);
+  assert.equal(t.g.queries.length, 4);
+  assert.equal(t.threads[0]!.prs![0]!.final, undefined);
+  // A failed round doesn't count.
+  t.g.failNext();
+  await t.advance(OPEN_MS);
+  assert.equal(t.threads[0]!.prs![0]!.final, undefined);
+  await t.advance(OPEN_MS);
+  assert.equal(t.g.queries.length, 6);
+  assert.equal(t.threads[0]!.prs![0]!.final, true);
+  await t.advance(10 * OPEN_MS);
+  assert.equal(t.g.queries.length, 6);
+});
+
+test('a PR that comes back starts the count again', async () => {
+  const t = setup();
+  t.s.start();
+  t.observe('t1', created('a', URL1));
+  await t.advance(1000);
+  for (let i = 0; i < 3; i++) await t.advance(OPEN_MS);
+  t.g.prs.set('acme/widgets#12', {});
+  await t.advance(OPEN_MS);
+  t.g.prs.delete('acme/widgets#12');
+  for (let i = 0; i < 4; i++) await t.advance(OPEN_MS);
+  assert.equal(t.threads[0]!.prs![0]!.final, undefined);
+  assert.ok(t.threads[0]!.prs![0]!.snapshot);
+  await t.advance(OPEN_MS);
+  assert.equal(t.threads[0]!.prs![0]!.final, true);
+  assert.ok(t.threads[0]!.prs![0]!.snapshot, 'keeps its last snapshot');
+});
+
+test('adopted onto an archived thread, a PR gets one look and no polling', async () => {
+  const t = setup();
+  t.g.prs.set('acme/widgets#12', { state: 'OPEN' });
+  t.threads[0]!.archived = true;
+  t.s.start();
+  t.s.adopt('t1', [URL1]);
+  await t.advance(FIRST_MS);
+  assert.equal(t.g.queries.length, 1);
+  assert.ok(t.threads[0]!.prs![0]!.snapshot?.checkedAt);
+  // Adopting again (highlights catching up later) doesn't look again.
+  t.s.adopt('t1', [URL1]);
+  await t.advance(10 * OPEN_MS);
+  assert.equal(t.g.queries.length, 1);
+});
+
+test('an archived thread\'s never-fetched PR from before gets one look when adopted', async () => {
+  const t = setup();
+  t.g.prs.set('acme/widgets#12', { state: 'MERGED', merged: true });
+  t.threads[0]!.archived = true;
+  t.threads[0]!.prs = [{ url: URL1, repo: 'acme/widgets', number: 12, how: 'created', addedAt: 'x' }];
+  t.s.start();
+  t.s.adopt('t1', [URL1]);
+  await t.advance(FIRST_MS);
+  assert.equal(t.g.queries.length, 1);
+  assert.equal(t.threads[0]!.prs![0]!.snapshot?.state, 'merged');
+  assert.equal(t.threads[0]!.prs![0]!.final, true);
+});

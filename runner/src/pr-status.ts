@@ -21,9 +21,6 @@ export type PrRecordHost = {
 
 type Deps = { clock: Clock; log: Logger; host: PrRecordHost; gh: () => Promise<Gh | undefined>; now: () => string };
 
-// checkedAt changes every look, so it can't tell whether anything happened.
-const sameSnapshot = (a: PrDetail | undefined, b: PrDetail): boolean => !!a && JSON.stringify({ ...a, checkedAt: 0 }) === JSON.stringify({ ...b, checkedAt: 0 });
-
 export class PrStatus {
   private deps: Deps;
   // A finder keeps half-seen commands, so each thread needs its own.
@@ -201,17 +198,17 @@ export class PrStatus {
   }
 
   // Writes snapshots to every thread that still exists and tracks the PR.
+  // Saved even when nothing changed: checkedAt is when GitHub last answered,
+  // and the app only hears of it when the thread is marked dirty.
   private store(answer: Map<string, PrDetail>): void {
     for (const t of this.deps.host.threads()) {
       let changed = false;
       const prs = (t.prs ?? []).map((p) => {
         const snap = answer.get(p.url);
         if (!snap) return p;
-        const done = snap.state === 'merged' || snap.state === 'closed';
-        if (sameSnapshot(p.snapshot, snap) && !!p.final === done) return p;
         changed = true;
         const next: TrackedPr = { ...p, snapshot: snap };
-        if (done) next.final = true;
+        if (snap.state === 'merged' || snap.state === 'closed') next.final = true;
         else delete next.final;
         return next;
       });

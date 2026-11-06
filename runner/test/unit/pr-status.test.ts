@@ -286,3 +286,36 @@ test('rounds do not overlap', async () => {
   assert.equal(peak, 1);
   assert.ok(t.g.queries.length >= 2);
 });
+
+test('checkedAt moves on every look, even when nothing changed', async () => {
+  const t = setup();
+  t.g.prs.set('acme/widgets#12', {});
+  t.s.start();
+  t.observe('t1', created('a', URL1));
+  await t.advance(1000);
+  const seen = () => t.s.summary(t.threads[0]!.prs)![0]!.checkedAt!;
+  const first = seen();
+  const sets = t.sets.length;
+  await t.advance(OPEN_MS);
+  const second = seen();
+  assert.ok(second > first);
+  assert.equal(t.sets.length, sets + 1);
+  await t.advance(OPEN_MS);
+  assert.ok(seen() > second);
+  assert.equal(t.sets.length, sets + 2);
+});
+
+test('a failed round leaves checkedAt as it was', async () => {
+  const t = setup();
+  t.g.prs.set('acme/widgets#12', {});
+  t.s.start();
+  t.observe('t1', created('a', URL1));
+  await t.advance(1000);
+  const before = t.s.summary(t.threads[0]!.prs)![0]!.checkedAt;
+  const sets = t.sets.length;
+  t.g.failNext();
+  await t.advance(OPEN_MS);
+  assert.equal(t.g.queries.length, 2);
+  assert.equal(t.s.summary(t.threads[0]!.prs)![0]!.checkedAt, before);
+  assert.equal(t.sets.length, sets);
+});

@@ -132,6 +132,12 @@ export function parseAnswer(json: unknown, asked: { url: string }[], now: string
   return out;
 }
 
+// Branch names come from command text and tool output, so only a plain ref
+// name goes to gh: nothing that starts with "-" (a flag) or holds "..".
+export function isSafeBranch(branch: string): boolean {
+  return /^(?!-)[A-Za-z0-9._\/-]+$/.test(branch) && !branch.includes('..');
+}
+
 export type Gh = {
   graphql(query: string): Promise<unknown>;
   prForBranch(cwd: string, branch?: string): Promise<string | undefined>;
@@ -171,8 +177,10 @@ export async function ghFromLoginShell(log: Logger): Promise<Gh | undefined> {
       return json;
     },
     async prForBranch(cwd, branch) {
+      if (branch !== undefined && !isSafeBranch(branch)) return undefined;
       try {
-        const { stdout } = await run(bin, ['pr', 'view', ...(branch ? [branch] : []), '--json', 'url,state'], { cwd, timeout: 20_000 });
+        // gh reads everything after "--" as arguments, so the flags go first.
+        const { stdout } = await run(bin, ['pr', 'view', '--json', 'url,state', ...(branch ? ['--', branch] : [])], { cwd, timeout: 20_000 });
         const pr = JSON.parse(stdout);
         return pr?.state === 'OPEN' && typeof pr.url === 'string' ? pr.url : undefined;
       } catch {

@@ -208,6 +208,7 @@ export const handoversPart = {
     rec.lastSeq = this.store.log(rec.id).lastSeq;
     const st: ThreadState = { rec, rt: newRuntime(Date.parse(rec.lastActivityAt) || 0) };
     this.threads.set(rec.id, st);
+    this.prStatus?.adopt(rec.id, []); // watches its open PRs from here on
     // A thread that was busy on the old runner comes across here, not at
     // start, so it learns its "You: ..." line here too.
     // As at start, one record that trips recovery costs that thread its

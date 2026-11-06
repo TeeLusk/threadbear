@@ -123,3 +123,28 @@ test('a PR made before the tracker started is adopted from highlights', async ()
   h.runner.highlights(id);
   assert.deepEqual(h.runner.get(id).prs?.map((p) => p.url), [URL]);
 });
+
+test('a thread handed over by a draining runner is watched by the new one', async () => {
+  const a = makeHarness();
+  const ps = track(a);
+  const id = createPr(a);
+  a.clock.advance(1_000);
+  await flush();
+  assert.equal(a.runner.get(id).prs?.[0]?.title, 'Sort widgets');
+  ps.stop();
+  // The new runner on the same data dir, whose tracker has looked and found nothing to watch.
+  const b = makeHarness(a.home);
+  b.runner.threads.delete(id);
+  let asked = 0;
+  const counting: Gh = { ...gh, graphql: async (q) => (asked++, gh.graphql(q)) };
+  const ps2 = new PrStatus({ clock: b.clock, log: nullLogger, host: prRecordHost(b.runner), gh: async () => counting, now: () => new Date(b.clock.now()).toISOString() });
+  b.runner.prStatus = ps2;
+  ps2.start();
+  b.clock.advance(10_000);
+  await flush();
+  assert.equal(asked, 0, 'nothing to watch before the thread comes across');
+  b.runner.adopt(id);
+  b.clock.advance(10_000);
+  await flush();
+  assert.equal(asked, 1, 'the handed-over thread\'s open PR is looked at');
+});

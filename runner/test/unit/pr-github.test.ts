@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildQuery, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
+import { buildQuery, isSafeBranch, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
 import type { PrDetail } from '../../src/pr-status-types.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/pr-graphql.json', import.meta.url), 'utf8'));
@@ -96,4 +96,9 @@ test('toThreadPr counts', () => {
   assert.equal(toThreadPr({ ...base, checkList: checks('passed', 'running') }).checks?.state, 'running');
   assert.equal(toThreadPr({ ...base, checkList: checks('passed', 'skipped') }).checks?.state, 'passing');
   assert.equal(toThreadPr({ ...base, checkList: checks('skipped') }).checks?.state, 'none');
+});
+
+test('only plain branch names go to gh: no flags, no ".."', () => {
+  for (const ok of ['main', 'feature/sort-widgets', 'fix_1.2', 'cloud/a-b']) assert.equal(isSafeBranch(ok), true, ok);
+  for (const bad of ['', '-x', '--web', '--repo=evil/x', 'a..b', 'a b', 'a;rm', '$(x)', 'a\nb']) assert.equal(isSafeBranch(bad), false, JSON.stringify(bad));
 });

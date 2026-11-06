@@ -28,9 +28,9 @@ struct HighlightsView: View {
         if app.highlightsUnsupported {
             PaneNote(text: "This runner doesn't keep highlights yet.")
         } else if let fetched = app.highlights[thread.id] {
-            let sections = HighlightSections.build(fetched)
+            let sections = HighlightSections.build(PRBadge.withoutTracked(fetched, prs: thread.prs))
             let projects = HighlightProjects.build(thread: thread, project: app.project)
-            if sections.isEmpty && openAsks == nil && projects.isEmpty && toolPanels.isEmpty && schedules.isEmpty && thread.subagents.isEmpty && startedThreads.isEmpty {
+            if sections.isEmpty && thread.prs.isEmpty && openAsks == nil && projects.isEmpty && toolPanels.isEmpty && schedules.isEmpty && thread.subagents.isEmpty && startedThreads.isEmpty {
                 PaneNote(text: "Nothing here yet. Files, links and commits from this thread show up here as it works.")
             } else {
                 ScrollView {
@@ -145,6 +145,7 @@ struct HighlightsView: View {
                 if shown.more > 0 { showAll(started.count) { flags.allStarted = true } }
             }
         }
+        if !thread.prs.isEmpty { PullRequestsSection(thread: thread) }
         if !sections.pinned.isEmpty {
             SectionHeading(title: "Pinned", icon: "pin", fold: fold(HighlightFold.pinned, count: sections.pinned.count))
             if !isFolded(HighlightFold.pinned) {
@@ -434,6 +435,8 @@ extension View {
 /// Shaped like the sidebar's rows, with the same hover.
 struct PaneRow: View {
     var icon: String?
+    /// A template image in place of the symbol: a pull request's or a check's.
+    var iconImage: NSImage?
     var iconColor: Color?
     let title: String
     /// Before the title, monospaced: a commit's sha.
@@ -475,7 +478,15 @@ struct PaneRow: View {
 
     private var label: some View {
             HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
-                if let icon {
+                if let iconImage {
+                    Image(nsImage: iconImage)
+                        .renderingMode(.template)
+                        .resizable()
+                        .frame(width: zoomed(13), height: zoomed(13))
+                        .foregroundStyle(iconColor.map(AnyShapeStyle.init) ?? AnyShapeStyle(Color(nsColor: Theme.faintIcon)))
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - zoomed(2.5) }
+                        .frame(width: zoomed(16))
+                } else if let icon {
                     Image(systemName: icon)
                         .font(.system(size: zoomed(12)))
                         .foregroundStyle(iconColor.map(AnyShapeStyle.init) ?? AnyShapeStyle(Color(nsColor: Theme.faintIcon)))

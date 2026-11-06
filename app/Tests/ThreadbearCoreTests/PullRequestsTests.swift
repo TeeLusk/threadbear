@@ -101,4 +101,41 @@ final class PullRequestsTests: XCTestCase {
         XCTAssertNil(PRBadge.reviewLine(detail(nil)))
         XCTAssertNil(PRBadge.reviewLine(detail(.init(decision: .none, approvals: 0, required: nil))))
     }
+
+    func testTrackedPRsLeaveLinks() {
+        let tracked = "https://github.com/acme/widgets/pull/7"
+        let untracked = "https://github.com/acme/widgets/pull/9"
+        let highlights = ThreadHighlights(highlights: [
+            Highlight(id: "pr:7", kind: .pr, title: "acme/widgets#7", url: tracked),
+            Highlight(id: "pr:9", kind: .pr, title: "acme/widgets#9", url: untracked),
+            Highlight(id: "link:1", kind: .link, title: "Docs", url: "https://example.com/docs"),
+        ])
+        let sections = HighlightSections.build(PRBadge.withoutTracked(highlights, prs: [pr(7, .open)]))
+        XCTAssertEqual(sections.links.map(\.url), [untracked, "https://example.com/docs"])
+        // No tracked PRs: nothing changes.
+        XCTAssertEqual(PRBadge.withoutTracked(highlights, prs: []), highlights)
+    }
+
+    func testCardLines() {
+        XCTAssertEqual(PRBadge.subtitle(pr(683, .merged)), "widgets #683 · Merged")
+        XCTAssertEqual(PRBadge.subtitle(pr(5, .unknown)), "widgets #5")
+        XCTAssertEqual(PRBadge.checksLine(pr(1, .open, checks: .failing)), "Checks · 1 of 2 passed")
+        XCTAssertNil(PRBadge.checksLine(pr(1, .open)))
+        let now = Date()
+        XCTAssertEqual(PRBadge.checkedLine(now.addingTimeInterval(-43), now: now), "Checked 40s ago")
+        XCTAssertEqual(PRBadge.checkedLine(now.addingTimeInterval(-3), now: now), "Checked just now")
+        XCTAssertEqual(PRBadge.checkedLine(now.addingTimeInterval(-300), now: now), "Checked 5m ago")
+        XCTAssertEqual(PRBadge.checkedLine(nil, now: now), "Not checked yet")
+        XCTAssertTrue(PRBadge.fixChecksPrompt("https://github.com/acme/widgets/pull/7")
+            .hasPrefix("This pull request's checks are failing: https://github.com/acme/widgets/pull/7. Look with `gh pr checks https://github.com/acme/widgets/pull/7`"))
+    }
+
+    func testChecksSortFailedFirst() {
+        let checks = [
+            PRCheck(name: "a", outcome: .passed), PRCheck(name: "b", outcome: .skipped),
+            PRCheck(name: "c", outcome: .running), PRCheck(name: "d", outcome: .failed),
+            PRCheck(name: "e", outcome: .passed),
+        ]
+        XCTAssertEqual(PRBadge.sortedChecks(checks).map(\.name), ["d", "c", "a", "e", "b"])
+    }
 }

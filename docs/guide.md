@@ -800,10 +800,17 @@ From the top, and only when there's something to show:
   waiting on, each with where it's up to: the ones that need you first,
   then failed, working, hibernating, done and archived. Click one to open
   it. Their questions still come to your inbox like any thread's.
+- **Pull requests**: a card for each pull request the thread made or
+  pushed to, with its state, each check (failed ones first, and open when
+  one has failed), its review, any merge conflicts, and when it was last
+  checked. Click the title to open it; its ••• menu has Open on GitHub,
+  Copy link and, when checks fail, Fix failing checks, which asks the
+  thread to find the cause and push a fix.
 - **Pinned**: what the agent pinned for you (below).
 - **Files**: documents, pages, pictures and videos the thread wrote, opened
   or mentioned.
-- **Links**: web pages and pull requests it opened or mentioned.
+- **Links**: web pages and pull requests it opened or mentioned (one
+  with a card under Pull requests isn't listed again).
 - **Changes**: its commits, and a line such as "4 files edited" that
   opens to the code it changed.
 

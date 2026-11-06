@@ -26,6 +26,7 @@ struct PRBadgeView: View {
             .tip(PRBadge.tooltip(prs))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(PRBadge.tooltip(prs))
+            .padding(.leading, zoomed(6))
         }
     }
 }

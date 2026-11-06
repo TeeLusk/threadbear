@@ -336,6 +336,8 @@ loadFixtures();
 addFillers(fillerCount);
 addDemoPanels();
 addDemoPools();
+/** PR url -> what threads.prs adds to the summary's PR. */
+const prDetails = new Map();
 addDemoPRs();
 /** threadId -> ThreadHighlights (docs/protocol.md, "Highlights"). */
 const highlights = new Map();
@@ -1295,6 +1297,10 @@ async function dispatch(client, method, p) {
         { name: 'ship', description: 'Drive a branch to merge-ready: PR, checks, bot comments.', source: 'skill' },
       ];
       return { commands: [...own, ...cli, ...skills] };
+    }
+    case 'threads.prs': {
+      const t = need(p.threadId);
+      return { prs: (t.summary.prs ?? []).map((pr) => ({ ...pr, headRef: '', baseRef: 'main', checkList: [], reviews: [], requested: [], ...prDetails.get(pr.url) })) };
     }
     case 'threads.highlights': {
       const t = need(p.threadId);
@@ -3361,13 +3367,23 @@ function addDemoPRs() {
     conflicts: false, checkedAt, ...extra,
   });
   const dark = threads.get('demo_dark_mode');
-  if (dark) dark.summary.prs = [pr(683, 'Add dark mode to the dashboard', 'merged', { checks: { state: 'passing', passed: 12, total: 12 } })];
+  if (dark) dark.summary.prs = [pr(683, 'Add dark mode to the dashboard', 'merged', { checks: { state: 'failing', passed: 12, total: 13 } })];
   const beta = threads.get('demo_testflight_beta');
   if (beta) beta.summary.prs = [
-    pr(691, 'Bump the build number on each upload', 'open', { checks: { state: 'failing', passed: 10, total: 12 }, review: { decision: 'waiting', approvals: 0, required: 1 } }),
-    pr(688, 'Add the beta release notes', 'merged', { checks: { state: 'passing', passed: 12, total: 12 } }),
-    pr(684, 'Sign the beta with the new profile', 'open', { checks: { state: 'running', passed: 7, total: 12 } }),
+    pr(691, 'Bump the build number on each upload', 'open', { checks: { state: 'failing', passed: 10, total: 12 }, review: { decision: 'waiting', approvals: 0, required: 1 }, conflicts: true }),
+    pr(688, 'Add the beta release notes', 'merged', { checks: { state: 'passing', passed: 12, total: 12 }, review: { decision: 'approved', approvals: 1, required: 1 } }),
+    pr(684, 'Sign the beta with the new profile', 'open', { checks: { state: 'running', passed: 7, total: 12 }, review: { decision: 'changes', approvals: 0, required: 1 } }),
   ];
+  // threads.prs: the same with check lists and reviews (made-up acme runs).
+  const run = (id) => `https://github.com/acme/app/actions/runs/${id}/job/${id + 1}`;
+  const list = (outcomes) => ['Lint', 'Typecheck', 'Unit tests (macOS)', 'Unit tests (Linux)', 'Build iOS', 'Build Mac', 'Snapshot tests',
+      'UI tests', 'Bundle size', 'License check', 'Docs', 'Changelog', 'Deploy preview'].slice(0, outcomes.length)
+      .map((name, i) => ({ name, workflow: i < 4 ? 'CI' : 'Release', outcome: outcomes[i], url: run(9000 + i * 7), ...(outcomes[i] === 'running' ? {} : { seconds: 20 + i * 17 }) }));
+  const fill = (outcome, n) => Array(n).fill(outcome);
+  prDetails.set('https://github.com/acme/app/pull/683', { headRef: 'dark-mode', baseRef: 'main', checkList: list([...fill('passed', 9), 'failed', ...fill('passed', 3)]), reviews: [{ author: 'sam', state: 'approved' }], requested: [] });
+  prDetails.set('https://github.com/acme/app/pull/691', { headRef: 'build-number', baseRef: 'main', checkList: list([...fill('passed', 5), 'failed', ...fill('passed', 5), 'skipped', 'failed']), reviews: [], requested: ['sam'] });
+  prDetails.set('https://github.com/acme/app/pull/688', { headRef: 'release-notes', baseRef: 'main', checkList: list(fill('passed', 12)), reviews: [{ author: 'sam', state: 'approved' }], requested: [] });
+  prDetails.set('https://github.com/acme/app/pull/684', { headRef: 'beta-profile', baseRef: 'main', checkList: list([...fill('passed', 7), ...fill('running', 5)]), reviews: [{ author: 'jo', state: 'changes' }], requested: [] });
 }
 
 function addDemoPools() {
@@ -3557,6 +3573,10 @@ The new hero is shorter, and every page now leads with what the app does.
     highlights.set(beta.summary.id, {
       highlights: [
         { id: 'link:https://appstoreconnect.apple.com/business', kind: 'link', title: 'App Store Connect', url: 'https://appstoreconnect.apple.com/business', how: 'mentioned', seq: beta.summary.lastSeq, lastSeq: beta.summary.lastSeq, at },
+        // One PR the thread tracks (it's in Pull requests, not Links) and
+        // one it only mentioned (it stays in Links).
+        { id: 'pr:https://github.com/acme/app/pull/691', kind: 'pr', title: 'acme/app#691', url: 'https://github.com/acme/app/pull/691', how: 'created', seq: beta.summary.lastSeq, lastSeq: beta.summary.lastSeq, at },
+        { id: 'pr:https://github.com/acme/app/pull/650', kind: 'pr', title: 'acme/app#650', url: 'https://github.com/acme/app/pull/650', how: 'mentioned', seq: beta.summary.lastSeq, lastSeq: beta.summary.lastSeq, at },
       ],
       edited: ['ios/App/Info.plist', 'ios/fastlane/Fastfile', 'ios/RELEASE_NOTES.md']
         .map((rel) => `/Users/mike/dev/me/app/${rel}`),

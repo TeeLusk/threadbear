@@ -49,6 +49,77 @@ public enum PRBadge {
         }
     }
 
+    /// Under a card's title: "widgets #683 · Merged". The repo's name
+    /// without its owner, as GitHub's own lists show it.
+    public static func subtitle(_ pr: ThreadPR) -> String {
+        let name = pr.repo.split(separator: "/").last.map(String.init) ?? pr.repo
+        let head = name.isEmpty ? "#\(pr.number)" : "\(name) #\(pr.number)"
+        let word: String? = switch pr.state {
+        case .open: "Open"
+        case .draft: "Draft"
+        case .merged: "Merged"
+        case .closed: "Closed"
+        case .unknown: nil
+        }
+        return word.map { "\(head) · \($0)" } ?? head
+    }
+
+    /// "Checks · 12 of 13 passed"; nil when the PR has no checks.
+    public static func checksLine(_ pr: ThreadPR) -> String? {
+        guard let checks = pr.checks, checks.total > 0 else { return nil }
+        return "Checks · \(checks.passed) of \(checks.total) passed"
+    }
+
+    /// Failed first, then running, passed and skipped, each kept in the
+    /// runner's order.
+    public static func sortedChecks(_ checks: [PRCheck]) -> [PRCheck] {
+        func rank(_ outcome: PROutcome) -> Int {
+            switch outcome {
+            case .failed: 0
+            case .running: 1
+            case .passed: 2
+            case .skipped: 3
+            case .unknown: 4
+            }
+        }
+        return checks.enumerated()
+            .sorted { (rank($0.element.outcome), $0.offset) < (rank($1.element.outcome), $1.offset) }
+            .map(\.element)
+    }
+
+    /// "Checked 40s ago", so a stale card says it's stale.
+    public static func checkedLine(_ checkedAt: Date?, now: Date) -> String {
+        guard let checkedAt else { return "Not checked yet" }
+        let seconds = max(0, now.timeIntervalSince(checkedAt))
+        if seconds < 10 { return "Checked just now" }
+        if seconds < 60 { return "Checked \(Int(seconds) / 10 * 10)s ago" }
+        if seconds < 86_400 { return "Checked \(RelativeTime.short(checkedAt, now: now)) ago" }
+        return "Checked \(RelativeTime.short(checkedAt, now: now))"
+    }
+
+    /// What "Fix failing checks" sends the thread, naming the PR, as a
+    /// thread can have several.
+    public static func fixChecksPrompt(_ url: String) -> String {
+        "This pull request's checks are failing: \(url). Look with `gh pr checks \(url)` and `gh run view <run-id> --log-failed`, find the cause, fix it, and push. Tell me if a failure isn't from this branch's changes."
+    }
+
+    /// The highlights without the PR links the Pull requests section
+    /// already shows, so a PR isn't listed twice. A pinned one stays: it was
+    /// pinned on purpose and may have a note.
+    public static func withoutTracked(_ highlights: ThreadHighlights, prs: [ThreadPR]) -> ThreadHighlights {
+        guard !prs.isEmpty else { return highlights }
+        let tracked = Set(prs.map { trimmed($0.url) })
+        var kept = highlights
+        kept.highlights.removeAll { item in
+            item.kind == .pr && !item.isPinned && item.url.map { tracked.contains(trimmed($0)) } == true
+        }
+        return kept
+    }
+
+    private static func trimmed(_ url: String) -> String {
+        url.hasSuffix("/") ? String(url.dropLast()) : url
+    }
+
     /// The review line for the detail view; nil when there's no review to speak of.
     public static func reviewLine(_ pr: PRDetail) -> String? {
         guard let review = pr.pr.review else { return nil }

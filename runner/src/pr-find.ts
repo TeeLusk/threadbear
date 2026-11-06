@@ -7,11 +7,16 @@ import { PR_URL, PR_URL_G, gitRuns, pushArgBranches, pushedBranches } from './hi
 
 export type PrFound = { kind: 'url'; url: string; how: 'created' | 'pinned' } | { kind: 'push'; cwd: string; branches: string[] };
 
+// GitHub's PR numbers are 32-bit. A bigger one would fail GraphQL's check
+// and with it the whole batch it's asked in.
+const MAX_NUMBER = 2_147_483_647;
+
 // "https://github.com/a/b/pull/3/files#x" is PR 3 of a/b.
 export function parsePrUrl(url: string): { url: string; owner: string; name: string; number: number } | undefined {
   const m = PR_URL.exec(url.trim());
-  if (!m) return undefined;
-  return { url: m[0], owner: m[1]!, name: m[2]!, number: Number(m[3]) };
+  const number = Number(m?.[3]);
+  if (!m || number > MAX_NUMBER) return undefined;
+  return { url: m[0], owner: m[1]!, name: m[2]!, number };
 }
 
 const CREATE = /\bgh\s+pr\s+create\b/;

@@ -71,6 +71,14 @@ const DECISION: Record<string, NonNullable<PrDetail['review']>['decision']> = {
   REVIEW_REQUIRED: 'waiting',
 };
 
+// GitHub gives no reviewDecision unless the repo requires reviews, so then
+// it's worked out from the latest reviews and who's still asked.
+function decisionFrom(reviews: PrReview[], requested: string[]): NonNullable<PrDetail['review']>['decision'] {
+  if (reviews.some((r) => r.state === 'changes')) return 'changes';
+  if (reviews.some((r) => r.state === 'approved')) return 'approved';
+  return requested.length ? 'waiting' : 'none';
+}
+
 function detailOf(pr: Node, url: string, now: string): PrDetail {
   const state: PrDetail['state'] = pr.merged ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.isDraft ? 'draft' : 'open';
   const checkList = ((pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []) as Node[]).filter(Boolean).map(checkOf);
@@ -83,7 +91,7 @@ function detailOf(pr: Node, url: string, now: string): PrDetail {
   const parsed = parsePrUrl(url);
   const rule = pr.baseRef?.branchProtectionRule;
   const review: NonNullable<PrDetail['review']> = {
-    decision: DECISION[pr.reviewDecision] ?? 'none',
+    decision: DECISION[pr.reviewDecision] ?? decisionFrom(reviews, requested),
     approvals: reviews.filter((r) => r.state === 'approved').length,
   };
   if (typeof rule?.requiredApprovingReviewCount === 'number') review.required = rule.requiredApprovingReviewCount;

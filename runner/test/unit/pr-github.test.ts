@@ -9,6 +9,7 @@ const asked = [
   { url: 'https://github.com/acme/widgets/pull/12' },
   { url: 'https://github.com/acme/widgets/pull/9' },
   { url: 'https://github.com/gone/gone/pull/1' },
+  { url: 'https://github.com/acme/gadgets/pull/4' },
 ];
 const NOW = '2026-11-06T11:00:00.000Z';
 
@@ -61,9 +62,26 @@ test('merged PR with no protection rule and no checks', () => {
   assert.equal(d.checks?.state, 'none');
 });
 
+test('no reviewDecision (reviews not required): worked out from the reviews', () => {
+  const d = parseAnswer(fixture, asked, NOW).get(asked[3]!.url)!;
+  assert.equal(d.review?.decision, 'changes');
+  assert.equal(d.review?.approvals, 1);
+  const decision = (pr: Record<string, unknown>) =>
+    parseAnswer({ data: { p0: { pullRequest: { state: 'OPEN', reviewDecision: null, ...pr } } } }, [asked[0]!], NOW).get(asked[0]!.url)!.review?.decision;
+  const reviews = (...states: string[]) => ({ nodes: states.map((state, i) => ({ author: { login: `r${i}` }, state })) });
+  const requests = (...logins: string[]) => ({ nodes: logins.map((login) => ({ requestedReviewer: { login } })) });
+  assert.equal(decision({ latestReviews: reviews('APPROVED', 'COMMENTED') }), 'approved');
+  assert.equal(decision({ latestReviews: reviews('COMMENTED'), reviewRequests: requests('dave-lead') }), 'waiting');
+  assert.equal(decision({ latestReviews: reviews('APPROVED'), reviewRequests: requests('dave-lead') }), 'approved');
+  assert.equal(decision({ latestReviews: reviews('COMMENTED') }), 'none');
+  assert.equal(decision({}), 'none');
+  // GitHub's own decision still wins where it gives one.
+  assert.equal(decision({ reviewDecision: 'REVIEW_REQUIRED', latestReviews: reviews('APPROVED') }), 'waiting');
+});
+
 test('null PR is skipped', () => {
   const m = parseAnswer(fixture, asked, NOW);
-  assert.equal(m.size, 2);
+  assert.equal(m.size, 3);
   assert.equal(m.has(asked[2]!.url), false);
   assert.equal(parseAnswer({ data: null }, asked, NOW).size, 0);
   assert.equal(parseAnswer('junk', asked, NOW).size, 0);

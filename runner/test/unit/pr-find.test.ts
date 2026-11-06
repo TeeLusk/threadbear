@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { PersistedEvent } from '../../src/protocol.ts';
 import { PrFinder, parsePrUrl } from '../../src/pr-find.ts';
 
-const CWD = '/Users/christian/dev/app';
+const CWD = '/work/acme/widgets';
 let seq = 0;
 function ev(body: Record<string, unknown>): PersistedEvent {
   seq++;
@@ -17,8 +17,8 @@ function run(events: PersistedEvent[]) {
 }
 
 test('created PR url from gh pr create', () => {
-  const found = run([call('a', 'gh pr create --fill'), result('a', true, 'https://github.com/trackmyprop/trackmyprop/pull/683\n')]);
-  assert.deepEqual(found, [{ kind: 'url', url: 'https://github.com/trackmyprop/trackmyprop/pull/683', how: 'created' }]);
+  const found = run([call('a', 'gh pr create --fill'), result('a', true, 'https://github.com/acme/widgets/pull/683\n')]);
+  assert.deepEqual(found, [{ kind: 'url', url: 'https://github.com/acme/widgets/pull/683', how: 'created' }]);
 });
 
 test('failed gh pr create finds nothing', () => {
@@ -50,4 +50,12 @@ test('parsePrUrl trims a trailing path', () => {
   assert.deepEqual(parsePrUrl('https://github.com/a/b/pull/3/files'), { url: 'https://github.com/a/b/pull/3', owner: 'a', name: 'b', number: 3 });
   assert.deepEqual(parsePrUrl('https://github.com/a/b/pull/3#discussion_r1')?.number, 3);
   assert.equal(parsePrUrl('https://example.com'), undefined);
+});
+
+test('parsePrUrl refuses a number GitHub could not have (above 2^31-1)', () => {
+  assert.equal(parsePrUrl('https://github.com/acme/widgets/pull/2147483647')?.number, 2147483647);
+  assert.equal(parsePrUrl('https://github.com/acme/widgets/pull/2147483648'), undefined);
+  assert.equal(parsePrUrl('https://github.com/acme/widgets/pull/99999999999'), undefined);
+  const found = run([call('a', 'gh pr create --fill'), result('a', true, 'https://github.com/acme/widgets/pull/99999999999\n')]);
+  assert.deepEqual(found, []);
 });

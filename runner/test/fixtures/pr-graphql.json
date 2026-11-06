@@ -94,7 +94,29 @@
         "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
       }
     },
-    "p2": null
+    "p2": null,
+    "p3": {
+      "pullRequest": {
+        "title": "Speed up widget search",
+        "url": "https://github.com/acme/gadgets/pull/4",
+        "state": "OPEN",
+        "isDraft": false,
+        "merged": false,
+        "headRefName": "perf/search",
+        "baseRefName": "main",
+        "mergeable": "MERGEABLE",
+        "reviewDecision": null,
+        "latestReviews": {
+          "nodes": [
+            { "author": { "login": "bob-review" }, "state": "APPROVED" },
+            { "author": { "login": "alice-dev" }, "state": "CHANGES_REQUESTED" }
+          ]
+        },
+        "reviewRequests": { "nodes": [] },
+        "baseRef": { "branchProtectionRule": null },
+        "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
+      }
+    }
   },
   "errors": [{ "type": "NOT_FOUND", "path": ["p2"], "message": "Could not resolve to a Repository with the name 'gone/gone'." }]
 }

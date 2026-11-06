@@ -430,15 +430,16 @@ extension AppModel {
 
     /// Sends `text` to a thread as the composer would, dimmed at the end of
     /// the transcript until the runner shows it, leaving the draft alone:
-    /// a Highlights card's "Fix failing checks". False if it couldn't go.
+    /// a Highlights card's "Fix failing checks". False if it couldn't go;
+    /// `failed` runs if the runner turns it away (the error is shown).
     @discardableResult
-    func send(_ text: String, to threadId: String) -> Bool {
+    func send(_ text: String, to threadId: String, failed: @escaping () -> Void = {}) -> Bool {
         guard let client = client(for: threadId), isRemote(threadId) || connection == .connected else {
             showConnectionError(notConnectedText(threadId, "that wasn't sent"))
             return false
         }
         ActivityRecorder.shared.sent(threadId: threadId, images: 0, answers: 0)
-        post(threadId: threadId, text: text, images: [], answers: [], client: client)
+        post(threadId: threadId, text: text, images: [], answers: [], client: client, failed: failed)
         return true
     }
 

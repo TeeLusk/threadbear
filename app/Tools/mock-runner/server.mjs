@@ -3377,10 +3377,10 @@ function addDemoPRs() {
   // threads.prs: the same with check lists and reviews (made-up acme runs).
   const run = (id) => `https://github.com/acme/app/actions/runs/${id}/job/${id + 1}`;
   const list = (outcomes) => ['Lint', 'Typecheck', 'Unit tests (macOS)', 'Unit tests (Linux)', 'Build iOS', 'Build Mac', 'Snapshot tests',
-      'UI tests', 'Bundle size', 'License check', 'Docs', 'Changelog', 'Deploy preview'].slice(0, outcomes.length)
+      'UI tests', 'Bundle size', 'License check', 'Docs', 'Changelog', 'Deploy preview', 'Nightly'].slice(0, outcomes.length)
       .map((name, i) => ({ name, workflow: i < 4 ? 'CI' : 'Release', outcome: outcomes[i], url: run(9000 + i * 7), ...(outcomes[i] === 'running' ? {} : { seconds: 20 + i * 17 }) }));
   const fill = (outcome, n) => Array(n).fill(outcome);
-  prDetails.set('https://github.com/acme/app/pull/683', { headRef: 'dark-mode', baseRef: 'main', checkList: list([...fill('passed', 9), 'failed', ...fill('passed', 3)]), reviews: [{ author: 'sam', state: 'approved' }], requested: [] });
+  prDetails.set('https://github.com/acme/app/pull/683', { headRef: 'dark-mode', baseRef: 'main', checkList: list([...fill('passed', 9), 'failed', ...fill('passed', 3), 'skipped']), reviews: [{ author: 'sam', state: 'approved' }], requested: [] });
   prDetails.set('https://github.com/acme/app/pull/691', { headRef: 'build-number', baseRef: 'main', checkList: list([...fill('passed', 5), 'failed', ...fill('passed', 5), 'skipped', 'failed']), reviews: [], requested: ['sam'] });
   prDetails.set('https://github.com/acme/app/pull/688', { headRef: 'release-notes', baseRef: 'main', checkList: list(fill('passed', 12)), reviews: [{ author: 'sam', state: 'approved' }], requested: [] });
   prDetails.set('https://github.com/acme/app/pull/684', { headRef: 'beta-profile', baseRef: 'main', checkList: list([...fill('passed', 7), ...fill('running', 5)]), reviews: [{ author: 'jo', state: 'changes' }], requested: [] });

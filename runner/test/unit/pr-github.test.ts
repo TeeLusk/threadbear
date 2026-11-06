@@ -102,3 +102,16 @@ test('only plain branch names go to gh: no flags, no ".."', () => {
   for (const ok of ['main', 'feature/sort-widgets', 'fix_1.2', 'cloud/a-b']) assert.equal(isSafeBranch(ok), true, ok);
   for (const bad of ['', '-x', '--web', '--repo=evil/x', 'a..b', 'a b', 'a;rm', '$(x)', 'a\nb']) assert.equal(isSafeBranch(bad), false, JSON.stringify(bad));
 });
+
+test('a check link that is not http or https is dropped', () => {
+  const contexts = [
+    { __typename: 'CheckRun', name: 'web', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/widgets/actions/runs/1' },
+    { __typename: 'CheckRun', name: 'script', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'javascript:alert(1)' },
+    { __typename: 'StatusContext', context: 'file', state: 'SUCCESS', targetUrl: 'file:///etc/passwd' },
+    { __typename: 'StatusContext', context: 'plain', state: 'SUCCESS', targetUrl: 'http://ci.example.com/7' },
+  ];
+  const pr = { title: 'x', state: 'OPEN', commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
+  const url = 'https://github.com/acme/widgets/pull/7';
+  const d = parseAnswer({ data: { p0: { pullRequest: pr } } }, [{ url }], NOW).get(url)!;
+  assert.deepEqual(d.checkList.map((c) => c.url), ['https://github.com/acme/widgets/actions/runs/1', undefined, undefined, 'http://ci.example.com/7']);
+});

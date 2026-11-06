@@ -57,7 +57,8 @@ function checkOf(c: Node): PrCheck {
   const workflow = c.checkSuite?.workflowRun?.workflow?.name;
   if (typeof workflow === 'string' && workflow) check.workflow = workflow;
   const url = c.detailsUrl ?? c.targetUrl;
-  if (typeof url === 'string' && url) check.url = url;
+  // Only a web page: a check's link comes from whoever set up the check.
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) check.url = url;
   const s = seconds(c);
   if (s !== undefined) check.seconds = s;
   return check;

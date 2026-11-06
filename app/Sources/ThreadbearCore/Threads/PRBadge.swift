@@ -87,6 +87,20 @@ public enum PRBadge {
             .map(\.element)
     }
 
+    /// A check row's trailing text: how long it took, or "skipped" for a
+    /// skipped one, whose start and end times GitHub still gives.
+    public static func checkTrailing(_ check: PRCheck) -> String? {
+        if check.outcome == .skipped { return "skipped" }
+        return check.seconds.map { RelativeTime.duration(milliseconds: Double($0) * 1000) }
+    }
+
+    /// A PR's or check's link as something to open, only when it's a web
+    /// page: these come from GitHub, and a check's from whoever set it up.
+    public static func webLink(_ text: String?) -> URL? {
+        guard let text, let url = URL(string: text), PreviewRules.isWebPage(url) else { return nil }
+        return url
+    }
+
     /// "Checked 40s ago", so a stale card says it's stale.
     public static func checkedLine(_ checkedAt: Date?, now: Date) -> String {
         guard let checkedAt else { return "Not checked yet" }

@@ -7,7 +7,7 @@ import ThreadbearCore
 /// SVG elements like `ProviderLogo` keeps its marks: no package and no
 /// resource files. As templates they take the colour they're given.
 enum PRIcon: String, CaseIterable {
-    case pullRequest, draft, closed, merged, passed, failed, running
+    case pullRequest, draft, closed, merged, passed, failed, running, skipped
 
     @MainActor private static var cache: [String: NSImage] = [:]
 
@@ -49,13 +49,14 @@ enum PRIcon: String, CaseIterable {
         }
     }
 
-    /// The shape for one check's outcome; nil for skipped or unknown.
+    /// The shape for one check's outcome; nil for one this app doesn't know.
     static func forOutcome(_ outcome: PROutcome) -> PRIcon? {
         switch outcome {
         case .passed: return .passed
         case .failed: return .failed
         case .running: return .running
-        case .skipped, .unknown: return nil
+        case .skipped: return .skipped
+        case .unknown: return nil
         }
     }
 
@@ -68,6 +69,7 @@ enum PRIcon: String, CaseIterable {
         case .passed: return "Passed"
         case .failed: return "Failed"
         case .running: return "Running"
+        case .skipped: return "Skipped"
         }
     }
 
@@ -85,6 +87,8 @@ enum PRIcon: String, CaseIterable {
             return #"<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/><path d="M8 12.5L10.5 15L16 9"/>"#
         case .failed: // CancelCircleIcon
             return #"<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/><path d="M14.9994 15L12 12.0003M12 12.0003L9 9M12 12.0003L9.00064 15M12 12.0003L15 9"/>"#
+        case .skipped: // MinusSignCircleIcon
+            return #"<path d="M16 12L8 12"/><path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/>"#
         case .running: // Loading03Icon
             return #"<path d="M12 3V6"/><path d="M12 18V21"/><path d="M21 12L18 12"/><path d="M6 12L3 12"/><path d="M18.3635 5.63672L16.2422 7.75804"/><path d="M7.75804 16.2422L5.63672 18.3635"/><path d="M18.3635 18.3635L16.2422 16.2422"/><path d="M7.75804 7.75804L5.63672 5.63672"/>"#
         }

@@ -95,6 +95,7 @@ struct HighlightsView: View {
                 }
             }
         }
+        if !thread.prs.isEmpty { PullRequestsSection(thread: thread) }
         // The thread's projects, each under its own icon with why it's
         // there behind an ⓘ (Mike asked 30 Oct), then the places Mike keeps
         // going back to for it, so the live site is one click from any of
@@ -145,7 +146,6 @@ struct HighlightsView: View {
                 if shown.more > 0 { showAll(started.count) { flags.allStarted = true } }
             }
         }
-        if !thread.prs.isEmpty { PullRequestsSection(thread: thread) }
         if !sections.pinned.isEmpty {
             SectionHeading(title: "Pinned", icon: "pin", fold: fold(HighlightFold.pinned, count: sections.pinned.count))
             if !isFolded(HighlightFold.pinned) {

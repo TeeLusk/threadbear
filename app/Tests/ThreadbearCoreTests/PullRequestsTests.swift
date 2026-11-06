@@ -138,4 +138,20 @@ final class PullRequestsTests: XCTestCase {
         ]
         XCTAssertEqual(PRBadge.sortedChecks(checks).map(\.name), ["d", "c", "a", "e", "b"])
     }
+
+    func testCheckTrailing() {
+        // GitHub gives skipped runs start and end times; they still read as skipped.
+        XCTAssertEqual(PRBadge.checkTrailing(PRCheck(name: "a", outcome: .skipped, seconds: 0)), "skipped")
+        XCTAssertEqual(PRBadge.checkTrailing(PRCheck(name: "a", outcome: .skipped)), "skipped")
+        XCTAssertEqual(PRBadge.checkTrailing(PRCheck(name: "a", outcome: .passed, seconds: 64)), "1m 4s")
+        XCTAssertNil(PRBadge.checkTrailing(PRCheck(name: "a", outcome: .running)))
+    }
+
+    func testOnlyWebLinksOpen() {
+        XCTAssertNotNil(PRBadge.webLink("https://github.com/acme/widgets/pull/7"))
+        XCTAssertNotNil(PRBadge.webLink("http://ci.example.com/7"))
+        XCTAssertNil(PRBadge.webLink("javascript:alert(1)"))
+        XCTAssertNil(PRBadge.webLink("file:///etc/passwd"))
+        XCTAssertNil(PRBadge.webLink(nil))
+    }
 }

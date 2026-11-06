@@ -140,7 +140,7 @@ private struct PullRequestCard: View {
 
     @ViewBuilder
     private var menuItems: some View {
-        if let url = URL(string: pr.url) {
+        if let url = PRBadge.webLink(pr.url) {
             Button("Open on GitHub", systemImage: "arrow.up.forward") { app.openExternally(url) }
         }
         Button("Copy link", systemImage: "link") { app.copyToPasteboard(pr.url) }
@@ -151,7 +151,14 @@ private struct PullRequestCard: View {
                     .disabled(true)
             } else {
                 Button("Fix failing checks", systemImage: "wrench.and.screwdriver") {
-                    if app.send(PRBadge.fixChecksPrompt(pr.url), to: thread.id) { fixSentOn = look }
+                    // Shown as asked straight away; back to the button if
+                    // the runner doesn't take it (the error says why).
+                    let sentOn = look
+                    fixSentOn = sentOn
+                    let sent = app.send(PRBadge.fixChecksPrompt(pr.url), to: thread.id) {
+                        if fixSentOn == sentOn { fixSentOn = nil }
+                    }
+                    if !sent { fixSentOn = nil }
                 }
             }
         }
@@ -179,14 +186,16 @@ private struct PullRequestCard: View {
 
     private func checkRow(_ check: PRCheck) -> some View {
         let shape = PRIcon.forOutcome(check.outcome)
-        let link = check.url.flatMap(URL.init(string:))
+        let link = PRBadge.webLink(check.url)
+        let word = outcomeWord(check.outcome)
         return PaneRow(iconImage: shape.map { PRIcon.image($0, side: 16) }, iconColor: outcomeColor(check.outcome),
-                       title: check.name, trailing: check.seconds.map { RelativeTime.duration(milliseconds: Double($0) * 1000) }
-                           ?? (check.outcome == .skipped ? "skipped" : nil),
+                       title: check.name, trailing: PRBadge.checkTrailing(check),
                        detail: check.workflow, indent: true, reservesIcon: true,
                        titleTruncation: .tail, detailTruncation: .tail,
                        action: link.map { url in { app.openLink(url, title: check.name, in: thread) } })
-            .tip(link == nil ? outcomeWord(check.outcome) : "\(outcomeWord(check.outcome)). Click to open its run.")
+            .tip(link == nil ? word : "\(word). Click to open its run.")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel([check.name, word, check.workflow].compactMap { $0 }.joined(separator: ", "))
     }
 
     private func outcomeColor(_ outcome: PROutcome) -> Color {
@@ -225,7 +234,7 @@ private struct PullRequestCard: View {
     }
 
     private func open() {
-        guard let url = URL(string: pr.url) else { return }
+        guard let url = PRBadge.webLink(pr.url) else { return }
         app.openLink(url, title: pr.title, in: thread)
     }
 }

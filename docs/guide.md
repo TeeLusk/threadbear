@@ -900,6 +900,11 @@ it opens on the Mac you're at), and the dashboard loads by itself once you
 have. If the signed-in account can't reach the project, Sign in as someone
 else switches to one that can.
 
+A thread in a folder with a `.pscale.yml` (which `pscale branch switch
+<branch> --database <db> --org <org>` writes) gets a built-in PlanetScale
+panel: that database and branch on PlanetScale's own dashboard. Sign in
+to PlanetScale in the panel the first time; it stays signed in.
+
 You don't need to write one yourself. In a thread in that folder, ask
 "add a button that runs the tests" or "add a panel showing localhost:3000",
 and the agent writes the patch into the folder's `.threadbear/patches/`

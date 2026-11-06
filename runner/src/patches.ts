@@ -3,7 +3,8 @@
 // the composer. Two kinds:
 //
 // - Built in, worked out from the folder alone: a `convex/` folder gives
-//   the dashboard, an Xcode project the Simulator.
+//   the dashboard, a `.pscale.yml` PlanetScale's, an Xcode project the
+//   Simulator.
 // - Patch files, `.threadbear/patches/*.ts` (or .js, .mjs) in the project
 //   and in `~/.threadbear/patches/` for every project. Each is a module
 //   whose default export says what it adds:
@@ -64,6 +65,9 @@ export const CONVEX_DASHBOARD = 'https://dashboard.convex.dev';
 // `npx convex dev` on an anonymous (no account) deployment serves the
 // dashboard itself, from this port unless it's taken.
 export const CONVEX_LOCAL_DASHBOARD = 'http://127.0.0.1:6790';
+export const PLANETSCALE_DASHBOARD = 'https://app.planetscale.com';
+// What `pscale branch switch` writes in a project: its org, database and branch.
+export const PSCALE_FILE = '.pscale.yml';
 export const PATCH_DIR = path.join('.threadbear', 'patches');
 export const PATCH_EXTENSIONS = ['.ts', '.js', '.mjs'];
 
@@ -170,6 +174,7 @@ async function warmPatchReads(dirs: FolderCache, cwd: string, home: string, root
   await Promise.all([
     dirs.warmMtimes(patchFolders.flatMap((d) => patchFiles(d, dirs))),
     dirs.warmTexts([...chain].filter((d) => isConvexProject(d, dirs)).flatMap((d) => ENV_FILES.map((f) => path.join(d, f)))),
+    dirs.warmTexts([...chain].filter((d) => isPlanetScaleProject(d, dirs)).map((d) => path.join(d, PSCALE_FILE))),
   ]);
 }
 
@@ -247,6 +252,11 @@ function builtins(cwd: string, home: string, roots: ProjectFolder[], dirs: Folde
     if (convexDir && !found.has('convex@' + convexDir)) {
       found.add('convex@' + convexDir);
       out.push(inFolder({ info: { id: 'convex', source: 'builtin' }, panels: [convexPanel(convexDir, dirs)], actions: [], hooks: [] }, root, convexDir));
+    }
+    const pscaleDir = findUp(start, home, (d) => isPlanetScaleProject(d, dirs));
+    if (pscaleDir && !found.has('planetscale@' + pscaleDir)) {
+      found.add('planetscale@' + pscaleDir);
+      out.push(inFolder({ info: { id: 'planetscale', source: 'builtin' }, panels: [planetscalePanel(pscaleDir, dirs)], actions: [], hooks: [] }, root, pscaleDir));
     }
     const xcodeDir = findUp(start, home, (d) => hasXcodeProject(d, dirs));
     if (xcodeDir && !found.has('xcode@' + xcodeDir)) {
@@ -798,6 +808,47 @@ export function convexDashboardUrl(deployment: string | undefined): { url: strin
 export function isConvexProject(dir: string, dirs: FolderCache = new FolderCache()): boolean {
   if (!dirs.isDir(path.join(dir, 'convex'))) return false;
   return dirs.exists(path.join(dir, 'package.json')) || dirs.exists(path.join(dir, 'convex.json'));
+}
+
+// The PlanetScale dashboard for the database and branch in the project's
+// .pscale.yml. Only a link: PlanetScale has no dashboard that takes a key,
+// so Mike signs in once in the panel's web view, which keeps the session.
+function planetscalePanel(dir: string, dirs: FolderCache): Panel {
+  const { url, note } = planetscaleDashboardUrl(parsePscaleYml(dirs.text(path.join(dir, PSCALE_FILE)) ?? ''));
+  return { id: 'planetscale.dashboard', title: 'PlanetScale', kind: 'url', url, icon: 'cylinder', patch: 'planetscale', note };
+}
+
+// The three flat keys pscale writes ("org: acme"), unquoted, comments off.
+// Not a YAML parser: pscale writes nothing else there.
+export function parsePscaleYml(text: string): { org?: string; database?: string; branch?: string } {
+  const out: { org?: string; database?: string; branch?: string } = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^(org|database|branch)\s*:\s*(.*)$/.exec(raw.trim());
+    if (!m) continue;
+    let value = m[2].trim();
+    const q = value[0];
+    if ((q === '"' || q === "'") && value.indexOf(q, 1) > 0) value = value.slice(1, value.indexOf(q, 1));
+    else value = value.replace(/\s+#.*$/, '').trim();
+    if (value) out[m[1] as 'org' | 'database' | 'branch'] = value;
+  }
+  return out;
+}
+
+// The names go into the dashboard's path, and come from a file a cloned
+// repo writes, so only PlanetScale-shaped names do.
+const PSCALE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+export function planetscaleDashboardUrl(p: { org?: string; database?: string; branch?: string }): { url: string; note: string } {
+  if (!p.org || !p.database || !PSCALE_NAME.test(p.org) || !PSCALE_NAME.test(p.database)) {
+    return { url: PLANETSCALE_DASHBOARD, note: `No database in ${PSCALE_FILE} yet` };
+  }
+  const branch = p.branch && PSCALE_NAME.test(p.branch) ? p.branch : undefined;
+  const base = `${PLANETSCALE_DASHBOARD}/${p.org}/${p.database}`;
+  return branch ? { url: `${base}/${branch}`, note: `${p.database}/${branch} (${p.org})` } : { url: base, note: `${p.database} (${p.org})` };
+}
+
+export function isPlanetScaleProject(dir: string, dirs: FolderCache = new FolderCache()): boolean {
+  return dirs.exists(path.join(dir, PSCALE_FILE)) && !dirs.isDir(path.join(dir, PSCALE_FILE));
 }
 
 function simulatorPanel(dir: string): Panel {

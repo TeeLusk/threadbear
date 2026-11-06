@@ -99,6 +99,45 @@ test('an Xcode project gets the Simulator panel; both patches can apply', () => 
   assert.deepEqual(projectPanels(project(home, 'dev/nothing'), home), []);
 });
 
+test('a folder with .pscale.yml gets the PlanetScale dashboard for its database and branch', () => {
+  const home = tmpDir();
+  // What `pscale branch switch main --database fuel_db --org tetontech` writes.
+  const dir = project(home, 'dev/fuel', { '.pscale.yml': 'org: tetontech\ndatabase: fuel_db\nbranch: main\n' });
+  const panels = projectPanels(dir, home);
+  assert.deepEqual(panels, [{
+    id: 'planetscale.dashboard', title: 'PlanetScale', kind: 'url', icon: 'cylinder', patch: 'planetscale',
+    url: 'https://app.planetscale.com/tetontech/fuel_db/main', note: 'fuel_db/main (tetontech)',
+  }]);
+  assert.deepEqual(checkPanel(panels[0] as never), []);
+  // A package of the project finds it from below.
+  assert.equal(projectPanels(project(home, 'dev/fuel/app/routes'), home)[0]?.id, 'planetscale.dashboard');
+  // Quoted values, comments and no branch: the database's page.
+  const noBranch = project(home, 'dev/nobranch', { '.pscale.yml': '# mine\norg: "acme"\ndatabase: \'shop\'  # the main one\n' });
+  assert.deepEqual(projectPanels(noBranch, home)[0], {
+    id: 'planetscale.dashboard', title: 'PlanetScale', kind: 'url', icon: 'cylinder', patch: 'planetscale',
+    url: 'https://app.planetscale.com/acme/shop', note: 'shop (acme)',
+  });
+});
+
+test('the PlanetScale panel falls back to the front page for a .pscale.yml it cannot use', () => {
+  const home = tmpDir();
+  const front = { url: 'https://app.planetscale.com', note: 'No database in .pscale.yml yet' };
+  for (const [i, text] of ['', 'branch: main\n', 'org: acme\n', 'database: shop\n', 'org: acme/../x\ndatabase: shop\n', 'org: acme\ndatabase: shop?x=1\n'].entries()) {
+    const p = projectPanels(project(home, `dev/odd${i}`, { '.pscale.yml': text }), home)[0];
+    assert.deepEqual({ url: p?.url, note: p?.note }, front, JSON.stringify(text));
+  }
+  // An odd branch name drops only the branch.
+  assert.equal(projectPanels(project(home, 'dev/oddbranch', { '.pscale.yml': 'org: acme\ndatabase: shop\nbranch: a b\n' }), home)[0]?.url, 'https://app.planetscale.com/acme/shop');
+  // A folder called .pscale.yml isn't the file.
+  assert.deepEqual(projectPanels(project(home, 'dev/folder', { '.pscale.yml': null }), home), []);
+});
+
+test('Convex, PlanetScale and the Simulator can all apply, in that order', () => {
+  const home = tmpDir();
+  const all = project(home, 'dev/All', { 'App.xcodeproj': null, convex: null, 'package.json': '{}', '.pscale.yml': 'org: a\ndatabase: b\nbranch: main\n' });
+  assert.deepEqual(projectPanels(all, home).map((p) => p.id), ['convex.dashboard', 'planetscale.dashboard', 'xcode.simulator']);
+});
+
 test('rendering the Simulator panel: a screenshot becomes an image ref, no device a note', async () => {
   const dir = path.join(tmpDir(), 'panels');
   const panel = { id: 'xcode.simulator', title: 'Simulator', kind: 'image' as const, patch: 'xcode' };

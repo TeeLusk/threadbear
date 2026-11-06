@@ -327,6 +327,16 @@ File references are where to look.
   `"releases": { "bringIn": 14 }` (or `"important"`, or `"off"`) in
   `runner.json`, changes it. It keeps what it last did in
   `runner/bring-in.json` in the data folder.
+- **Pull request status** (`runner/src/pr-status.ts`): while a thread
+  that isn't archived has an open pull request, the runner asks GitHub
+  about all of them through your own `gh`, every 30 seconds while checks
+  run and every 60 seconds otherwise, and stops when none is open. It
+  finds `gh` through your login shell (`zsh -lc 'command -v gh'`) and
+  checks `gh auth status`, again each round until it's there. A PR gets a
+  look 10 seconds after the runner starts if one is still open, and an
+  archived thread's PR that was never looked at gets a single look when
+  its highlights are read. `"prStatus": false` in `runner.json` turns
+  it off.
 - **CLI updates** (`runner/src/updates/`): every hour it checks for new
   Claude Code and Codex versions and installs them. If you don't point it
   at your own Codex, it installs one into the data folder. It also runs
@@ -436,6 +446,7 @@ File references are where to look.
 | Your check hosts, over ssh | yours | Only from the installed GPUI app, when `runner.json` has `checkHosts` and main's `desktop/` has changed: a copy of your main's files to build it from, rsynced to `~/.cache/threadbear-check/gpui` on the first one that's a Mac and answers, and the two built binaries copied back (`desktop/scripts/stage-update.sh`) |
 | A Linux server, over ssh | yours | Only when you run `runner/scripts/deploy-remote.sh <host>`: it copies a release of the runner (built from this checkout's HEAD) there, runs `npm ci --omit=dev` there, and writes the runner's `runner.json` (only when it's missing) and a systemd user service, through your own ssh setup (INSTALL.md section 6). |
 | GitHub | Mike's repo | Release tags fetched every 6 hours; the fork at setup; from `tb land`, through your `gh`, a marked workflow's recent runs on main |
+| GitHub (your pull requests) | yours | Through your own `gh` login, run as you; Threadbear keeps no token. The state, checks and reviews of the pull requests your threads made, pinned or pushed to, in one GraphQL query (`gh api graphql`) every 30 to 60 seconds while one is open. After a thread's successful `git push`, `gh pr view` in its folder asks which open PR has the pushed branch. Off with `prStatus: false` in `runner.json` (`runner/src/pr-status.ts`, `runner/src/pr-github.ts`). |
 | A repo's own `origin` | yours | Only for a repo whose patch has a `worktree`: its main is fetched when a thread's worktree is made. With `land: "pr"`, `tb land` also pushes the thread's branch there and runs your `gh` to find or open its pull request (`runner/src/worktrees.ts`). |
 | cef-builds.spotifycdn.com | Spotify (CEF's official builds) | Only from the GPUI app, and only when you press Install web runtime: one download of the pinned build (135 MB), which nothing is sent with. Threadbear will publish its own signed copy later. Chromium itself then goes online only for the pages the GPUI app's web panels show; its own background requests are off (`--disable-background-networking`), and an agent's html and diagrams reach nothing (`desktop/web/src/mac/sealed.rs`). |
 | downloads.claude.ai, registry.npmjs.org | Anthropic, npm | CLI version checks and installs; `npm ci` |

@@ -1,0 +1,100 @@
+{
+  "data": {
+    "p0": {
+      "pullRequest": {
+        "title": "Add widget sorting",
+        "url": "https://github.com/acme/widgets/pull/12",
+        "state": "OPEN",
+        "isDraft": false,
+        "merged": false,
+        "headRefName": "feature/sort-widgets",
+        "baseRefName": "main",
+        "mergeable": "CONFLICTING",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "latestReviews": {
+          "nodes": [
+            { "author": { "login": "alice-dev" }, "state": "CHANGES_REQUESTED" },
+            { "author": { "login": "bob-review" }, "state": "APPROVED" },
+            { "author": { "login": "carol-qa" }, "state": "COMMENTED" }
+          ]
+        },
+        "reviewRequests": {
+          "nodes": [
+            { "requestedReviewer": { "login": "dave-lead" } },
+            { "requestedReviewer": { "name": "platform-team" } }
+          ]
+        },
+        "baseRef": { "branchProtectionRule": { "requiredApprovingReviewCount": 2 } },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "unit-tests",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "detailsUrl": "https://github.com/acme/widgets/actions/runs/1001/job/2001",
+                        "startedAt": "2026-11-06T10:00:00Z",
+                        "completedAt": "2026-11-06T10:02:05Z",
+                        "checkSuite": { "workflowRun": { "workflow": { "name": "CI" } } }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "lint",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/acme/widgets/actions/runs/1001/job/2002",
+                        "startedAt": "2026-11-06T10:00:00Z",
+                        "completedAt": "2026-11-06T10:00:40Z",
+                        "checkSuite": { "workflowRun": { "workflow": { "name": "CI" } } }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy-preview",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/acme/widgets/actions/runs/1001/job/2003",
+                        "startedAt": "2026-11-06T10:00:00Z",
+                        "completedAt": "2026-11-06T10:00:01Z",
+                        "checkSuite": { "workflowRun": null }
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "ci/legacy-build",
+                        "state": "SUCCESS",
+                        "targetUrl": "https://ci.example.com/acme/widgets/builds/77"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "p1": {
+      "pullRequest": {
+        "title": "Fix widget colours",
+        "url": "https://github.com/acme/widgets/pull/9",
+        "state": "MERGED",
+        "isDraft": false,
+        "merged": true,
+        "headRefName": "fix/colours",
+        "baseRefName": "develop",
+        "mergeable": "UNKNOWN",
+        "reviewDecision": null,
+        "latestReviews": { "nodes": [] },
+        "reviewRequests": { "nodes": [] },
+        "baseRef": { "branchProtectionRule": null },
+        "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
+      }
+    },
+    "p2": null
+  },
+  "errors": [{ "type": "NOT_FOUND", "path": ["p2"], "message": "Could not resolve to a Repository with the name 'gone/gone'." }]
+}

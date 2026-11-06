@@ -277,6 +277,7 @@ export type ThreadSummary = {
   // removal, the librarian's brief): a client fetches threads.highlights
   // again when this or lastSeq moves.
   highlightsAt?: string;
+  prs?: import('./pr-status-types.ts').ThreadPr[]; // its pull requests, newest first ("Pull request status")
   // Its own git worktree (docs/thread-worktrees.md). Absent when it has
   // none, or once that was removed.
   worktree?: ThreadWorktree;

@@ -17,6 +17,7 @@ import type { RunnerUpdates } from './runner.ts';
 import { Peers, PrimaryLink, ThreadRouter, drainChildrenName, peersElsewhere, phoneCommands, primaryElsewhere, primaryRemote, projectRouter, removeDrainInfo, scheduleRouter, writeDrainInfo, type CrossRunnerHooks, type Elsewhere } from './handover.ts';
 import { RunnerUpdater, releaseTreeAt } from './update.ts';
 import { RELEASE_NOTES_SYSTEM, SETTLE_MS, Upstream } from './upstream.ts';
+import { makePrStatus } from './runner/prs.ts';
 import { BringIn } from './bring-in.ts';
 import { UpdateFixer } from './fix-update.ts';
 import { followOriginOn } from './follow-origin.ts';
@@ -695,6 +696,7 @@ async function main(): Promise<void> {
       return res.ok ? res.value : undefined;
     },
   });
+  if (cfg.prStatus) runner.prStatus = makePrStatus(runner, realClock, log);
   // runner.updates: sent when what hello's `updates` says changes.
   let lastUpdates = '';
   const runnerUpdates = (): RunnerUpdates => {
@@ -1051,6 +1053,7 @@ async function main(): Promise<void> {
   step('resume after restart', () => restarter.resumeAfterRestart());
   step('tell stopped work', () => runner.tellStoppedWork());
   step('carry on stopped', () => runner.carryOnStopped());
+  step('pr status', () => runner.prStatus?.start());
   // A thread waited on may have finished while the runner was down. Only
   // now: waking one starts its CLI, whose tools need what's set up above.
   runner.holdWaits = false;
@@ -1065,6 +1068,7 @@ async function main(): Promise<void> {
     cancelMarkGood();
     updater.stop();
     upstream.stop();
+    runner.prStatus?.stop();
     stopHousekeeping();
     log.info('runner stopping', { signal });
     // Whatever stopped it, a pending restart has now happened. A draining
@@ -1126,6 +1130,7 @@ async function main(): Promise<void> {
       cancelMarkGood();
       updater.stop();
       upstream.stop();
+      runner.prStatus?.stop(); // the new runner asks GitHub from here on
       stopHousekeeping();
       scheduler.stop();
       librarian.stop();

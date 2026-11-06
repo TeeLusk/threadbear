@@ -690,6 +690,7 @@ export class Runner {
   // True on the main Mac (the owner key): a thread moved here from another
   // runner arrives with at most Ask (runner/moves.ts capMovedMode).
   movedInAtMostAsk?: () => boolean;
+  prStatus?: import('./pr-status.ts').PrStatus; // main.ts sets it unless runner.json has prStatus: false
   listeners = new Set<(n: Notification) => void>();
   dirty = new Set<string>();
   flushScheduled = false;
@@ -3265,6 +3266,7 @@ export class Runner {
     const log = this.store.log(st.rec.id);
     const event = { seq: log.lastSeq + 1, ts: this.isoNow(), threadId: st.rec.id, ...(turnId ? { turnId } : {}), ...body } as PersistedEvent;
     log.append(event);
+    this.prStatus?.observe(st.rec.id, st.rec.cwd, event);
     st.rec.lastSeq = event.seq;
     st.rec.updatedAt = event.ts;
     if (body.type === 'user.message') {
@@ -3487,6 +3489,7 @@ export class Runner {
     const projects = this.projects?.threadProjects(rec);
     if (projects) s.projects = projects;
     if (rec.highlightsAt) s.highlightsAt = rec.highlightsAt;
+    if (rec.prs?.length && this.prStatus) s.prs = this.prStatus.summary(rec.prs);
     if (rec.worktree && !rec.worktree.removedAt) {
       s.worktree = { branch: rec.worktree.branch, mainCheckout: rec.worktree.mainCheckout, path: rec.worktree.path };
     }

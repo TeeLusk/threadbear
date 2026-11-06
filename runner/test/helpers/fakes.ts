@@ -176,6 +176,7 @@ export function testConfig(home: string, extra: Partial<Config> = {}): Config {
     cliUpdates: { claude: 'off', codex: 'off', checkMinutes: 60, keepCodexVersions: 2 },
     accountNotes: {},
     followMain: false,
+    prStatus: false,
     bulletReplies: true,
     oneReply: false,
     // On for real runners (config.ts); off here so a test's code change

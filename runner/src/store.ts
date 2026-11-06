@@ -284,6 +284,7 @@ export type ThreadRecord = {
   // event it had read up to. Brought up to date when a client asks.
   highlights?: HighlightState;
   highlightsAt?: string; // a pin, a removal or a new brief
+  prs?: import('./pr-status-types.ts').TrackedPr[]; // pull request status (runner/prs.ts)
   brief?: { text: string; at: string }; // the librarian's line on where the thread is up to
   // The thread's own git worktree (worktrees.ts), once it's made.
   worktree?: WorktreeRecord;

@@ -111,6 +111,7 @@ export type Config = {
   // (src/update.ts). Off with followMain: false in runner.json or
   // THREADBEAR_FOLLOW_MAIN=0.
   followMain: boolean;
+  prStatus: boolean; // PR status (pr-status.ts); off with prStatus: false or THREADBEAR_PR_STATUS=0
   // A turn's reply in the Mac app: end_turn's bullets, or (false) the
   // agent's own message, with the bullets only for previews.
   bulletReplies: boolean;
@@ -186,6 +187,7 @@ export type RunnerJson = {
   // This machine's main is GitHub's (follow-origin.ts): read by that file,
   // each time, so it needs no restart.
   followOrigin?: boolean;
+  prStatus?: boolean;
   // The ssh host that ./check.sh sends the repo's checks to, so suites and
   // the app's test windows stay off this Mac (scripts/check-remote.sh), or
   // checkHosts, several tried in order, which wins (a check.sh from before
@@ -408,6 +410,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     ),
     accountsDir: path.join(home, 'accounts'),
     followMain: env.THREADBEAR_FOLLOW_MAIN ? env.THREADBEAR_FOLLOW_MAIN !== '0' : json.followMain !== false,
+    prStatus: env.THREADBEAR_PR_STATUS ? env.THREADBEAR_PR_STATUS !== '0' : json.prStatus !== false,
     bulletReplies: json.bulletReplies !== false,
     // On unless runner.json turns it off (2 Nov: Mike found it the right
     // balance, and it's no longer in Settings).

@@ -141,6 +141,7 @@ export const highlightsPart = {
       observeHighlights(state, log.read(from, to).filter((e) => !cutOut(st.rec, e.seq)), { cwd: st.rec.cwd });
       state.seq = Math.max(state.seq, to);
     }
+    this.prStatus?.adopt(st.rec.id, state.items.filter((h) => h.kind === 'pr' && h.how === 'created').map((h) => h.url!));
     this.markDirty(st);
   },
 

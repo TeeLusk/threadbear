@@ -336,6 +336,7 @@ loadFixtures();
 addFillers(fillerCount);
 addDemoPanels();
 addDemoPools();
+addDemoPRs();
 /** threadId -> ThreadHighlights (docs/protocol.md, "Highlights"). */
 const highlights = new Map();
 addDemoHighlights();
@@ -3349,6 +3350,26 @@ function addDemoSubagents() {
 // Every demo thread is in the pool that has its login, as a new thread
 // would be, except the SQLite one, which stays pinned to its login, and the
 // release notes, which wait in Evenings for its one login to have room.
+/**
+ * Pull requests on two demo threads (docs/protocol.md, "Pull request
+ * status"), for the sidebar badge: one merged, and three with one failing.
+ */
+function addDemoPRs() {
+  const checkedAt = new Date().toISOString();
+  const pr = (number, title, state, extra = {}) => ({
+    url: `https://github.com/acme/app/pull/${number}`, repo: 'acme/app', number, title, state,
+    conflicts: false, checkedAt, ...extra,
+  });
+  const dark = threads.get('demo_dark_mode');
+  if (dark) dark.summary.prs = [pr(683, 'Add dark mode to the dashboard', 'merged', { checks: { state: 'passing', passed: 12, total: 12 } })];
+  const beta = threads.get('demo_testflight_beta');
+  if (beta) beta.summary.prs = [
+    pr(691, 'Bump the build number on each upload', 'open', { checks: { state: 'failing', passed: 10, total: 12 }, review: { decision: 'waiting', approvals: 0, required: 1 } }),
+    pr(688, 'Add the beta release notes', 'merged', { checks: { state: 'passing', passed: 12, total: 12 } }),
+    pr(684, 'Sign the beta with the new profile', 'open', { checks: { state: 'running', passed: 7, total: 12 } }),
+  ];
+}
+
 function addDemoPools() {
   for (const t of threads.values()) {
     const s = t.summary;

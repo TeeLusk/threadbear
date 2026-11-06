@@ -353,6 +353,10 @@ type ThreadSummary = {
                         // new event: a pin, a removal, the librarian's
                         // brief (see Highlights). A client fetches
                         // threads.highlights again when this or lastSeq moves
+  prs?: ThreadPr[]      // the GitHub pull requests the thread made or pushed
+                        // to, with their checks and review (see Pull
+                        // request status). Absent when it has none, or the
+                        // runner doesn't look at GitHub
   sample?: true         // one of the tour's sample threads (threads.samples):
                         // made up, and threads.send refuses it
   worktree?: ThreadWorktree // the thread has a git worktree of its own
@@ -1146,6 +1150,7 @@ the summary and then the reply.
 | `threads.contextUsage` | `{ threadId }` | `{ usage?: ContextUsage, live: boolean, note?: string }`: what fills the thread's context, in Claude's own words, for the composer ring's popover (see Context breakdown). Asked of the thread's running CLI; never starts one. Fast (about a second) |
 | `folders.commands` | `{ cwd?: string, accountId?: string, permissionMode?: PermissionMode }` | `{ commands: SlashCommand[] }`: the same list for a new thread's box, before the thread exists: the login and folder it would start on, each defaulting as `threads.create` does. `-32010` for an unknown login |
 | `threads.highlights` | `{ threadId }` | `ThreadHighlights` (see Highlights): what the thread has made, shared and pinned, read from its events since the last call and kept with the thread |
+| `threads.prs` | `{ threadId }` | `{ prs: PrDetail[] }`: the thread's pull requests with check lists and reviews (see Pull request status), from the last look, with a fresh one if the last is old |
 | `threads.explain` | `{ threadId, selection: string, message?: string, question?: string, earlier?: { question?: string, answer: string }[] }` | `{ answer: string, model: string }`. Explains words Mike selected in the transcript, on the small model (see Explain). `message` is the whole message they came from, as the app shows it; `earlier` and `question` are a follow-up. Writes nothing to the thread. `-32000` with the reason when no model answers |
 | `threads.hibernateWhen` | `{ threadId, said: string }` (at most 300 characters) | `{ thread: ThreadSummary, until?: string, topic?: string, why: string }`. Hibernates the thread until when Mike said, in his own words (see Hibernate in words). It's away at once, with `wakeWhen.pending`, and the answer comes once the model has worked out when. `-32000` with the reason when it can't say, and the thread is back in the inbox |
 | `threads.removeHighlight` | `{ threadId, highlightId }` | `{ thread: ThreadSummary }` takes one off the list for good (a pin or a found one); a later mention doesn't bring it back. `-32602` for an id the thread doesn't have |
@@ -4697,6 +4702,54 @@ with a `system.note` saying how to land or drop them. A thread whose
 worktree was removed carries on in the main checkout, with a note. One whose
 worktree stayed carries on in it, and its next turn says (to Mike and the
 agent) that the teardown ran, so what setup made may be gone.
+
+## Pull request status
+
+A thread that makes a pull request, or pushes to its branch, shows where
+the PR stands: open, draft, merged or closed, its checks and its review.
+The runner finds the PRs in the thread's events with no model, and asks
+GitHub through Mike's own `gh` (resolved with the login shell). Threadbear
+keeps no GitHub token. With no `gh`, or `gh` not signed in, the feature is
+off: one log line, `prs` absent, nothing in the app.
+
+```ts
+type PrState = "open" | "draft" | "merged" | "closed"
+type PrOutcome = "passed" | "failed" | "running" | "skipped"
+type PrCheck = { name: string; workflow?: string; outcome: PrOutcome; url?: string; seconds?: number }
+type PrReview = { author: string; state: "approved" | "changes" | "commented" }
+type ThreadPr = {
+  url: string; repo: string; number: number; title: string; state: PrState
+  checks?: { state: "passing" | "failing" | "running" | "none"; passed: number; total: number } // total leaves out skipped
+  review?: { decision: "approved" | "changes" | "waiting" | "none"; approvals: number; required?: number }
+  conflicts?: true       // GitHub says it can't merge cleanly
+  checkedAt?: string     // when the runner last asked GitHub
+}
+type PrDetail = ThreadPr & { headRef: string; baseRef: string; checkList: PrCheck[]; reviews: PrReview[]; requested: string[] }
+type TrackedPr = { url: string; repo: string; number: number; how: "created" | "pushed" | "pinned"; addedAt: string; snapshot?: PrDetail; final?: true }
+```
+
+`ThreadSummary.prs` is the short form, newest first. `threads.prs` gives the
+detail for a panel. The runner keeps a `TrackedPr` list on the thread record.
+A PR is added when:
+
+- a `gh pr create` result prints its URL (`how: "created"`),
+- the thread pins a PR URL (`how: "pinned"`),
+- a successful `git push` sends a branch that has an open PR (`how: "pushed"`;
+  the runner asks GitHub which PR has that head branch).
+
+A failed `gh pr create`, or one that prints no URL, adds nothing.
+
+Polling: a look 10 seconds after the runner starts if any tracked PR isn't
+final. Then every 30 seconds while any thread that isn't archived has an
+open PR with checks running, every 60 seconds while any has an open PR, and
+not at all otherwise. A merged or closed PR gets one more look, then it's
+`final` and its last snapshot stays. One GitHub query asks for every PR
+at once, so two threads sharing a PR cost one. A PR GitHub can't see keeps
+its last snapshot.
+
+`runner.json` `"prStatus": false` turns it all off; it is on by default.
+Clients tolerate a missing `prs` and any `state`, `outcome` or `decision`
+they don't know (a grey, plain badge).
 
 ## Showing panels
 

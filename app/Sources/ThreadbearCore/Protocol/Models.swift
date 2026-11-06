@@ -1265,6 +1265,8 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     /// One of the tour's sample threads (protocol `threads.samples`): made
     /// up, and nothing can be sent to it.
     public var sample = false
+    /// The GitHub pull requests it made or pushed to; empty when none.
+    public var prs: [ThreadPR]
     /// What the last completed turn said it needs from Mike ("you" or
     /// "nothing"), nil when it said neither (docs/protocol.md, "Needs you").
     public var needs: String?
@@ -1328,7 +1330,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         highlightsAt: Date? = nil,
         schedule: ThreadSchedule? = nil, poolId: String? = nil, waitingForRoom: WaitingForRoom? = nil,
         panelRequest: PanelRequest? = nil, share: ThreadShare? = nil, startedBy: ThreadStartedBy? = nil,
-        looseEnds: LooseEnds? = nil, moving: ThreadMoving? = nil
+        looseEnds: LooseEnds? = nil, moving: ThreadMoving? = nil, prs: [ThreadPR] = []
     ) {
         self.id = id
         self.looseEnds = looseEnds
@@ -1383,6 +1385,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         self.startedBy = startedBy
         self.panelRequest = panelRequest
         self.share = share
+        self.prs = prs
     }
 
     public init(from decoder: Decoder) throws {
@@ -1453,6 +1456,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         share = (try? c.decodeIfPresent(ThreadShare.self, forKey: .share)) ?? nil
         looseEnds = (try? c.decodeIfPresent(LooseEnds.self, forKey: .looseEnds)) ?? nil
         moving = (try? c.decodeIfPresent(ThreadMoving.self, forKey: .moving)) ?? nil
+        prs = c.lossyArray(ThreadPR.self, forKey: .prs)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1518,13 +1522,14 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         try c.encodeIfPresent(share, forKey: .share)
         try c.encodeIfPresent(looseEnds, forKey: .looseEnds)
         try c.encodeIfPresent(moving, forKey: .moving)
+        if !prs.isEmpty { try c.encode(prs, forKey: .prs) }
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, cwd, accountId, provider, model, effort, modelInUse, effortInUse, permissionMode, status, live, needsYou, pendingReviews
         case createdAt, updatedAt, lastActivityAt, snoozedUntil, snoozedUntilRestart, snoozedUntilRelease, wakeWhen, waitingOn, woke, archivedAt, starredAt, onOldRunner, preview
         case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, costUsd, panels, actions, hooks, patches, background, subagents
-        case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, keywords, poolId, waitingForRoom, carryOnAtReset, waitingForNetwork, panelRequest, share, sample, looseEnds, moving
+        case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, keywords, poolId, waitingForRoom, carryOnAtReset, waitingForNetwork, panelRequest, share, sample, looseEnds, moving, prs
     }
 
     enum NetworkWaitKeys: String, CodingKey { case since }

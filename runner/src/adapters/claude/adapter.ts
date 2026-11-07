@@ -309,6 +309,9 @@ class ClaudeSession implements AgentSession {
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(opts.instructions ? { append: opts.instructions } : {}) },
       includePartialMessages: true,
       thinking: { type: 'adaptive', display: 'summarized' },
+      // Claude in Chrome: the CLI's "enabled by default" only covers
+      // interactive sessions, so SDK sessions ask for it with --chrome.
+      extraArgs: { chrome: null },
       // Backups of the files the session's tools change, so an edit of an
       // earlier message can put them back (rewind below).
       enableFileCheckpointing: true,

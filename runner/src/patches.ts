@@ -926,7 +926,12 @@ export type PanelRender = { image?: ImageRef; items?: PanelItem[]; note?: string
 // command there (resolves with what it printed, rejects on failure).
 // `matched` is what made a tool patch apply: the paths its appliesTo
 // found (two .tandem files in a folder are two), and empty otherwise.
-export type ItemsContext = { cwd: string; threadId: string; matched: string[]; sh: (command: string) => Promise<string> };
+// `projects` are the thread's projects with their folders, oldest first,
+// so a patch in ~/.threadbear can serve a thread filed under a project
+// whose repo isn't the thread's own folder.
+export type PatchProject = { id: string; title: string; folders: string[] };
+export type ItemsContext = { cwd: string; threadId: string; matched: string[]; projects: PatchProject[]; sh: (command: string) => Promise<string> };
+type CallContext = { cwd: string; threadId: string; projects?: PatchProject[]; run: (command: string, cwd: string) => Promise<CommandOutcome>; timeoutMs?: number };
 type ItemsFunction = (ctx: ItemsContext) => unknown;
 
 // The `items` functions of loaded patch files, by file and the panel's id
@@ -945,7 +950,7 @@ export const LIST_TIMEOUT_MS = 20_000;
 export async function renderListPanel(
   panel: Panel,
   set: PatchSet,
-  ctx: { cwd: string; threadId: string; run: (command: string, cwd: string) => Promise<CommandOutcome>; timeoutMs?: number },
+  ctx: CallContext,
 ): Promise<PanelRender> {
   const info = set.patches.find((p) => p.id === panel.patch);
   const fn = info?.file ? listFunctions.get(listKey(info.file, panel.id.slice(panel.patch.length))) : undefined;
@@ -960,7 +965,7 @@ export async function renderListPanel(
   let timer: NodeJS.Timeout | undefined;
   try {
     const value = await Promise.race([
-      Promise.resolve().then(() => fn({ cwd, threadId: ctx.threadId, matched: info?.matched ?? [], sh })),
+      Promise.resolve().then(() => fn({ cwd, threadId: ctx.threadId, matched: info?.matched ?? [], projects: ctx.projects ?? [], sh })),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(`took over ${Math.round((ctx.timeoutMs ?? LIST_TIMEOUT_MS) / 1000)} seconds`)), ctx.timeoutMs ?? LIST_TIMEOUT_MS);
       }),
@@ -1004,7 +1009,7 @@ export function hasLive(set: PatchSet): boolean {
 // and the patch shows the first such problem as `liveError`.
 export async function applyLive(
   set: PatchSet,
-  ctx: { cwd: string; threadId: string; run: (command: string, cwd: string) => Promise<CommandOutcome>; timeoutMs?: number },
+  ctx: CallContext,
 ): Promise<PatchSet> {
   if (!hasLive(set)) return set;
   const timeoutMs = ctx.timeoutMs ?? LIVE_TIMEOUT_MS;
@@ -1028,7 +1033,7 @@ export async function applyLive(
     let timer: NodeJS.Timeout | undefined;
     try {
       return await Promise.race([
-        Promise.resolve().then(() => fn({ cwd, threadId: ctx.threadId, matched: info?.matched ?? [], sh })),
+        Promise.resolve().then(() => fn({ cwd, threadId: ctx.threadId, matched: info?.matched ?? [], projects: ctx.projects ?? [], sh })),
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(new Error(`took over ${Math.round(timeoutMs / 1000)} seconds`)), timeoutMs);
         }),

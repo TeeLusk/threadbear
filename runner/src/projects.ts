@@ -19,7 +19,7 @@ import type { Notification } from './runner.ts';
 import type { Project, ProjectIcon, ProjectLink, ProjectMaker, ThreadProject, ThreadSummary } from './protocol.ts';
 import { ErrorCode, RpcError } from './protocol.ts';
 import type { ThreadRecord } from './store.ts';
-import type { ProjectFolder } from './patches.ts';
+import type { PatchProject, ProjectFolder } from './patches.ts';
 import { atomicWriteFileSync, isDirectory, readJsonSync } from './fsutil.ts';
 import { expandHome } from './config.ts';
 import { fileHash, removeIcons, storeIcon } from './project-icons.ts';
@@ -245,6 +245,17 @@ export class Projects {
       const p = this.items.get(m.id);
       if (!p || p.archived) continue;
       for (const folder of p.folders) out.push({ folder, projectId: p.id });
+    }
+    return out;
+  }
+
+  // The thread's projects as patches see them (ItemsContext.projects).
+  patchProjects(rec: ThreadRecord): PatchProject[] {
+    const out: PatchProject[] = [];
+    for (const m of rec.projects ?? []) {
+      const p = this.items.get(m.id);
+      if (!p || p.archived) continue;
+      out.push({ id: p.id, title: p.title, folders: [...p.folders] });
     }
     return out;
   }

@@ -528,6 +528,25 @@ test('live state: when hides, badge counts, a shared command runs once, a failur
   assert.equal(readPatchModule('x', 'project', '/x.ts', { actions: [{ title: 'A', run: 'x', when: true }] }).info.error, 'actions[0] ("A") has a when that isn\'t a function.');
 });
 
+test("live state and list panels get the thread's projects, [] when it has none", async () => {
+  const { applyLive, renderListPanel } = await import('../../src/patches.ts');
+  const home = tmpDir();
+  const app = project(home, 'dev/app');
+  writePatch(path.join(app, '.threadbear/patches'), 'proj.ts', `
+    export default {
+      actions: [{ title: "Site", run: "true", when: ({ projects }) => projects.some((p) => p.folders.includes("/r/site")) }],
+      panels: [{ title: "Projects", items: ({ projects }) => projects.map((p) => ({ title: p.title, detail: p.folders.join(",") })) }],
+    };
+  `);
+  const base = await loadPatchSet(app, home);
+  const run = async (command: string, cwd: string) => runCommand(command, { cwd, env: process.env });
+  const projects = [{ id: 'p_1', title: 'Site', folders: ['/r/site', '/r/api'] }];
+  assert.deepEqual((await applyLive(base, { cwd: app, threadId: 't1', projects, run })).actions.map((a) => a.title), ['Site']);
+  assert.deepEqual((await applyLive(base, { cwd: app, threadId: 't1', run })).actions, []);
+  const rendered = await renderListPanel(base.panels[0]!, base, { cwd: app, threadId: 't1', projects, run });
+  assert.deepEqual(rendered.items?.map((i) => [i.title, i.detail]), [['Site', '/r/site,/r/api']]);
+});
+
 test('icons on chips: the patch file\'s, unless an action has its own', () => {
   const read = (v: unknown) => readPatchModule('x', 'project', '/p/x.ts', v);
   const ok = read({ icon: ' pawprint ', actions: [{ title: 'Check', run: 'a' }, { title: 'Ship', run: 'b', icon: 'paperplane' }] });

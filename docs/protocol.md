@@ -2375,9 +2375,12 @@ panel: rows drawn natively, with no page to serve.
   }],
 ```
 
-`items` gets `{ cwd, threadId, sh }`, where `sh(command)` runs a command
+`items` gets `{ cwd, threadId, matched, projects, sh }`, where `sh(command)` runs a command
 in `cwd` through a login shell and resolves with what it printed (it
-rejects on a non-zero exit). It returns `PanelItem`s (or a promise of
+rejects on a non-zero exit). `projects` is the thread's projects that
+aren't archived, oldest first, each `{ id, title, folders }` (`[]` when
+it's in none), so a patch in `~/.threadbear` can serve a thread filed
+under a project whose repo isn't the thread's own folder. It returns `PanelItem`s (or a promise of
 them). Give rows a `section` to group them under headings (rows of one
 section next to each other, in the order you want the groups), and a
 `trailing` for a date or count at the end of the line. A panel can have an `icon`, an SF Symbol name for its button on
@@ -2392,7 +2395,7 @@ project's patch it's one script in the repo and plain words (see
 ```
 
 **Live state.** An action or panel can also have `when` and `badge`,
-functions that get the same `{ cwd, threadId, matched, sh }` as `items`.
+functions that get the same `{ cwd, threadId, matched, projects, sh }` as `items`.
 `when` hides it unless it returns something true (a chip that only turns
 up when there's something to do); `badge` returns a count (a number, a
 numeric string or a list, whose length counts), sent as the item's

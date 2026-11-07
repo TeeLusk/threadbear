@@ -84,7 +84,7 @@ export const patchesPart = {
       // Claude threads only: a Codex thread doesn't read them.
       const claude = rec.provider === 'claude' ? this.claudePatchInfo(cwd) : undefined;
       if (claude) base = { ...base, patches: [...base.patches, claude] };
-      set = await applyLive(base, { cwd, threadId: rec.id, run: (command, dir) => this.runLiveCommand(rec.id, command, dir) });
+      set = await applyLive(base, { cwd, threadId: rec.id, projects: this.projects?.patchProjects(rec) ?? [], run: (command, dir) => this.runLiveCommand(rec.id, command, dir) });
     } catch (e) {
       this.log.warn('could not read the folder for patches', { threadId: rec.id, cwd, error: String(e) });
       base = entry.base;
@@ -327,6 +327,7 @@ export const patchesPart = {
       return renderListPanel(panel, this.patchSet(st), {
         cwd: st.rec.cwd,
         threadId,
+        projects: this.projects?.patchProjects(st.rec) ?? [],
         run: (command, cwd) => this.runPatchCommand(threadId, command, cwd),
       });
     }

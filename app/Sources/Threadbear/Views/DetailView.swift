@@ -113,6 +113,7 @@ struct DetailView: View {
             ArchivedToast()
             InboxEndToast()
             MilestoneToast()
+            UpdateReadyToast()
         }
     }
 }
@@ -991,5 +992,85 @@ private struct ErrorBanner: View {
             .padding(.vertical, zoomed(7))
             .background(.orange.opacity(0.1))
         }
+    }
+}
+
+/// Floats where `ArchivedToast` does, once per staged build, when a new
+/// version of the app is ready (AppUpdater.staged), with Restart Now. The
+/// Updates icon's accent dot stays until it's taken; this only makes sure
+/// it's seen (Tyler, 8 Nov: "probably should be more apparent"). Waits
+/// while another toast is up, stays while the pointer's over it or he's
+/// away, and a click on the rest of it dismisses it for that build.
+private struct UpdateReadyToast: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("updateReadyToastShownFor") private var shownFor = ""
+    @State private var hovering = false
+    private var updater: AppUpdater { AppUpdater.shared }
+
+    static let shownForDuration: Duration = .seconds(12)
+
+    /// The staged build's commit while the toast is due: not yet shown for
+    /// it, and no other toast in the way.
+    private var due: String? {
+        guard let staged = updater.staged?.short, staged != shownFor,
+              app.archivedNote == nil, app.inboxEndNote == nil, app.milestoneNote == nil else { return nil }
+        return staged
+    }
+
+    var body: some View {
+        ZStack {
+            if let staged = due {
+                toast(staged)
+                    .id(staged)
+                    .transition(Juice.reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    .task(id: staged) {
+                        try? await Task.sleep(for: Self.shownForDuration)
+                        // He may have stepped away as it came: it waits for him.
+                        while hovering || MilestoneWatch.secondsIdle() > 5, !Task.isCancelled {
+                            try? await Task.sleep(for: .milliseconds(300))
+                        }
+                        guard !Task.isCancelled else { return }
+                        shownFor = staged
+                    }
+            }
+        }
+        .animation(Juice.reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.3), value: due)
+    }
+
+    private func toast(_ staged: String) -> some View {
+        let dark = colorScheme == .dark
+        let shape = Capsule(style: .continuous)
+        return HStack(spacing: zoomed(10)) {
+            Button { shownFor = staged } label: {
+                HStack(spacing: zoomed(7)) {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(Color(nsColor: .controlAccentColor))
+                    Text("A new version of the app is ready")
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .tip("Dismiss. Restart to Update stays in the Threadbear menu and the Updates panel.")
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 0.5, height: zoomed(14))
+            Button("Restart Now") {
+                shownFor = staged
+                updater.restartToUpdate()
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(nsColor: .controlAccentColor))
+            .fontWeight(.medium)
+            .tip("Quit and reopen on \(staged). Running threads carry on in the runner.")
+        }
+        .font(.system(size: TypeScale.label))
+        .padding(.horizontal, zoomed(14))
+        .padding(.vertical, zoomed(7))
+        .background {
+            shape
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(dark ? 0.4 : 0.12), radius: zoomed(10), y: zoomed(3))
+        }
+        .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .onHover { hovering = $0 }
+        .padding(.top, zoomed(10))
     }
 }

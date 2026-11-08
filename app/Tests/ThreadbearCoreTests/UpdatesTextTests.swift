@@ -19,12 +19,15 @@ final class UpdatesTextTests: XCTestCase {
         XCTAssertTrue(UpdatesText.shown(app: Side(), runner: RunnerUpdates(state: "failed", reason: "tests failed")))
     }
 
-    func testOnlyALaunchMjsNeedsMike() {
-        XCTAssertFalse(UpdatesText.needsYou(app: Side(staged: "def5678"), runner: RunnerUpdates(state: "building")))
+    func testOnlyALaunchMjsOrAStagedAppNeedsMike() {
+        // A staged app build gets the coloured dot: it waits on a restart,
+        // and a grey dot was easy to miss (Tyler, 8 Nov).
+        XCTAssertTrue(UpdatesText.needsYou(app: Side(staged: "def5678"), runner: RunnerUpdates(state: "building")))
+        XCTAssertFalse(UpdatesText.needsYou(app: Side(building: true), runner: nil))
         XCTAssertFalse(UpdatesText.needsYou(app: Side(), runner: RunnerUpdates(oldRunners: [.init(version: "old", threads: ["t1"])])))
         // A failed build tries again once main is fixed, so it's not his to do.
         XCTAssertFalse(UpdatesText.needsYou(app: Side(failed: true), runner: nil))
-        XCTAssertFalse(UpdatesText.needsYou(app: Side(staged: "def5678"), runner: RunnerUpdates(state: "failed")))
+        XCTAssertFalse(UpdatesText.needsYou(app: Side(), runner: RunnerUpdates(state: "failed")))
         XCTAssertTrue(UpdatesText.needsYou(app: Side(), runner: RunnerUpdates(launcherChanged: true)))
     }
 

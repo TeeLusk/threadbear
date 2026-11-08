@@ -62,8 +62,10 @@ public enum UpdatesText {
     /// "the blue dot usually indicates there's something for me to action").
     /// New changes from Mike want him too: they only come in when he says
     /// (docs/setup-and-updates.md 2.3, "Ask by default", 29 Oct).
+    /// So does a staged app build: it waits on a restart, and the grey dot
+    /// was easy to miss (Tyler, 8 Nov; `UpdateReadyToast` says it once too).
     public static func needsYou(app: AppSide, runner: RunnerUpdates?) -> Bool {
-        runner?.launcherChanged == true || fromMike(runner)
+        app.staged != nil || runner?.launcherChanged == true || fromMike(runner)
     }
 
     /// "12 new changes from Mike", for the icon's tooltip.

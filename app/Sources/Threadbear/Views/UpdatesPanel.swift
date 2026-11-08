@@ -6,7 +6,8 @@ import ThreadbearCore
 /// their update settings moved into its panel (28 Oct). A grey dot while
 /// something's on its way for the app, the runner or a CLI (or failed);
 /// a small accent dot only when it needs Mike: a launch.mjs only he can
-/// install. Anything else sorts itself out (a failed build retries once
+/// install, a release of Mike's, or an app build staged and waiting on a
+/// restart. Anything else sorts itself out (a failed build retries once
 /// main is fixed), so it asks nothing of him. The tooltip says what's
 /// going on in a line or two; a click opens the panel, and a right-click
 /// a little popover for updating the app (`AppUpdatePopover`).

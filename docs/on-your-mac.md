@@ -256,7 +256,12 @@ On the Mac itself, a web link you click in the app first goes to
 BrowserBear's socket (`~/Library/Application Support/BrowserBear/browserbear.sock`),
 if you have BrowserBear, to ask whether an agent's Chrome tab is already
 on that page (`app/Sources/Threadbear/BrowserBear.swift`). Only the link
-goes there.
+goes there. Typing `@` in a thread's message box asks the same socket for
+your open Chrome tabs (titles, addresses and profile names, held in memory
+while the list is open), and picking one asks BrowserBear to lend that tab
+to the thread: that thread may then use that one tab until it's released or
+closed, and BrowserBear's list of allowed sites doesn't change. Only the thread's
+id and the tab's number go there.
 
 The Browser panel also uses that private socket to list the pages agents
 associate with threads, ask for a small still of each and bring a page's real

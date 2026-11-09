@@ -607,6 +607,18 @@ final class AppModel {
     var slashPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "slashPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(slashPaletteLayout), forKey: "slashPaletteLayout") }
     }
+    /// The @ picker's palette, sized apart from the slash palette's: a few
+    /// tabs want a shorter one.
+    var tabPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "tabPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(tabPaletteLayout), forKey: "tabPaletteLayout") }
+    }
+    /// Tyler's Chrome tabs from BrowserBear, by the thread whose @ picker
+    /// asked (TabPaletteView.swift): `allowed` is per thread.
+    var browserTabs: [String: Result<[BrowserTab], BrowserBear.Unavailable>] = [:]
+    @ObservationIgnored var browserTabFetches: [String: Task<Void, Never>] = [:]
+    /// Tabs picked with @ and lent to a thread, with BrowserBear's words
+    /// for each, added to the message that mentions it when it's sent.
+    @ObservationIgnored var lentTabs: [String: [Int: String]] = [:]
     /// The commands picked from the palette lately, newest first.
     var recentSlashCommands: [String] = UserDefaults.standard.stringArray(forKey: "recentSlashCommands") ?? [] {
         didSet { UserDefaults.standard.set(recentSlashCommands, forKey: "recentSlashCommands") }

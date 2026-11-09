@@ -4106,6 +4106,26 @@ browser is `agent-chrome`), as the same tab number can be in two. Replies use
 files are read or imported, and stills stay in memory on this Mac. Both sides
 ignore fields they don't know.
 
+### The @ tab picker
+
+Typing `@` in the Mac app's message box (a thread on this Mac's runner)
+asks BrowserBear's socket for `{id,cmd:"tabList",args:{for:<threadId>}}`,
+which answers with `[{tabId,title,url,profile,active,whose,lentTo,allowed}]`:
+`whose` is `user`, `handed` or `agent` (the app leaves out `agent`),
+`lentTo` the thread a tab is lent to or null, and `allowed` whether that
+thread may use the tab's site under BrowserBear's site allowlist. An empty
+list is followed by `status`; no `profiles` there means none is connected.
+Picking a tab sends `{cmd:"lendTo",args:{tab,to:<threadId>}}` at once, which
+claims the tab for that thread and grants that thread that one tab, on the
+site it's on, until it's released or closed or the thread is archived or
+deleted (the allowlist isn't changed; `allowed` is true for a granted tab),
+and returns `{tabId,title,url,words}`. Neither request has a top-level
+`thread` field: BrowserBear refuses `lendTo` from an agent's thread, and
+that field is how it tells one. The box gets
+`@[<title>](<url>) (tab <tabId>)`, and on send the app adds `words` (how
+to use the tab with `browserbear`) after the message for each tab it still
+mentions; the runner sees ordinary text. Nothing here goes to Convex.
+
 ## Connectors
 
 Mike's agents get MCP services from his Connectors gateway on Bruce

@@ -102,6 +102,7 @@ gone from your fork, not just quiet.
 | Experiments | One file each, `runner/src/experiments/<id>.md`, read by `runner/src/experiments.ts`; [docs/experiments.md](experiments.md) lists where each lives and how to take it out | `experiments.<id>` in `runner.json`, off by default | Each one: what docs/experiments.md says, then delete its file and run `npm run experiment-docs` in `runner/`. `experiments.ts` stays. |
 | Codex | `runner/src/adapters/codex/`, `runner/src/updates/codex.ts` | No Codex login, and `cliUpdates: { codex: "off" }` | Woven in, but keep `'codex'` decodable as a provider. |
 | BrowserBear link hand-off | `app/Sources/Threadbear/BrowserBear.swift`, called from `PaneModel.swift` | Inert unless BrowserBear (Mike's own tool) is running | Self-contained: one file, one call. |
+| The @ tab picker | `app/Sources/Threadbear/Views/TabPaletteView.swift`, `TabMentions.swift` in ThreadbearCore, `tabList` and `lend` in `BrowserBear.swift`, wired in `ComposerView.swift` (`tabQuery`, `pickTab`) and `send` in `AppModel+ThreadActions.swift` | Inert without BrowserBear: the list says it isn't running | Take out the second palette overlay and `tabQuery` in ComposerView, the `TabMention.message` call in `send`, and the files. |
 | The Browser panel | `app/Sources/Threadbear/Views/AgentBrowserPanel.swift`, and `BrowserBearPipe.swift`, with cases in `PanelsView.swift`, `WindowDock.swift`, and `PanelRequests.swift` | Inert without BrowserBear; lists pages, stills and Show window over its private socket | Self-contained. |
 
 ### Core, no switch

@@ -242,7 +242,8 @@ extension AppModel {
         // then the composer's, whose chips go as [Picture N] markers after
         // the boxes' numbers (docs/protocol.md, "Pictures in a message").
         let boxImages = Decisions.images(asks: asks, picks: picks, notes: notes)
-        let words = draft.words(first: boxImages.count + 1)
+        // Tabs picked with @ get BrowserBear's words on how to use them.
+        let words = TabMention.message(draft.words(first: boxImages.count + 1), lent: threadId.flatMap { lentTabs[$0] } ?? [:])
         let trimmed = !followUps.isEmpty
             ? Decisions.followUpMessage(followUps.ticked, explain: followUps.explain, extra: words)
             : answers.isEmpty

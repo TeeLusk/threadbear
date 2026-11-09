@@ -241,6 +241,9 @@ turn and a Done button, even if the panel was closed; your selected thread
 stays yours. The agent waits for Done or for the page to settle after your step.
 Normal browsing by the agent doesn't open the panel.
 
+To hand a thread one of your own tabs, type `@` in its message box and
+pick the tab (see "Giving a thread a Chrome tab with @").
+
 An agent can also use a separate Chrome with `--profile agent`. Its pages show in
 the same panel, with its own sign-ins. When that Chrome asks for a passkey or a
 permission, its window comes to the middle of your screen and the panel says so,
@@ -483,6 +486,30 @@ A command waits for a running turn to finish rather than going into it.
 Commands that only make sense in a CLI's terminal (`/resume`, `/rewind`,
 `/login`) get a line saying how to do that here. Anything else starting
 with a slash, such as a file path, goes to the agent as words.
+
+### Giving a thread a Chrome tab with @
+
+With [BrowserBear](https://github.com/mikecann/browserbear) running and
+connected to a Chrome profile, type `@` in a thread's message box and a
+list of your open Chrome tabs opens above it, your own first and the one
+in front first. What you type after the `@` narrows it by title or
+address. Each row shows the page's title, its address and its profile.
+BrowserBear only lets agents use the sites on its allowed list (localhost,
+unless you add more), so a tab on any other site says Picking gives this
+chat this tab only: picking it lets this chat use that one tab, on the site
+it's on, until the tab is released or closed or the chat is archived or
+deleted. The site itself isn't added to the list, and other chats can't use
+the tab. Up and Down move, Return,
+Tab or a click picks one, and Esc closes the list. Agents' own tabs aren't
+listed.
+
+Picking a tab puts a short mention of it in the message, like
+`@[YouTube Music](https://music.youtube.com/) (tab 283150292)`, and lends
+it to the thread straight away, so the agent can click and type in it from
+its first step. When you send, BrowserBear's sentence on how to use the tab
+goes after your words for each tab the message still mentions. If
+BrowserBear isn't running or no profile is connected, the list says so.
+It's only on the Mac, and only for threads on this Mac's runner.
 
 ## Hibernate and archive
 <!-- slug: hibernate-and-archive -->

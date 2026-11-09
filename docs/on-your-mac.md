@@ -260,7 +260,10 @@ goes there. Typing `@` in a thread's message box asks the same socket for
 your open Chrome tabs (titles, addresses and profile names, held in memory
 while the list is open), and picking one asks BrowserBear to lend that tab
 to the thread: that thread may then use that one tab until it's released or
-closed, and BrowserBear's list of allowed sites doesn't change. Only the thread's
+closed, and BrowserBear's list of allowed sites doesn't change. Each row's
+icon is loaded from that tab's site (its `/favicon.ico`, or Chrome's favicon
+address when BrowserBear gives one), a plain request without your Chrome
+sign-ins. Only the thread's
 id and the tab's number go there.
 
 The Browser panel also uses that private socket to list the pages agents

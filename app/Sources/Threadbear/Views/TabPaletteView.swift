@@ -72,6 +72,7 @@ struct TabPaletteView: View {
 
     private func row(_ tab: BrowserTab, on: Bool) -> some View {
         HStack(alignment: .center, spacing: zoomed(10)) {
+            favicon(tab)
             VStack(alignment: .leading, spacing: zoomed(2)) {
                 Text(tab.title.isEmpty ? tab.host : tab.title)
                     .font(.system(size: TypeScale.label + 1, weight: .medium))
@@ -85,9 +86,11 @@ struct TabPaletteView: View {
             }
             Spacer(minLength: zoomed(6))
             if let hint = Self.hint(tab, threadId: threadId) {
+                // Whole: cut short it read "this tab…", the part that matters.
                 Text(hint)
                     .font(.system(size: TypeScale.label - 1))
                     .lineLimit(1)
+                    .fixedSize()
                     .opacity(0.75)
             }
         }
@@ -99,6 +102,21 @@ struct TabPaletteView: View {
         .contentShape(Rectangle())
         .onTapGesture { onPick(tab) }
         .tip(Self.tip(tab, threadId: threadId))
+    }
+
+    /// The page's favicon, as Chrome shows it in the tab; a globe while
+    /// it loads, or when the site has none.
+    private func favicon(_ tab: BrowserTab) -> some View {
+        let size = zoomed(16)
+        return AsyncImage(url: tab.iconURL) { phase in
+            if let image = phase.image {
+                image.resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: "globe").resizable().scaledToFit().opacity(0.5)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: zoomed(3)))
     }
 
     private func placeholder(_ text: String) -> some View {

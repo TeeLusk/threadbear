@@ -16,8 +16,26 @@ public struct BrowserTab: Codable, Equatable, Sendable, Identifiable {
     /// is on the allowed list, or the tab is lent to that thread. Picking
     /// it lends that one tab, never the whole site.
     public var allowed: Bool?
+    /// Chrome's favicon for the page, when BrowserBear sends it.
+    public var favIconUrl: String?
 
     public var id: Int { tabId }
+
+    /// The picture for its row: Chrome's favicon when BrowserBear gives
+    /// one (a web or data address, never chrome://), else the site's own
+    /// /favicon.ico. None for a file.
+    public var iconURL: URL? {
+        if let favIconUrl, let icon = URL(string: favIconUrl),
+           ["http", "https", "data"].contains(icon.scheme?.lowercased() ?? "") { return icon }
+        guard let page = URLComponents(string: url), ["http", "https"].contains(page.scheme?.lowercased() ?? ""),
+              page.host != nil else { return nil }
+        var site = URLComponents()
+        site.scheme = page.scheme
+        site.host = page.host
+        site.port = page.port
+        site.path = "/favicon.ico"
+        return site.url
+    }
 
     public init(tabId: Int, title: String, url: String, profile: String? = nil, active: Bool? = nil,
                 whose: String? = nil, lentTo: String? = nil, allowed: Bool? = nil) {

@@ -493,7 +493,7 @@ With [BrowserBear](https://github.com/mikecann/browserbear) running and
 connected to a Chrome profile, type `@` in a thread's message box and a
 list of your open Chrome tabs opens above it, your own first and the one
 in front first. What you type after the `@` narrows it by title or
-address. Each row shows the page's title, its address and its profile.
+address. Each row shows the site's icon, the page's title, its address and its profile.
 BrowserBear only lets agents use the sites on its allowed list (localhost,
 unless you add more), so a tab on any other site says Picking gives this
 chat this tab only: picking it lets this chat use that one tab, on the site

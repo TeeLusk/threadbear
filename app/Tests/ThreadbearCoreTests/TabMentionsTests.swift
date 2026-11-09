@@ -54,6 +54,16 @@ final class TabMentionsTests: XCTestCase {
         XCTAssertEqual(TabMention.message("(tab 55)", lent: lent), "(tab 55)", "not tab 5")
     }
 
+    func testIconIsChromesOrTheSitesOwn() {
+        var t = tab(1, "A", "http://localhost:5173/7k/orders?x=1")
+        XCTAssertEqual(t.iconURL?.absoluteString, "http://localhost:5173/favicon.ico")
+        t.favIconUrl = "https://music.youtube.com/img/favicon_32.png"
+        XCTAssertEqual(t.iconURL?.absoluteString, "https://music.youtube.com/img/favicon_32.png", "Chrome's when BrowserBear sends it")
+        t.favIconUrl = "chrome://favicon/x"
+        XCTAssertEqual(t.iconURL?.absoluteString, "http://localhost:5173/favicon.ico", "not one of Chrome's own pages")
+        XCTAssertNil(tab(2, "f", "file:///Users/me/a.html").iconURL)
+    }
+
     func testDecodesTheServicesList() throws {
         let json = #"[{"tabId":1,"title":"A","url":"https://a.com/","profile":"p","active":true,"whose":"user","lentTo":null,"allowed":false,"extra":1}]"#
         let tabs = try JSONDecoder().decode([BrowserTab].self, from: Data(json.utf8))

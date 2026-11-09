@@ -246,6 +246,13 @@ export class TokenTally {
     this.dirty = true;
   }
 
+  // A call that left no transcript behind (a cache ping, cache-keepalive.ts),
+  // counted in the hour it was made in like any other.
+  addCall(accountId: string, at: number, counts: Counts): void {
+    this.addTo(accountId, Math.floor(at / HOUR_MS) * HOUR_MS, counts);
+    this.dirty = true;
+  }
+
   private addTo(accountId: string, hour: number, counts: Counts): void {
     let m = this.hours.get(accountId);
     if (!m) this.hours.set(accountId, (m = new Map()));

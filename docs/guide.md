@@ -1250,6 +1250,31 @@ while weekly limits come out about the same in most of their tests. Some apps
 change the label the SDK sends to get around it. Threadbear leaves the label
 as it is for now.
 
+### Keeping the cache warm
+
+Claude keeps a conversation in its prompt cache for an hour after each
+call. Coming back to a big thread after that means the whole conversation
+is read in again at full price, about twenty times what reading it from
+the cache costs. So when a Claude thread is waiting on you in Needs you
+with more than 50K tokens of context, Threadbear sends it a tiny ping
+about 55 minutes after its last call, which reads the cache and keeps it
+for another hour.
+
+The ping goes to a throwaway copy of the conversation, on the login the
+thread last ran on, so nothing is added to the thread and nothing shows up
+as a new one. It gets at most 3 pings while it waits; answering it, or any
+new turn, starts the count again. Pings only go out from 7:00 to 15:00 on
+weekdays and 7:00 to 20:00 at weekends (Phoenix time), never to a thread
+that's done, hibernating, archived, working or in a sandbox, and never on
+a login with no room left. Their tokens count in Usage like any other
+call, and each one is a line in the runner log ("cache ping").
+
+To turn it off, put `"cacheKeepAlive": false` in `runner.json` in
+Threadbear's data folder (or ask any thread to). The limits can be changed
+there too: `"cacheKeepAlive": { "minContextTokens": 50000,
+"intervalMinutes": 55, "maxPings": 3, "timeZone": "America/Phoenix",
+"weekdays": [7, 15], "weekends": [7, 20] }`. Changes apply within a minute.
+
 ## Standing instructions
 <!-- slug: instructions -->
 
@@ -1268,6 +1293,7 @@ shows what the file holds so you can keep it or clear it. Agents can't
 change it for you, so ask one to draft some and paste them in yourself. On
 Full access an agent that goes after the runner's own key could still get
 past this, as it could with anything on your Mac.
+
 
 ## Keyboard shortcuts
 <!-- slug: keyboard -->

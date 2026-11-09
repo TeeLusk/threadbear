@@ -423,6 +423,23 @@ async function main(): Promise<void> {
   // turns it off (read each sweep, so the switch needs no restart).
   const keepAwake = new KeepAwake({ busy: () => runner.workingThreads(), on: () => cfg.keepAwake, clock: realClock, log });
   keepAwake.start();
+  // Cache pings for big threads waiting on you (cache-keepalive.ts), checked
+  // once a minute; their tokens go in the Usage panel's hours, as they
+  // leave no transcript for the tally to read. Not while draining: the
+  // runner that took over has the threads.
+  let warming = false;
+  const keepWarm = setInterval(() => {
+    if (warming || draining) return;
+    warming = true;
+    runner
+      .keepWarmTick()
+      .then((sent) => {
+        for (const s of sent) if (s.ping.ok) tally.addCall(s.accountId, s.at, [s.ping.inputTokens, s.ping.outputTokens, s.ping.cacheReadTokens, s.ping.cacheWriteTokens]);
+      })
+      .catch((e: unknown) => log.warn('cache pings failed', { error: String(e) }))
+      .finally(() => (warming = false));
+  }, 60_000);
+  keepWarm.unref();
   // A dialog waiting on this Mac's screen says so, from the installed runner
   // only: a dev runner's Mac is the one you're sat at, and a throwaway data
   // dir shouldn't get a thread about it. THREADBEAR_MAC_SCREEN=on to try it
@@ -1089,6 +1106,7 @@ async function main(): Promise<void> {
     frozenClis.stop();
     macScreen?.stop();
     keepAwake.stop();
+    clearInterval(keepWarm);
     connectors.stop();
     projects.stop();
     usage.stop();

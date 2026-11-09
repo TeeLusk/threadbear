@@ -296,6 +296,13 @@ File references are where to look.
   beside it what the check last printed (`<id>.<hash>.kept.json`, readable
   only by you) until a run carrying it has been sent, and, while a check
   runs, which runner process is running it (`<id>.running.json`).
+- **Cache pings** (`runner/src/cache-keepalive.ts`, `runner/src/runner/keep-warm.ts`):
+  once a minute the runner looks for Claude threads waiting on you with a
+  big context, and about 55 minutes after one's last call sends a one-word
+  turn to a throwaway fork of its session, through the `claude` CLI on the
+  same login, to keep its prompt cache. Nothing is written to disk (no
+  transcript); at most 3 per wait, in set hours. Off with
+  `"cacheKeepAlive": false` in `runner.json`.
 - **Keeping the Mac awake** (`runner/src/keep-awake.ts`, on unless
   Settings > General > Sleep or `"keepAwake": false` in `runner.json`
   turns it off): while a thread is working and for 3

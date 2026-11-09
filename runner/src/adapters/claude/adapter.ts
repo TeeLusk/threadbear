@@ -7,13 +7,13 @@ import type { HookInput, McpServerConfig, ModelInfo, Options, PermissionResult, 
 import type { Account, ContextUsage, EffortLevel, ModelChoice, PermissionMode, Question, QueuedAnswers, QueuedCall } from '../../protocol.ts';
 import { isEffortLevel } from '../../protocol.ts';
 import fs from 'node:fs';
-import type { AgentAdapter, AgentSession, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
+import type { AgentAdapter, AgentSession, CachePing, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
 import { RewindRefusedError } from '../types.ts';
 import type { SlashCommand } from '../../slash-commands.ts';
 import { frontmatter } from '../../claude-trust.ts';
 import { cutPointBefore, sessionTranscriptPath } from '../../transcripts.ts';
 import type { Logger } from '../../log.ts';
-import { ClaudeNormalizer, fileContext } from './normalize.ts';
+import { ClaudeNormalizer, fileContext, USAGE_LIMIT_TEXT } from './normalize.ts';
 import { groupSpawner, type ProcessRegistry } from '../../proc.ts';
 import { prepareImageForModel } from '../../media.ts';
 import { placePictures } from '../../pictures.ts';
@@ -142,6 +142,62 @@ export class ClaudeAdapter implements AgentAdapter {
     const s = new ClaudeSession(opts, sink, this.deps);
     s.start();
     return s;
+  }
+
+  // A cache ping (docs/guide.md, "Keeping the cache warm"). The session is
+  // resumed with every option its next turn would have (sessionOptions), so
+  // the request shares its prefix and reads its cache, which resets the
+  // cache's clock for the real session too (measured 9 Nov 2026: a 66K
+  // session's fork read 66,384 from cache and wrote 125, and the session's
+  // own next turn then read the same 66,384). forkSession with
+  // persistSession off: a new session id, nothing written to the thread's
+  // transcript or anywhere else, so no thread or archive ever sees it.
+  // Every tool call is refused by a hook (which comes before any allow
+  // rule or Full access) and there's one turn only, so a model that tries
+  // a tool anyway just stops.
+  async pingCache(opts: StartSessionOptions): Promise<CachePing> {
+    const { deps } = this;
+    const started = Date.now();
+    if (opts.confined) return { ok: false, error: 'Runs in a sandbox.', ms: 0 };
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 120_000);
+    const options: Options = {
+      ...sessionOptions(opts, deps, deps.oneReply?.() === true),
+      includePartialMessages: false,
+      enableFileCheckpointing: false,
+      resume: opts.sessionId,
+      forkSession: true,
+      persistSession: false,
+      maxTurns: 1,
+      canUseTool: async () => ({ behavior: 'deny', message: 'This is a cache ping: no tools.' }),
+      hooks: { PreToolUse: [{ hooks: [async () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: 'This is a cache ping: no tools.' } })] }] },
+      abortController: abort,
+      spawnClaudeCodeProcess: groupSpawner(deps.registry, deps.log, () => {}, `ping:${opts.threadId}`),
+    };
+    const one = (async function* () {
+      yield { type: 'user', message: { role: 'user', content: PING_PROMPT }, parent_tool_use_id: null } as SDKUserMessage;
+    })();
+    try {
+      const q = (deps.queryFn ?? sdkQuery)({ prompt: one, options });
+      let usage: Record<string, unknown> | undefined;
+      let error: string | undefined;
+      for await (const m of q) {
+        if (m.type !== 'result') continue;
+        usage = (m as { usage?: Record<string, unknown> }).usage;
+        if (m.subtype !== 'success' && m.subtype !== 'error_max_turns') error = m.subtype;
+        else if ((m as { is_error?: boolean }).is_error) error = typeof (m as { result?: unknown }).result === 'string' ? String((m as { result?: unknown }).result).slice(0, 200) : 'error';
+      }
+      const ms = Date.now() - started;
+      if (error || !usage) return { ok: false, error: error ?? 'No result.', limit: USAGE_LIMIT_TEXT.test(error ?? ''), ms };
+      const n = (k: string) => (typeof usage[k] === 'number' ? (usage[k] as number) : 0);
+      return { ok: true, inputTokens: n('input_tokens'), outputTokens: n('output_tokens'), cacheReadTokens: n('cache_read_input_tokens'), cacheWriteTokens: n('cache_creation_input_tokens'), ms };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: msg.slice(0, 200), limit: USAGE_LIMIT_TEXT.test(msg), ms: Date.now() - started };
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
+    }
   }
 
   // Asks the account's CLI what its model picker offers. Starting the CLI
@@ -357,6 +413,53 @@ type WaitingCard = { toolUseId: string; queued: QueuedCall[]; grants: Map<string
 // blocked it (8 Nov 2026), so this says whose decision it was.
 export const QUEUED_DENIED = 'The user said no to this call on its permission card. It is their decision, not an error or a hook failing, so don\'t retry it: ask them how to proceed.';
 
+// What a thread's session and its cache ping (pingCache) start with
+// alike: everything that goes into the prompt the CLI sends (system prompt,
+// settings, tools, MCP servers, model, effort, thinking), so a ping's
+// request has the same prefix as the thread's next turn and reads its
+// cache. Hooks, permissions and the process are the caller's.
+function sessionOptions(opts: StartSessionOptions, deps: ClaudeAdapterDeps, oneReply: boolean): Options {
+  const env = cliEnv(opts.account);
+  const untrusted = opts.untrustedProjectSettings;
+  const options: Options = {
+    cwd: opts.cwd,
+    pathToClaudeCodeExecutable: deps.claudePath,
+    env: {
+      ...env,
+      CLAUDE_CODE_TERMINAL_MCP_TOOLS: terminalMcpTools(env.CLAUDE_CODE_TERMINAL_MCP_TOOLS, oneReply),
+      ...opts.env,
+      ...(untrusted || isHome(opts.cwd) ? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' } : {}),
+    },
+    ...(untrusted ? untrustedSettings(opts.cwd, untrusted) : trustedSettings(opts.cwd)),
+    systemPrompt: { type: 'preset', preset: 'claude_code', ...(opts.instructions ? { append: opts.instructions } : {}) },
+    includePartialMessages: true,
+    thinking: { type: 'adaptive', display: 'summarized' },
+    // Claude in Chrome: the CLI's "enabled by default" only covers
+    // interactive sessions, so SDK sessions ask for it with --chrome.
+    extraArgs: { chrome: null },
+    // Backups of the files the session's tools change, so an edit of an
+    // earlier message can put them back (rewind below).
+    enableFileCheckpointing: true,
+    permissionMode: sdkPermissionMode(opts.permissionMode),
+    // Always allowed so "Ask before edits" can be switched off mid-session.
+    allowDangerouslySkipPermissions: true,
+  };
+  const servers = deps.mcpServersFor?.(opts.threadId);
+  if (servers && Object.keys(servers).length) options.mcpServers = servers;
+  if (opts.model) options.model = opts.model;
+  const effort = claudeEffort(opts.effort);
+  if (effort) options.effort = effort;
+  // The never-ask tools go in as allow rules too, so the CLI lets them
+  // through before its own checks (Auto's classifier included) rather
+  // than relying on canUseTool being reached. They're not the thread's
+  // rules, so they're never saved with them.
+  const allowed = [...(opts.allowRules ?? []).filter((r) => !isTbPrefixRule(r)), ...[...(deps.neverAsk ?? [])].filter((n) => !deps.alwaysAsk?.has(n))];
+  if (allowed.length) options.allowedTools = [...new Set(allowed)];
+  return options;
+}
+
+export const PING_PROMPT = 'Threadbear is keeping this conversation warm. Reply with the single word: ok. Do not use any tools.';
+
 class ClaudeSession implements AgentSession {
   private opts: StartSessionOptions;
   private sink: SessionSink;
@@ -433,31 +536,9 @@ class ClaudeSession implements AgentSession {
 
   start(): void {
     const { opts, deps } = this;
-    const env = cliEnv(opts.account);
     this.oneReply = deps.oneReply?.() === true;
-    const untrusted = opts.untrustedProjectSettings;
     const options: Options = {
-      cwd: opts.cwd,
-      pathToClaudeCodeExecutable: deps.claudePath,
-      env: {
-        ...env,
-        CLAUDE_CODE_TERMINAL_MCP_TOOLS: terminalMcpTools(env.CLAUDE_CODE_TERMINAL_MCP_TOOLS, this.oneReply),
-        ...opts.env,
-        ...(untrusted || isHome(opts.cwd) ? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1' } : {}),
-      },
-      ...(untrusted ? untrustedSettings(opts.cwd, untrusted) : trustedSettings(opts.cwd)),
-      systemPrompt: { type: 'preset', preset: 'claude_code', ...(opts.instructions ? { append: opts.instructions } : {}) },
-      includePartialMessages: true,
-      thinking: { type: 'adaptive', display: 'summarized' },
-      // Claude in Chrome: the CLI's "enabled by default" only covers
-      // interactive sessions, so SDK sessions ask for it with --chrome.
-      extraArgs: { chrome: null },
-      // Backups of the files the session's tools change, so an edit of an
-      // earlier message can put them back (rewind below).
-      enableFileCheckpointing: true,
-      permissionMode: sdkPermissionMode(opts.permissionMode),
-      // Always allowed so "Ask before edits" can be switched off mid-session.
-      allowDangerouslySkipPermissions: true,
+      ...sessionOptions(opts, deps, this.oneReply),
       canUseTool: (name, input, o) => this.canUseTool(name, input, o),
       // The CLI says which effort level a turn ran at (after its own
       // defaults and any downgrade) only through hooks; Stop fires once a
@@ -492,18 +573,7 @@ class ClaudeSession implements AgentSession {
         deps.sandboxFor?.(opts.cwd),
       ),
     };
-    const servers = deps.mcpServersFor?.(opts.threadId);
-    if (servers && Object.keys(servers).length) options.mcpServers = servers;
-    this.hasEndTurn = Object.keys(servers ?? {}).some((k) => END_TURN_FULL_NAME.startsWith(`mcp__${k}__`));
-    if (opts.model) options.model = opts.model;
-    const effort = claudeEffort(opts.effort);
-    if (effort) options.effort = effort;
-    // The never-ask tools go in as allow rules too, so the CLI lets them
-    // through before its own checks (Auto's classifier included) rather
-    // than relying on canUseTool being reached. They're not the thread's
-    // rules, so they're never saved with them.
-    const allowed = [...(opts.allowRules ?? []).filter((r) => !isTbPrefixRule(r)), ...[...(deps.neverAsk ?? [])].filter((n) => !deps.alwaysAsk?.has(n))];
-    if (allowed.length) options.allowedTools = [...new Set(allowed)];
+    this.hasEndTurn = Object.keys(options.mcpServers ?? {}).some((k) => END_TURN_FULL_NAME.startsWith(`mcp__${k}__`));
     if (opts.resume) {
       options.resume = opts.sessionId;
       if (opts.resumeAt) options.resumeSessionAt = opts.resumeAt;

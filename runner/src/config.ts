@@ -224,6 +224,8 @@ export type RunnerJson = {
   archivedMediaDays?: number;
   // Features still being tried out, each off unless it says (experiments.ts).
   experiments?: Record<string, boolean>;
+  // Pings that keep waiting threads' prompt cache warm (cache-keepalive.ts).
+  cacheKeepAlive?: false | { enabled?: boolean; minContextTokens?: number; intervalMinutes?: number; maxPings?: number; timeZone?: string; weekdays?: [number, number]; weekends?: [number, number] };
   // The gateway, when it isn't the `connectors` MCP server in
   // ~/.claude.json; url "" or enabled: false turns the panel's polling off.
   connectors?: { url?: string; enabled?: boolean; headersHelper?: string };

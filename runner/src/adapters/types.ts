@@ -292,9 +292,19 @@ export class RewindRefusedError extends Error {
   }
 }
 
+// What a cache ping (AgentAdapter.pingCache) read and wrote, from its
+// result's usage. limit: the login said it's out of room.
+export type CachePing =
+  | { ok: true; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; ms: number }
+  | { ok: false; error: string; limit?: boolean; ms: number };
+
 export interface AgentAdapter {
   readonly provider: Provider;
   start(opts: StartSessionOptions, sink: SessionSink): AgentSession;
+  // Claude: re-reads the prompt cache of a released thread's session so it
+  // doesn't expire (cache-keepalive.ts). A throwaway fork of the session
+  // with one tiny turn, never written to disk: nothing reaches the thread.
+  pingCache?(opts: StartSessionOptions): Promise<CachePing>;
   // What the account's CLI offers as models, without starting a turn.
   // Optional: a provider without a picker leaves it out.
   models?(account: Account): Promise<ModelChoice[]>;

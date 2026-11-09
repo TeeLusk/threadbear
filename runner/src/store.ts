@@ -221,6 +221,8 @@ export type ThreadRecord = {
   lastSeenSeq: number;
   nativeSessionId?: string;
   contextTokens?: number;
+  // Cache pings since the turn at seq, the last at `at` (cache-keepalive.ts).
+  keepWarm?: { seq: number; pings: number; at: string };
   contextWindow?: number; // the model's window, when the CLI reports it
   // Claude's last breakdown of the context (threads.contextUsage), for when
   // its CLI has gone: only for the native session it was asked of.

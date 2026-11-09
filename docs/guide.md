@@ -536,7 +536,9 @@ Two are Threadbear's own, on both: `/model` and `/effort` change the
 thread's model and effort level, the same as the menus under the message
 box, so the change sticks. On their own they say what the thread is on and
 what you can pick. `/clear` starts the agent on a fresh session; the
-transcript above stays for you to read.
+transcript above stays for you to read. Once a thread gets long, a card
+above the message box offers `/compact` for you (see [Accounts, pools and
+Usage](#accounts)).
 
 Type `/` in a thread's message box, a new thread's included, and a
 palette opens above it with every command the thread can run: Threadbear's, the CLI's and your
@@ -1101,6 +1103,20 @@ loads only when needed listed below. Claude is asked when you open it and
 when you click its refresh button. Once a thread has sat idle for half an
 hour its Claude has stopped, so it shows the last breakdown and how old
 it is until your next message.
+
+A long conversation costs more with every reply, as the agent re-reads
+all of it each time, and it keeps track of early details less well. So
+once a thread's context passes 150k tokens, a card above the message box
+suggests tidying it up, more firmly past 250k. It only shows between
+turns. Compact sends `/compact`, which sums up the conversation so far and
+carries on from that. Continue in a new thread asks the agent for a short
+handoff (what's done, the decisions, what's open, the key files) and then
+starts a new thread with it in the same folder, on the same model and
+pool, and in the same projects. The two threads link to each other, and
+the old one stays where it is. Not now hides the card for that thread
+until it passes the next level. To change the levels, ask an agent to set
+`contextNudge` in runner.json (`{ "gentle": 150000, "firm": 250000 }`,
+or `false` for no card).
 
 To add another login, such as a second Claude subscription, give it a
 folder of its own under `accounts` in Threadbear's data folder, named

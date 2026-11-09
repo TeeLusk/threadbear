@@ -259,6 +259,11 @@ export type ThreadSummary = {
   nativeSessionId?: string;
   contextTokens?: number;
   contextWindow?: number; // the model's window, when the CLI reports it
+  // Long threads (docs/protocol.md): past runner.json's contextNudge
+  // levels, writing the handoff, and the thread it carried on in.
+  contextLong?: 'gentle' | 'firm';
+  continuing?: true;
+  continuedIn?: { threadId: string; title: string };
   costUsd?: number;
   panels?: Panel[]; // absent when the folder has none
   actions?: Action[]; // likewise

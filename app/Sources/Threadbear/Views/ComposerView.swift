@@ -65,6 +65,7 @@ struct ComposerView: View {
         VStack(alignment: .leading, spacing: 0) {
         if let thread {
             RefusalOffer(thread: thread)
+            LongThreadOffer(thread: thread)
         }
         // The folder's actions (patches), on shelves sitting on the box's
         // top edge, in from its rounded corner (ActionChips).

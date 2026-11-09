@@ -944,6 +944,17 @@ public struct ThreadWorktree: Sendable, Hashable, Codable {
     }
 }
 
+/// The thread a long one carried on in (protocol "Long threads").
+public struct ContinuedIn: Sendable, Hashable, Codable {
+    public var threadId: String
+    public var title: String
+
+    public init(threadId: String, title: String) {
+        self.threadId = threadId
+        self.title = title
+    }
+}
+
 /// Who started a thread, when it wasn't Mike (protocol "Who started a thread").
 public struct ThreadStartedBy: Sendable, Hashable, Codable {
     /// "tool", "thread", "schedule", "librarian" or "runner"; a kind from a
@@ -1232,6 +1243,12 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     public var contextTokens: Int?
     /// The model's context window, when the CLI reports it.
     public var contextWindow: Int?
+    /// Long threads (protocol): "gentle" or "firm" once the context passes
+    /// runner.json's contextNudge levels, the handoff being written for
+    /// Continue in a new thread, and the thread it carried on in.
+    public var contextLong: String? = nil
+    public var continuing = false
+    public var continuedIn: ContinuedIn? = nil
     public var costUsd: Double?
     /// Panels, actions and patches from the folder; empty for most threads.
     public var panels: [Panel]
@@ -1428,6 +1445,9 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         contextTokens = try c.decodeIfPresent(Double.self, forKey: .contextTokens).flatMap { $0.wholeCount() }
         contextWindow = ((try? c.decodeIfPresent(Double.self, forKey: .contextWindow)) ?? nil).flatMap { $0.wholeCount() }
         costUsd = try c.decodeIfPresent(Double.self, forKey: .costUsd)
+        contextLong = (try? c.decodeIfPresent(String.self, forKey: .contextLong)) ?? nil
+        continuing = ((try? c.decodeIfPresent(Bool.self, forKey: .continuing)) ?? nil) ?? false
+        continuedIn = (try? c.decodeIfPresent(ContinuedIn.self, forKey: .continuedIn)) ?? nil
         panels = c.lossyArray(Panel.self, forKey: .panels)
         actions = c.lossyArray(Action.self, forKey: .actions)
         hooks = c.lossyArray(Hook.self, forKey: .hooks)
@@ -1494,6 +1514,9 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         try c.encodeIfPresent(contextTokens, forKey: .contextTokens)
         try c.encodeIfPresent(contextWindow, forKey: .contextWindow)
         try c.encodeIfPresent(costUsd, forKey: .costUsd)
+        try c.encodeIfPresent(contextLong, forKey: .contextLong)
+        if continuing { try c.encode(true, forKey: .continuing) }
+        try c.encodeIfPresent(continuedIn, forKey: .continuedIn)
         if !panels.isEmpty { try c.encode(panels, forKey: .panels) }
         if !actions.isEmpty { try c.encode(actions, forKey: .actions) }
         if !hooks.isEmpty { try c.encode(hooks, forKey: .hooks) }
@@ -1528,7 +1551,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, title, cwd, accountId, provider, model, effort, modelInUse, effortInUse, permissionMode, status, live, needsYou, pendingReviews
         case createdAt, updatedAt, lastActivityAt, snoozedUntil, snoozedUntilRestart, snoozedUntilRelease, wakeWhen, waitingOn, woke, archivedAt, starredAt, onOldRunner, preview
-        case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, costUsd, panels, actions, hooks, patches, background, subagents
+        case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, contextLong, continuing, continuedIn, costUsd, panels, actions, hooks, patches, background, subagents
         case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, keywords, poolId, waitingForRoom, carryOnAtReset, waitingForNetwork, panelRequest, share, sample, looseEnds, moving, prs
     }
 

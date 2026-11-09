@@ -225,6 +225,7 @@ export type ThreadRecord = {
   // Claude's last breakdown of the context (threads.contextUsage), for when
   // its CLI has gone: only for the native session it was asked of.
   contextUsage?: ContextUsage & { sessionId: string };
+  continuedIn?: { threadId: string; title: string }; // Continue in a new thread (runner/long-threads.ts)
   costUsd?: number;
   reviews?: DesignReview[];
   reviewDeliveries?: string[]; // review IDs whose reply reached session.send

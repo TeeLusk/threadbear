@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { contextNudgeConfig, type ContextNudge } from './context-nudge.ts';
 import { readSandbox, type SandboxConfig } from './sandbox.ts';
 import os from 'node:os';
 import path from 'node:path';
@@ -115,6 +116,9 @@ export type Config = {
   // A turn's reply in the Mac app: end_turn's bullets, or (false) the
   // agent's own message, with the bullets only for previews.
   bulletReplies: boolean;
+  // Long threads (context-nudge.ts): the context token counts for the
+  // composer's card, or null for none. Unset (tests) means the defaults.
+  contextNudge?: ContextNudge | null;
   // One reply (docs/protocol.md, "One reply"): end_turn carries the card
   // and a headline, and the agent's message straight after it is the
   // turn's reply. Off by default while Mike tries it (1 Nov 2026).
@@ -199,6 +203,7 @@ export type RunnerJson = {
   // reads it too, for its fallback when no check host answers.
   jobPriority?: string;
   bulletReplies?: boolean;
+  contextNudge?: { gentle?: number; firm?: number } | false;
   oneReply?: boolean;
   labReview?: boolean;
   keepAwake?: boolean;
@@ -412,6 +417,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     followMain: env.THREADBEAR_FOLLOW_MAIN ? env.THREADBEAR_FOLLOW_MAIN !== '0' : json.followMain !== false,
     prStatus: env.THREADBEAR_PR_STATUS ? env.THREADBEAR_PR_STATUS !== '0' : json.prStatus !== false,
     bulletReplies: json.bulletReplies !== false,
+    contextNudge: contextNudgeConfig(json.contextNudge),
     // On unless runner.json turns it off (2 Nov: Mike found it the right
     // balance, and it's no longer in Settings).
     oneReply: json.oneReply !== false,

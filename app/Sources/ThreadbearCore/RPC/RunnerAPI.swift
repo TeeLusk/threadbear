@@ -71,6 +71,13 @@ public extension RPCClient {
         return try await call("threads.send", .object(params), as: TurnResult.self, timeout: RPCClient.sendTimeout).turnId
     }
 
+    /// Continue in a new thread (protocol "Long threads"): the runner asks
+    /// the thread's agent for a handoff and starts a thread with it.
+    @discardableResult
+    func continueFresh(threadId: String) async throws -> String? {
+        try await call("threads.continueFresh", .object(["threadId": .string(threadId)]), as: TurnResult.self, timeout: RPCClient.sendTimeout).turnId
+    }
+
     /// A send or a new thread waits longer than the usual 30 s: on a Mac
     /// loaded with renders and backups the runner's event loop has stalled
     /// for 35 s, and giving up then put the draft back in the box while

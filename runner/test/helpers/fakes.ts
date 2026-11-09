@@ -267,6 +267,10 @@ export function makeHarness(home = tmpDir(), cfgExtra: Partial<Config> = {}, dep
     defer: (fn) => fn(),
     // Patch trust has its own tests; the rest load every patch file.
     patchTrust: TRUST_ALL,
+    // Never the real ~/.threadbear/patches: trusted as above, a home patch
+    // would run its live commands (rex, gh) in every test's runner, and on
+    // a Mac with a few of them the suite's load failed timing tests.
+    panelsRoot: tmpDir(),
     // Never touch a real Claude config dir from a test.
     copyTranscript: () => false,
     subagentTranscript: () => null,

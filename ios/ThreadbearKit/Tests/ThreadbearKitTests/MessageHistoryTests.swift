@@ -97,8 +97,16 @@ import Testing
         }
         var h = MessageHistory()
         let pages = (0...1250).map { big((1 + $0 * 8)...(80 + $0 * 8)) }
-        let clock = ContinuousClock()
-        let took = clock.measure { for p in pages { h.takeLive(p) } }
+        // This thread's CPU, not the wall clock: the checks run beside other
+        // threads' work, and a busy Mac took 13s of wall time (11 Nov).
+        func cpu() -> Duration {
+            var ts = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
+            return .seconds(ts.tv_sec) + .nanoseconds(ts.tv_nsec)
+        }
+        let start = cpu()
+        for p in pages { h.takeLive(p) }
+        let took = cpu() - start
         let bytes = h.older.reduce(0) { $0 + MessageHistory.bytes(of: $1) }
         #expect(bytes <= MessageHistory.olderMaxBytes)
         #expect(h.older.count < 1100)
@@ -106,8 +114,7 @@ import Testing
         // What went can be loaded again.
         #expect(h.nextBefore == h.older.first?.seq)
         // 1,251 updates; well under a tenth of a millisecond each would do.
-        // A debug build alone takes about 1.7s on an M-series Mac, and the
-        // checks run beside other threads' work, so 2s failed every busy run.
+        // A debug build takes about 1.7s of it on an M-series Mac.
         #expect(took < .seconds(5), "took \(took)")
     }
 

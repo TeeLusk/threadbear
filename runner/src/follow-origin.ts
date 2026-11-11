@@ -107,10 +107,43 @@ export async function followOrigin(checkout: string): Promise<OriginResult> {
   return { ...out, problem: { kind: 'stuck', message: `main in ${wt ?? checkout} couldn't move to GitHub's main, so new threads here start from the old one: ${cleanGitError(moved.err)}` } };
 }
 
-// git branch -f to main's own commit changes nothing, but git refuses it for
-// a branch being rebased or bisected, which the worktree list doesn't show.
+// A rebase or bisect of main in any worktree, which the worktree list shows
+// only as detached. Read from the git dirs, as git before 2.38 lets
+// `branch -f` move a branch that's being rebased.
+async function mainInProgress(checkout: string): Promise<string | undefined> {
+  const r = await run(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (!r.ok || !r.out) return undefined;
+  const common = r.out;
+  const dirs = [common];
+  try {
+    for (const d of fs.readdirSync(path.join(common, 'worktrees'))) dirs.push(path.join(common, 'worktrees', d));
+  } catch {
+    // No other worktrees.
+  }
+  const read = (f: string) => {
+    try {
+      return fs.readFileSync(f, 'utf8').trim();
+    } catch {
+      return undefined;
+    }
+  };
+  for (const dir of dirs) {
+    for (const f of ['rebase-merge/head-name', 'rebase-apply/head-name']) {
+      if (read(path.join(dir, f)) === LOCAL_MAIN) return 'main is being rebased';
+    }
+    const bisect = read(path.join(dir, 'BISECT_START'));
+    if (bisect === 'main' || bisect === LOCAL_MAIN) return 'main is being bisected';
+  }
+  return undefined;
+}
+
+// git branch -f to main's own commit changes nothing, but newer git refuses
+// it for a branch being rebased or bisected, which the worktree list doesn't
+// show; mainInProgress covers older git.
 // The move itself is update-ref, which fails if main moved since we looked.
 async function moveUnoccupiedMain(checkout: string, local: string, tip: string): Promise<Run> {
+  const busy = await mainInProgress(checkout);
+  if (busy) return { ok: false, out: '', err: busy };
   const free = await run(checkout, ['branch', '-f', 'main', local]);
   return free.ok ? run(checkout, ['update-ref', LOCAL_MAIN, tip, local]) : free;
 }

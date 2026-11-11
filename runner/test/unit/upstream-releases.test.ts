@@ -7,6 +7,7 @@ import path from 'node:path';
 import { FakeClock } from '../../src/clock.ts';
 import { type CiRun, bareRepoArgs, ciVerdict, FETCH_INTERVAL_MS, FIRST_LOOK_MS, SETTLE_MS, cleanNotes, parseImportant, parseNotes, repoKey, signersPath, splitSignedTag, tagFor } from '../../src/upstream.ts';
 import { LATER, asGitHub, commit, fakeGpg, git, kept, key, release, signedTag, upstreamFor, waitFor, withVictimGpg, world } from '../helpers/upstream-harness.ts';
+import { needsGit } from '../helpers/git-version.ts';
 
 test('repoKey: the same repo however its URL is written', () => {
   const k = 'github.com/mikecann/threadbear';
@@ -53,7 +54,7 @@ test('a fork sees a newer signed release from Mike, with what main is missing', 
 // GIT_CONFIG_PARAMETERS, and git then refuses a bare repo it finds by
 // looking from inside it, as the check's staging folder was (a fork's
 // commit, 8 Nov 2026: every check failed there).
-test('the check works under safe.bareRepository=explicit, as in Claude\'s desktop terminal', async () => {
+test('the check works under safe.bareRepository=explicit, as in Claude\'s desktop terminal', { skip: needsGit(2, 38, 'safe.bareRepository') }, async () => {
   const w = world();
   commit(w.mike, 'b.txt', 'Second');
   const third = commit(w.mike, 'c.txt', 'Third');

@@ -204,7 +204,7 @@ private struct ThreadSection: View {
                 withAnimation(.snappy(duration: 0.2)) {
                     if collapsed { app.collapsedSections.remove(section) } else { app.collapsedSections.insert(section) }
                 }
-            }) {
+            }, shortcut: section == .inbox ? AppShortcuts.shared.display(.topInboxThread) : nil) {
                 if section == .inbox { InboxOrderMenu() }
             }
             .environment(\.archiveLandings, section == .archived ? app.archiveLandings : nil)
@@ -358,6 +358,9 @@ struct SectionHeading<Accessory: View>: View {
     var project: Project? = nil
     /// Given for a heading that folds its rows away when clicked.
     var fold: Fold? = nil
+    /// A key shown by the title while ⌘ is held: the Inbox's Top Inbox
+    /// Thread (⌘I).
+    var shortcut: String? = nil
     /// Controls at the heading's end, outside the fold button so a click
     /// on them doesn't fold the section: the Inbox's sort menu.
     @ViewBuilder var accessory: () -> Accessory
@@ -420,6 +423,9 @@ struct SectionHeading<Accessory: View>: View {
                 .foregroundStyle(hovering ? .primary : .secondary)
                 .animation(Juice.hover, value: hovering)
                 .fixedSize()
+                .shortcutHint(shortcut, .after)
+                // Over the hairline that follows it.
+                .zIndex(1)
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
                 .frame(height: 1)

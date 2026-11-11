@@ -408,7 +408,11 @@ export function runDeploy(runnerDir: string, home: string, logFile: string, foll
       return;
     }
     // Background priority (background.ts): the release build is npm ci and tsc.
-    const child = spawn(...inBackground(process.execPath, [path.join(runnerDir, 'scripts', 'deploy.mjs'), '--no-restart', '--home', home, '--follow', follow]), {
+    // Fork patch (TeeLusk): --skip-checks, since main's typecheck and unit
+    // tests already ran in upstream CI and took hours here at background
+    // priority. The smoke test and rollback still guard the release. Drop
+    // this once upstream has a setting for it.
+    const child = spawn(...inBackground(process.execPath, [path.join(runnerDir, 'scripts', 'deploy.mjs'), '--no-restart', '--skip-checks', '--home', home, '--follow', follow]), {
       cwd: runnerDir,
       env,
       stdio: ['ignore', fd, fd],

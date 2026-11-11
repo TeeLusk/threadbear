@@ -113,6 +113,8 @@ struct ThreadbearApp: App {
                     Divider()
                     Button("Next Inbox Thread", systemImage: "chevron.down") { app.nextInboxThread() }
                         .shortcut(.nextInboxThread)
+                    Button("Top Inbox Thread", systemImage: "arrow.up.to.line") { app.topInboxThread() }
+                        .shortcut(.topInboxThread)
                 }
             }
             // Help has no help book to open: the tour is what there is.

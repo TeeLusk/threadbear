@@ -190,6 +190,7 @@ actions!(
         GoBack,
         GoForward,
         NextInboxThread,
+        TopInboxThread,
         ShowInbox,
         ShowScheduled,
         ShowProjects,
@@ -260,6 +261,7 @@ commands!(
     (Back, GoBack, Some(ShortcutCommand::Back)),
     (Forward, GoForward, Some(ShortcutCommand::Forward)),
     (NextInboxThread, NextInboxThread, Some(ShortcutCommand::NextInboxThread)),
+    (TopInboxThread, TopInboxThread, Some(ShortcutCommand::TopInboxThread)),
     (ShowInbox, ShowInbox, Some(ShortcutCommand::ShowInbox)),
     (ShowScheduled, ShowScheduled, Some(ShortcutCommand::ShowScheduled)),
     (ShowProjects, ShowProjects, Some(ShortcutCommand::ShowProjects)),
@@ -526,6 +528,7 @@ impl Threadbear {
             Command::Back => self.go_back(window, cx),
             Command::Forward => self.go_forward(window, cx),
             Command::NextInboxThread => self.next_inbox_thread(window, cx),
+            Command::TopInboxThread => self.top_inbox_thread(window, cx),
             Command::ShowInbox => self.set_mode(SidebarMode::Inbox, cx),
             Command::ShowScheduled => self.set_mode(SidebarMode::Scheduled, cx),
             Command::ShowProjects => self.set_mode(SidebarMode::Projects, cx),
@@ -696,6 +699,25 @@ impl Threadbear {
             self.sidebar_settings_changed(cx);
         }
         self.open(next, window, cx);
+    }
+
+    /// Top Inbox Thread (⌘I, `topInboxThread`): the Inbox's first thread,
+    /// wherever you are; with an empty Inbox, a note.
+    pub(crate) fn top_inbox_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let now = crate::now_ms();
+        let top = self.shown_sections(cx, now).into_iter().find(|s| s.key == "inbox").and_then(|s| s.rows.into_iter().next()).map(|t| t.id);
+        let Some(top) = top else {
+            self.archived_note = None;
+            self.show_inbox_end(true, cx);
+            return;
+        };
+        self.inbox_end_note = None;
+        self.mode = SidebarMode::Inbox;
+        // A folded Inbox has no row to show it by.
+        if self.folded.remove("inbox") {
+            self.sidebar_settings_changed(cx);
+        }
+        self.open(top, window, cx);
     }
 
     pub(crate) fn show_inbox_end(&mut self, empty: bool, cx: &mut Context<Self>) {
@@ -908,6 +930,7 @@ impl Threadbear {
                     item("Forward", Command::Forward).enabled(self.can_go_forward()),
                     Separator,
                     item("Next Inbox Thread", Command::NextInboxThread),
+                    item("Top Inbox Thread", Command::TopInboxThread),
                 ],
             ),
             TopMenu::new(

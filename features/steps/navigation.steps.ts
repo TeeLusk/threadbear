@@ -1,4 +1,4 @@
-// Back and forward, Next Inbox Thread, shortcuts.json and the menu bar.
+// Back and forward, Next and Top Inbox Thread, shortcuts.json and the menu bar.
 import { Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,6 +22,13 @@ Then('the second thread in the Inbox is open', async function (this: ThreadbearW
   const inbox = d.sidebar.sections.find((s) => s.name === 'Inbox')?.threads ?? [];
   const second = inbox[1].id;
   await this.until('the second inbox thread to open', (now) => now.selection?.id === second);
+});
+
+Then('the first thread in the Inbox is open', async function (this: ThreadbearWorld) {
+  const d = await this.app.dump();
+  const inbox = d.sidebar.sections.find((s) => s.name === 'Inbox')?.threads ?? [];
+  const first = inbox[0].id;
+  await this.until('the first inbox thread to open', (now) => now.selection?.id === first);
 });
 
 When('shortcuts.json gives {string} the key {string}', async function (this: ThreadbearWorld, command: string, key: string) {

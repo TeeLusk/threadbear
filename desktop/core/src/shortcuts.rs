@@ -150,6 +150,7 @@ pub enum ShortcutCommand {
     Back,
     Forward,
     NextInboxThread,
+    TopInboxThread,
     ShowInbox,
     ShowScheduled,
     ShowProjects,
@@ -167,7 +168,7 @@ pub enum ShortcutCommand {
 }
 
 impl ShortcutCommand {
-    pub const ALL: [ShortcutCommand; 22] = [
+    pub const ALL: [ShortcutCommand; 23] = [
         Self::NewThread,
         Self::Archive,
         Self::Hibernate,
@@ -176,6 +177,7 @@ impl ShortcutCommand {
         Self::Back,
         Self::Forward,
         Self::NextInboxThread,
+        Self::TopInboxThread,
         Self::ShowInbox,
         Self::ShowScheduled,
         Self::ShowProjects,
@@ -202,6 +204,7 @@ impl ShortcutCommand {
             Self::Back => "back",
             Self::Forward => "forward",
             Self::NextInboxThread => "nextInboxThread",
+            Self::TopInboxThread => "topInboxThread",
             Self::ShowInbox => "showInbox",
             Self::ShowScheduled => "showScheduled",
             Self::ShowProjects => "showProjects",
@@ -233,6 +236,7 @@ impl ShortcutCommand {
             Self::Back => "Back",
             Self::Forward => "Forward",
             Self::NextInboxThread => "Next Inbox Thread",
+            Self::TopInboxThread => "Top Inbox Thread",
             Self::ShowInbox => "Show Inbox",
             Self::ShowScheduled => "Show Scheduled",
             Self::ShowProjects => "Show Projects",
@@ -260,6 +264,8 @@ impl ShortcutCommand {
             Self::Back => Some(ShortcutKey::new("[")),
             Self::Forward => Some(ShortcutKey::new("]")),
             Self::NextInboxThread => Some(ShortcutKey::with("down", true, false, false)),
+            // I for Inbox.
+            Self::TopInboxThread => Some(ShortcutKey::new("i")),
             Self::ShowInbox => Some(ShortcutKey::new("1")),
             Self::ShowScheduled => Some(ShortcutKey::new("2")),
             Self::ShowProjects => Some(ShortcutKey::new("3")),

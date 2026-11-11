@@ -71,6 +71,23 @@ extension AppModel {
         revealSelectionRequests &+= 1
     }
 
+    /// Top Inbox Thread (⌘I): the Inbox's first thread, wherever you are.
+    /// With an empty Inbox, a note says so instead.
+    func topInboxThread() {
+        guard let top = sections.inbox.first?.id else {
+            archivedNote = nil
+            milestoneNote = nil
+            inboxEndNote = InboxEndNote(empty: true)
+            return
+        }
+        inboxEndNote = nil
+        sidebarMode = .inbox
+        // A folded Inbox has no row to show it by.
+        collapsedSections.remove(.inbox)
+        select(top)
+        revealSelectionRequests &+= 1
+    }
+
     func dismissInboxEndNote(_ id: UUID) {
         if inboxEndNote?.id == id { inboxEndNote = nil }
     }

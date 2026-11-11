@@ -33,6 +33,12 @@ Feature: Getting around the app
     And I press "down" with "cmd,opt"
     Then the second thread in the Inbox is open
 
+  @nav.topinbox
+  Scenario: Top Inbox Thread jumps to the top of the Inbox
+    When I open the last thread in the Inbox
+    And I press "i" with "cmd"
+    Then the first thread in the Inbox is open
+
   @nav.shortcuts
   Scenario: A key changed in shortcuts.json shows in the menu straight away
     When I open the thread "Morning brief"
@@ -65,6 +71,7 @@ Feature: Getting around the app
     Then the "Go" menu has "Back" on "⌘["
     And the "Go" menu has "Forward" on "⌘]"
     And the "Go" menu has "Next Inbox Thread" on "⌥⌘↓"
+    And the "Go" menu has "Top Inbox Thread" on "⌘I"
 
   @menu.thread
   Scenario: The Thread menu has Archive, Stop and the views

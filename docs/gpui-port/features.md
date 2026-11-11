@@ -389,16 +389,17 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `nav.sidebuttons` | Mouse side buttons | Back and forward | GPUI mouse button handling (unverified for side buttons on each OS). | build | S | `Navigation` (`MouseNavigation`) |
 | `nav.swipe` | Trackpad swipe nav | Card fills, follows system setting | Risk: GPUI's gesture hook is unverified, data and the system setting differ per OS, and the hand-off from web pages has to work with CEF. | hard | L | `SwipeNavigation`, `NavigationSwipe` |
 | `nav.nextinbox` | Next Inbox Thread | ⌥⌘↓ | GPUI key binding. | kit | S | `AppModel+Selection` |
+| `nav.topinbox` | Top Inbox Thread | ⌘I, the Inbox's first | GPUI key binding. | kit | S | `AppModel+Selection` |
 | `nav.hints` | Hold ⌘ hints | Keys appear beside buttons | Modifier change handler that draws the keys. | build | M | `ShortcutHints` |
 | `nav.deeplink` | Deep link | `threadbear://thread/<id>` | `register_url_scheme` and `on_open_urls`. | kit | S | `ThreadbearApp`, `ThreadLink` |
 | `menu.app` | App menu | About, Restart to Update, Settings… | `set_menus`: NSMenu on macOS, drawn by `AppMenuBar` on Windows and Linux (inferred). | kit | S | `ThreadbearApp` |
 | `menu.file` | File menu | New Thread | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.view` | View menu | Zoom In, Out, Actual, Show Threads, Panels, Terminal, Reset | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
-| `menu.go` | Go menu | Back, Forward, Next Inbox Thread | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
+| `menu.go` | Go menu | Back, Forward, Next and Top Inbox Thread | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.thread` | Thread menu | Archive, Hibernate submenu, Stop, Copy Transcript, Show Inbox, Scheduled, Projects, Librarian, Hibernating, Archived | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `menu.help` | Help menu | Take the Tour, Finish Setting Up | `set_menus`, as `menu.app`. | kit | S | `ThreadbearApp` |
 | `nav.copytranscript` | Copy transcript | Markdown | Port `MarkdownExport`, with GPUI's clipboard. | build | S | `ThreadSession`, `MarkdownExport` |
-| `nav.shortcuts` | Keyboard shortcuts | The 22 defaults, kept in `shortcuts.json` and watched live | `threadbear-core`'s `shortcuts` for the rules; GPUI key bindings rebound when the file changes. | build | S | `AppShortcuts`, `Shortcuts` |
+| `nav.shortcuts` | Keyboard shortcuts | The 23 defaults, kept in `shortcuts.json` and watched live | `threadbear-core`'s `shortcuts` for the rules; GPUI key bindings rebound when the file changes. | build | S | `AppShortcuts`, `Shortcuts` |
 
 **The 22 default bindings:** New Thread ⌘N, Archive ⌘E, Hibernate (none), Stop ⌘., Copy Transcript ⇧⌘C, Back ⌘[, Forward ⌘], Next Inbox ⌥⌘↓, Inbox ⌘1, Scheduled ⌘2, Projects ⌘3, Librarian ⌘4, Hibernating and Archived (none), Settings ⌘,, Zoom ⌘= ⌘- ⌘0, Threads ⌃⌘S, Panels ⌥⌘P, Terminal ⌘J, Reset Layout (none). `shortcuts.json` is watched live.
 

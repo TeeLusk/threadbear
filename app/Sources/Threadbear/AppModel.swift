@@ -707,6 +707,8 @@ final class AppModel {
     /// Tabs picked with @ and lent to a thread, with BrowserBear's words
     /// for each, added to the message that mentions it when it's sent.
     @ObservationIgnored var lentTabs: [String: [Int: String]] = [:]
+    /// Tabs picked with @ in the New Thread box, lent once it's made.
+    @ObservationIgnored var tabsToLend: [Int: BrowserTab] = [:]
     /// The commands picked from the palette lately, newest first.
     var recentSlashCommands: [String] = UserDefaults.standard.stringArray(forKey: "recentSlashCommands") ?? [] {
         didSet { UserDefaults.standard.set(recentSlashCommands, forKey: "recentSlashCommands") }

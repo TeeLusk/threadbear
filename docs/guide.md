@@ -562,7 +562,8 @@ with a slash, such as a file path, goes to the agent as words.
 ### Giving a thread a Chrome tab with @
 
 With [BrowserBear](https://github.com/mikecann/browserbear) running and
-connected to a Chrome profile, type `@` in a thread's message box and a
+connected to a Chrome profile, type `@` in a thread's message box (or the
+New Thread box) and a
 list of your open Chrome tabs opens above it, your own first and the one
 in front first. What you type after the `@` narrows it by title or
 address. Each row shows the site's icon, the page's title, its address and its profile.
@@ -579,9 +580,12 @@ Picking a tab puts a short mention of it in the message, like
 `@[YouTube Music](https://music.youtube.com/) (tab 283150292)`, and lends
 it to the thread straight away, so the agent can click and type in it from
 its first step. When you send, BrowserBear's sentence on how to use the tab
-goes after your words for each tab the message still mentions. If
+goes after your words for each tab the message still mentions. In the New
+Thread box there's no thread to lend it to yet, so it's lent the moment the
+thread is made, as its first turn starts. If
 BrowserBear isn't running or no profile is connected, the list says so.
-It's only on the Mac, and only for threads on this Mac's runner.
+It's only on the Mac, and only for threads on this Mac's runner (a new
+thread starting on another runner doesn't get the list).
 
 ## Hibernate and archive
 <!-- slug: hibernate-and-archive -->

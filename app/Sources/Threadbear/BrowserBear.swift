@@ -41,12 +41,12 @@ enum BrowserBear {
     /// his own first, with whether that thread may use each one's site.
     /// No `thread` field: that's how the service tells an agent's asks
     /// from his.
-    static func tabList(for threadId: String) async -> Result<[BrowserTab], Unavailable> {
+    static func tabList(for threadId: String?) async -> Result<[BrowserTab], Unavailable> {
         let path = socket
         guard FileManager.default.fileExists(atPath: path) else { return .failure(.notRunning) }
         return await Task.detached { () -> Result<[BrowserTab], Unavailable> in
             do {
-                let result = try request(path: path, cmd: "tabList", args: ["for": threadId])
+                let result = try request(path: path, cmd: "tabList", args: threadId.map { ["for": $0] } ?? [:])
                 let data = try JSONSerialization.data(withJSONObject: result ?? [])
                 let tabs = try JSONDecoder().decode([BrowserTab].self, from: data)
                 // None at all: say so if no Chrome profile is connected.

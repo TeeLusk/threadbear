@@ -335,8 +335,12 @@ extension AppModel {
         // then the composer's, whose chips go as [Picture N] markers after
         // the boxes' numbers (docs/protocol.md, "Pictures in a message").
         let boxImages = Decisions.images(asks: asks, picks: picks, notes: notes)
-        // Tabs picked with @ get BrowserBear's words on how to use them.
-        let words = TabMention.message(draft.words(first: boxImages.count + 1), lent: threadId.flatMap { lentTabs[$0] } ?? [:])
+        // Tabs picked with @ get BrowserBear's words on how to use them. A
+        // new thread's only when it starts on this Mac, where they're lent.
+        let lendsHere = threadId != nil || newThreadRunnerId == nil
+        let words = TabMention.message(draft.words(first: boxImages.count + 1), lent: lendsHere ? lentTabs[key] ?? [:] : [:])
+        // The New Thread box's picks still mentioned in what's sent.
+        let toLend = threadId == nil && lendsHere ? tabsToLend.values.filter { words.contains("(tab \($0.tabId))") } : []
         let trimmed = !followUps.isEmpty
             ? Decisions.followUpMessage(followUps.ticked, explain: followUps.explain, extra: words)
             : answers.isEmpty
@@ -405,6 +409,12 @@ extension AppModel {
                     newThreadPool = nil
                     newThreadProvider = nil
                     threads[thread.id] = thread
+                    // Its first turn has started: lend the picked tabs
+                    // now, before the agent's first reply can use them.
+                    for tab in toLend { lendTab(tab, to: thread.id) }
+                    tabsToLend = [:]
+                    lentTabs["new"] = nil
+                    browserTabs["new"] = nil
                     showStartedThread(thread.id)
                     // "This Mac" was for this thread; the next starts on
                     // the default runner again.

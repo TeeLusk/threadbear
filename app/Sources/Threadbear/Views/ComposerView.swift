@@ -171,8 +171,8 @@ struct ComposerView: View {
             guard paletteQuery(draft.wrappedValue.text) != nil else { return }
             if let thread { app.loadSlashCommands(thread.id) } else { app.loadNewThreadSlashCommands() }
         }
-        .task(id: thread.flatMap { tabQuery(draft.wrappedValue.text) != nil ? $0.id : nil }) {
-            if let thread, tabQuery(draft.wrappedValue.text) != nil { app.loadBrowserTabs(thread.id) }
+        .task(id: tabQuery(draft.wrappedValue.text) != nil ? draftKey : nil) {
+            if tabQuery(draft.wrappedValue.text) != nil { app.loadBrowserTabs(draftKey, for: thread?.id) }
         }
         // Esc closed the palette at that text only: any change reopens it,
         // even back to the same words later.
@@ -289,12 +289,14 @@ struct ComposerView: View {
     }
 
     /// The "@word" before the cursor while the @ picker is open. Only for
-    /// a thread on this Mac's runner: BrowserBear and Chrome are here, and
-    /// another Mac's agent couldn't reach the tab. Not with a selection,
-    /// and not once Esc closed it at this text.
+    /// a thread on this Mac's runner (or a new one starting here):
+    /// BrowserBear and Chrome are here, and another Mac's agent couldn't
+    /// reach the tab. Not with a selection, and not once Esc closed it at
+    /// this text.
     private func tabQuery(_ text: String) -> TabMention.Query? {
         _ = cursor
-        guard let thread, app.runnerName(of: thread) == nil, tabPalette.closedAt != text,
+        let here = thread.map { app.runnerName(of: $0) == nil } ?? (app.newThreadRunnerId == nil)
+        guard here, tabPalette.closedAt != text,
               paletteQuery(text) == nil, let textView = handle.textView else { return nil }
         let selection = textView.selectedRange()
         guard selection.length == 0 else { return nil }
@@ -307,11 +309,11 @@ struct ComposerView: View {
     }
 
     private func tabPaletteContent(_ draft: Binding<Draft>) -> TabPaletteView? {
-        guard let thread, let query = tabQuery(draft.wrappedValue.text) else { return nil }
+        guard let query = tabQuery(draft.wrappedValue.text) else { return nil }
         return TabPaletteView(
-            tabs: app.browserTabs[thread.id],
+            tabs: app.browserTabs[draftKey],
             query: query.text,
-            threadId: thread.id,
+            threadId: draftKey,
             state: $tabPalette,
             onPick: { pickTab($0) },
             layout: Binding(get: { app.tabPaletteLayout }, set: { app.tabPaletteLayout = $0 })
@@ -322,26 +324,28 @@ struct ComposerView: View {
     private var tabPaletteHeight: CGFloat {
         let window = paletteWindow.height
         if let chosen = app.tabPaletteLayout.height { return SlashPalette.Layout.height(chosen, window: window) }
-        let rows = thread.flatMap { try? app.browserTabs[$0.id]?.get() }.map { TabMention.matches($0, query: "").count } ?? 1
+        let rows = (try? app.browserTabs[draftKey]?.get()).map { TabMention.matches($0, query: "").count } ?? 1
         return TabPaletteView.height(rows: rows, window: window)
     }
 
     /// Puts the tab's reference where the @word was, through the text view
     /// so it's one undo, and lends the tab to the thread now: the claim
     /// has to be there by the agent's first command, not once it's sent.
+    /// A new thread has no id to lend to yet: its tab is lent as soon as
+    /// the thread is made (AppModel.send), before the agent's first reply.
     private func pickTab(_ tab: BrowserTab) {
-        guard let thread, let textView = handle.textView,
+        guard let textView = handle.textView,
               let query = tabQuery(app.drafts[draftKey]?.normalized.text ?? textView.string) else { return }
         tabPalette = TabPaletteState()
         textView.insertText(TabMention.reference(tab) + " ", replacementRange: query.range)
         textView.window?.makeFirstResponder(textView)
         // Shown as lent here at once; the next list says how it went.
-        if case .success(var tabs) = app.browserTabs[thread.id], let i = tabs.firstIndex(where: { $0.tabId == tab.tabId }) {
-            tabs[i].lentTo = thread.id
+        if case .success(var tabs) = app.browserTabs[draftKey], let i = tabs.firstIndex(where: { $0.tabId == tab.tabId }) {
+            tabs[i].lentTo = draftKey
             tabs[i].allowed = true
-            app.browserTabs[thread.id] = .success(tabs)
+            app.browserTabs[draftKey] = .success(tabs)
         }
-        app.lendTab(tab, to: thread.id)
+        if let thread { app.lendTab(tab, to: thread.id) } else { app.lendWhenMade(tab) }
     }
 
     /// Where the palette's list is kept: the thread's, or for a new
@@ -373,8 +377,8 @@ struct ComposerView: View {
     /// Arrows, Tab, Return and Esc while the palette is open. False lets
     /// the box have the key as usual.
     private func paletteKey(_ key: PaletteKey, text: String) -> Bool {
-        if let thread, let query = tabQuery(text) {
-            let matches = (try? app.browserTabs[thread.id]?.get()).map { TabMention.matches($0, query: query.text) } ?? []
+        if let query = tabQuery(text) {
+            let matches = (try? app.browserTabs[draftKey]?.get()).map { TabMention.matches($0, query: query.text) } ?? []
             // Nothing to pick (none match, or no BrowserBear): Return sends
             // and the arrows move the cursor, as if it weren't open. Esc
             // still closes it.

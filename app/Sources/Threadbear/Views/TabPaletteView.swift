@@ -184,13 +184,23 @@ extension TabPaletteView {
 extension AppModel {
     /// Asks BrowserBear for the tabs each time the picker opens, so a tab
     /// opened meanwhile is there.
-    func loadBrowserTabs(_ threadId: String) {
-        guard browserTabFetches[threadId] == nil else { return }
-        browserTabFetches[threadId] = Task { [weak self] in
-            defer { self?.browserTabFetches[threadId] = nil }
+    /// `key` is the thread's id, or "new" for the New Thread box, which
+    /// asks with no thread (so `allowed` is every thread's list).
+    func loadBrowserTabs(_ key: String, for threadId: String?) {
+        guard browserTabFetches[key] == nil else { return }
+        browserTabFetches[key] = Task { [weak self] in
+            defer { self?.browserTabFetches[key] = nil }
             let result = await BrowserBear.tabList(for: threadId)
-            self?.browserTabs[threadId] = result
+            self?.browserTabs[key] = result
         }
+    }
+
+    /// A tab picked in the New Thread box: there's no thread to lend it to
+    /// yet, so the message carries words made here, and `send` lends it
+    /// the moment the thread exists.
+    func lendWhenMade(_ tab: BrowserTab) {
+        tabsToLend[tab.tabId] = tab
+        lentTabs["new", default: [:]][tab.tabId] = TabMention.fallbackWords(tab)
     }
 
     /// Lends a picked tab to the thread at once, so the claim is in place

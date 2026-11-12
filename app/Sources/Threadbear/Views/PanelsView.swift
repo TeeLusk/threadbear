@@ -1599,16 +1599,21 @@ private struct ListPanel: View {
         case .attention: return "exclamationmark.circle"
         case .failed: return "xmark.circle"
         case .done: return "checkmark"
+        case .ready: return "checkmark.circle"
+        case .blocked: return "clock"
         case nil: return nil
         }
     }
 
-    /// Orange and red only where they mean something: waiting on Mike, or
-    /// broken. Everything else is grey.
+    /// Colour only where it means something: waiting on Mike (orange),
+    /// broken (red), good to go (green), waiting on someone else (yellow),
+    /// each only when a patch asks for it. Everything else is grey.
     static func colour(_ tone: PanelItem.Tone?) -> Color? {
         switch tone {
         case .attention: Color(nsColor: Theme.needsYou)
         case .failed: Color(nsColor: Theme.failed)
+        case .ready: Color(nsColor: Theme.ready)
+        case .blocked: Color(nsColor: Theme.blocked)
         case .done, nil: nil
         }
     }

@@ -209,7 +209,9 @@ public struct ThreadHighlights: Sendable, Hashable, Codable {
 /// One row of a `list` panel, from `panels.render`.
 public struct PanelItem: Sendable, Hashable, Codable {
     public enum Tone: String, Sendable, Hashable, Codable {
-        case attention, failed, done
+        /// `ready` is green (good to go), `blocked` yellow (waiting on
+        /// someone or something else).
+        case attention, failed, done, ready, blocked
     }
 
     public var title: String

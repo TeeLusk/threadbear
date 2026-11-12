@@ -226,6 +226,12 @@ final class ListPanelTests: XCTestCase {
         XCTAssertEqual(PanelItem.headings(items), ["Waiting · 1", "Shipped · 2", nil, nil, "Shipped · 2"])
     }
 
+    func testReadyAndBlockedTonesDecode() throws {
+        let json = #"{"items":[{"title":"a","tone":"ready"},{"title":"b","tone":"blocked"},{"title":"c","tone":"loud"}]}"#
+        let items = try XCTUnwrap(try JSONDecoder().decode(PanelRender.self, from: Data(json.utf8)).items)
+        XCTAssertEqual(items.map(\.tone), [.ready, .blocked, nil])
+    }
+
     func testListPanelRowActions() throws {
         let json = #"""
         {"items":[

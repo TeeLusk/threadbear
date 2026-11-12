@@ -299,6 +299,9 @@ enum Theme {
     /// are about 4.5:1 and the same hue.
     static let needsYou = dynamic(dark: .systemOrange, light: NSColor(srgbRed: 0.70, green: 0.33, blue: 0, alpha: 1))
     static let failed = dynamic(dark: .systemRed, light: NSColor(srgbRed: 0.78, green: 0.13, blue: 0.13, alpha: 1))
+    /// A list row that's good to go, and one waiting on someone else.
+    static let ready = dynamic(dark: .systemGreen, light: NSColor(srgbRed: 0.10, green: 0.50, blue: 0.20, alpha: 1))
+    static let blocked = dynamic(dark: .systemYellow, light: NSColor(srgbRed: 0.62, green: 0.48, blue: 0, alpha: 1))
     static let errorBackground = dynamic(dark: NSColor(srgbRed: 0.7, green: 0.2, blue: 0.2, alpha: 0.18),
                                          light: NSColor(srgbRed: 1, green: 0.94, blue: 0.94, alpha: 1))
 

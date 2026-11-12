@@ -501,7 +501,7 @@ final class MockRunnerTests: XCTestCase {
         let none = try await client.threadHighlights(threadId: "demo_tunnel")
         XCTAssertEqual(none, ThreadHighlights())
         let render = try await client.renderPanel(threadId: "demo_landing_pages", panelId: "deploys.previews")
-        XCTAssertEqual(render.items?.map(\.tone), [.done, .attention, .failed, nil, nil])
+        XCTAssertEqual(render.items?.map(\.tone), [.done, .attention, .failed, .blocked, .ready])
     }
 
     /// Other runners' threads: listed by this runner, opened on their own

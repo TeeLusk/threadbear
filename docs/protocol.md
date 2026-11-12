@@ -498,7 +498,9 @@ type PanelItem = {
   url?: string          // a click opens it in the browser, or the panel if Mike set "Default"
   path?: string         // a click previews the file in the pane
   icon?: string         // an SF Symbol name
-  tone?: "attention" | "failed" | "done" // orange, red or a tick; absent: plain
+  tone?: "attention" | "failed" | "done" | "ready" | "blocked"
+                        // orange (waiting on you), red, a tick, green (good to go)
+                        // or yellow (waiting on someone or something else); absent: plain
   section?: string      // a heading over this row and the ones after it with the same
                         // section, drawn where it changes ("Waiting · 1"); at most 80 characters
   trailing?: string     // short and faint at the end of the title's line, like a date

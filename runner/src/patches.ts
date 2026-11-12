@@ -1318,7 +1318,7 @@ function panelItem(raw: unknown, commands: Map<string, RowCommand>): PanelItem |
   if (typeof r.title !== 'string' || !r.title.trim()) return undefined;
   const item: PanelItem = { title: r.title.trim().slice(0, 300) };
   for (const k of ['detail', 'url', 'path', 'icon'] as const) if (typeof r[k] === 'string' && (r[k] as string).trim()) item[k] = (r[k] as string).trim().slice(0, 2000);
-  if (r.tone === 'attention' || r.tone === 'failed' || r.tone === 'done') item.tone = r.tone;
+  if (r.tone === 'attention' || r.tone === 'failed' || r.tone === 'done' || r.tone === 'ready' || r.tone === 'blocked') item.tone = r.tone;
   if (typeof r.section === 'string' && r.section.trim()) item.section = r.section.trim().slice(0, 80);
   if (typeof r.trailing === 'string' && r.trailing.trim()) item.trailing = r.trailing.trim().slice(0, 24);
   const actions = Array.isArray(r.actions) ? rowActions(r.actions, item.title, commands) : [];

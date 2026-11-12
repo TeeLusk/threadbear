@@ -97,16 +97,13 @@ import Testing
         }
         var h = MessageHistory()
         let pages = (0...1250).map { big((1 + $0 * 8)...(80 + $0 * 8)) }
-        // This thread's CPU, not the wall clock: the checks run beside other
-        // threads' work, and a busy Mac took 13s of wall time (11 Nov).
-        func cpu() -> Duration {
-            var ts = timespec()
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
-            return .seconds(ts.tv_sec) + .nanoseconds(ts.tv_nsec)
-        }
-        let start = cpu()
+        // This thread's CPU time, not the clock: tb land's check runs the kit
+        // beside other suites at low priority, and there the clock read 3.5 to
+        // 13 s while the work itself used under 1 s of CPU (several forks, 11
+        // Nov 2026). The budget stays at 2 s, so a real slowdown still fails.
+        let started = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         for p in pages { h.takeLive(p) }
-        let took = cpu() - start
+        let took = Duration.nanoseconds(Int64(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - started))
         let bytes = h.older.reduce(0) { $0 + MessageHistory.bytes(of: $1) }
         #expect(bytes <= MessageHistory.olderMaxBytes)
         #expect(h.older.count < 1100)
@@ -114,8 +111,7 @@ import Testing
         // What went can be loaded again.
         #expect(h.nextBefore == h.older.first?.seq)
         // 1,251 updates; well under a tenth of a millisecond each would do.
-        // A debug build takes about 1.7s of it on an M-series Mac.
-        #expect(took < .seconds(5), "took \(took)")
+        #expect(took < .seconds(2), "took \(took)")
     }
 
     @Test func aLongStreamOfSmallRowsKeepsOlderWithinItsRowCap() {

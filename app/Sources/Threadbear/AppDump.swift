@@ -1335,6 +1335,10 @@ struct AppDump: Encodable {
             case .image:
                 let image = PanelDebug.images[panel.id]
                 pane.image = image.map { "picture \(Int($0.size.width))x\(Int($0.size.height))" } ?? PanelDebug.renders[panel.id]?.note ?? "Taking a screenshot…"
+            case .html:
+                // Its page, or why there isn't one, in `empty` (the pane has no web view to read).
+                let render = PanelDebug.renders[panel.id]
+                pane.empty = render?.html.map { "html \($0.utf8.count) bytes" } ?? render?.note ?? "Loading…"
             case .url:
                 break
             }

@@ -595,7 +595,7 @@ export type PatchInfo = {
 
 // A panel a patch gives a thread (docs/protocol.md, "Panels"). The runner
 // works them out from the thread's folder; nothing is persisted.
-export type PanelKind = 'url' | 'image' | 'list';
+export type PanelKind = 'url' | 'image' | 'list' | 'html';
 export type Panel = {
   id: string; // unique within the thread, e.g. "convex.dashboard"
   title: string; // the tab's label

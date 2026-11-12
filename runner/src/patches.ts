@@ -635,7 +635,7 @@ export function readPatchModule(id: string, source: 'home' | 'project', file: st
   if (v.panels !== undefined) {
     if (!Array.isArray(v.panels)) return problem('panels should be an array.');
     for (const [i, raw] of v.panels.entries()) {
-      const p = raw as { title?: unknown; url?: unknown; note?: unknown; icon?: unknown; items?: unknown; when?: unknown; badge?: unknown; summary?: unknown };
+      const p = raw as { title?: unknown; url?: unknown; note?: unknown; icon?: unknown; items?: unknown; html?: unknown; when?: unknown; badge?: unknown; summary?: unknown };
       if (!p || typeof p !== 'object' || typeof p.title !== 'string' || !p.title.trim()) return problem(`panels[${i}] needs a title.`);
       const ownIcon = readIcon(p.icon, file);
       if (typeof ownIcon === 'string') return problem(`panels[${i}] ("${p.title}"): icon ${ownIcon}`);
@@ -644,12 +644,18 @@ export function readPatchModule(id: string, source: 'home' | 'project', file: st
       if (typeof p.items === 'function') {
         // A list panel: rows drawn by the app, from the function, called
         // when the app asks (panels.render).
-        if (p.url !== undefined) return problem(`panels[${i}] ("${p.title}") should have url or items, not both.`);
+        if (p.url !== undefined || p.html !== undefined) return problem(`panels[${i}] ("${p.title}") should have one of url, items or html, not more.`);
         panel = { id: panelId, title: p.title.trim(), kind: 'list', patch: id };
         listFunctions.set(listKey(file, panelId.slice(id.length)), p.items as ItemsFunction);
+      } else if (typeof p.html === 'function') {
+        // An html panel: a page the function writes for this thread, shown
+        // in a web view with no scripts and no navigation.
+        if (p.url !== undefined) return problem(`panels[${i}] ("${p.title}") should have one of url, items or html, not more.`);
+        panel = { id: panelId, title: p.title.trim(), kind: 'html', patch: id };
+        listFunctions.set(listKey(file, panelId.slice(id.length)), p.html as ItemsFunction);
       } else {
         // A page the web view can open: a scheme with //, or a data: page.
-        if (typeof p.url !== 'string' || !/^([a-z][a-z0-9+.-]*:\/\/\S|data:)/i.test(p.url.trim())) return problem(`panels[${i}] ("${p.title}") needs a url, or an items function.`);
+        if (typeof p.url !== 'string' || !/^([a-z][a-z0-9+.-]*:\/\/\S|data:)/i.test(p.url.trim())) return problem(`panels[${i}] ("${p.title}") needs a url, an items function or an html function.`);
         panel = { id: panelId, title: p.title.trim(), kind: 'url', url: p.url.trim(), patch: id };
       }
       // Its own icon, else the patch's: a tool's picture on its rail button.
@@ -1012,7 +1018,7 @@ function parseEnvWhere(text: string, test: (name: string) => boolean): string | 
 
 // ------------------------------------------------------------- rendering
 
-export type PanelRender = { image?: ImageRef; items?: PanelItem[]; note?: string };
+export type PanelRender = { image?: ImageRef; items?: PanelItem[]; html?: string; note?: string };
 
 // ------------------------------------------------------------ list panels
 
@@ -1139,8 +1145,11 @@ export type RowCommand = { command: string; title: string; row: string };
 export type ListRender = PanelRender & { commands?: Map<string, RowCommand> };
 export const LIST_TIMEOUT_MS = 20_000;
 
-// Fills a list panel by calling its patch's function. A throw, a timeout
-// or something that isn't a list of rows is a note instead.
+export const HTML_PANEL_BYTES = 1_000_000;
+
+// Fills a list or html panel by calling its patch's function. A throw, a
+// timeout or something that isn't a list of rows (or a string of html) is a
+// note instead.
 export async function renderListPanel(
   panel: Panel,
   set: PatchSet,
@@ -1165,6 +1174,11 @@ export async function renderListPanel(
         timer = setTimeout(() => reject(new Error(`took over ${Math.round((ctx.timeoutMs ?? LIST_TIMEOUT_MS) / 1000)} seconds`)), ctx.timeoutMs ?? LIST_TIMEOUT_MS);
       }),
     ]);
+    if (panel.kind === 'html') {
+      if (typeof value !== 'string') return { note: "The panel's html function didn't return a string." };
+      if (Buffer.byteLength(value) > HTML_PANEL_BYTES) return { note: `The panel's page is over ${HTML_PANEL_BYTES / 1_000_000} MB.` };
+      return { html: value };
+    }
     if (!Array.isArray(value)) return { note: "The panel's items function didn't return a list." };
     const commands = new Map<string, RowCommand>();
     const items = value.slice(0, LIST_ITEMS_KEPT).map((raw) => panelItem(raw, commands)).filter((x): x is PanelItem => x !== undefined);

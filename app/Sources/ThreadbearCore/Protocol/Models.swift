@@ -382,8 +382,9 @@ public struct ImageRef: Sendable, Hashable, Codable {
 public struct Panel: Sendable, Hashable, Codable, Identifiable {
     public enum Kind: String, Sendable, Hashable, Codable {
         /// `list`: rows the runner gets from the patch on request
-        /// (`panels.render`), drawn natively.
-        case url, image, list
+        /// (`panels.render`), drawn natively. `html`: a page the patch writes
+        /// for the thread, in a web view without scripts.
+        case url, image, list, html
 
         /// An unknown kind is shown as a page if it has a url, the one thing
         /// every panel can be.
@@ -748,11 +749,14 @@ public struct PanelRender: Sendable, Hashable, Decodable {
     public var image: ImageRef?
     /// A list panel's rows; nil from an image panel (or an older runner).
     public var items: [PanelItem]?
+    /// An html panel's page; nil from the others.
+    public var html: String?
     public var note: String?
 
-    public init(image: ImageRef? = nil, items: [PanelItem]? = nil, note: String? = nil) {
+    public init(image: ImageRef? = nil, items: [PanelItem]? = nil, html: String? = nil, note: String? = nil) {
         self.image = image
         self.items = items
+        self.html = html
         self.note = note
     }
 
@@ -760,10 +764,11 @@ public struct PanelRender: Sendable, Hashable, Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         image = (try? c.decodeIfPresent(ImageRef.self, forKey: .image)) ?? nil
         items = c.contains(.items) ? c.lossyArray(PanelItem.self, forKey: .items) : nil
+        html = (try? c.decodeIfPresent(String.self, forKey: .html)) ?? nil
         note = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? nil
     }
 
-    enum CodingKeys: String, CodingKey { case image, items, note }
+    enum CodingKeys: String, CodingKey { case image, items, html, note }
 }
 
 /// A sub-agent the thread's agent started (Claude's Agent tool), foreground

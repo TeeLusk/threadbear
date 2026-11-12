@@ -252,8 +252,8 @@ test('readPatchModule: the shapes it refuses', () => {
   for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'x-apple.systempreferences:', 'localhost:3000', 'not a url', '', 42]) {
     assert.equal(read({ actions: [{ title: 'Bad', url }] }), 'actions[0] ("Bad") has a url that isn\'t an http or https page.', String(url));
   }
-  assert.equal(read({ panels: [{ title: 'No url' }] }), 'panels[0] ("No url") needs a url, or an items function.');
-  assert.equal(read({ panels: [{ title: 'Bad', url: 'localhost:3000' }] }), 'panels[0] ("Bad") needs a url, or an items function.');
+  assert.equal(read({ panels: [{ title: 'No url' }] }), 'panels[0] ("No url") needs a url, an items function or an html function.');
+  assert.equal(read({ panels: [{ title: 'Bad', url: 'localhost:3000' }] }), 'panels[0] ("Bad") needs a url, an items function or an html function.');
   assert.equal(read({ actions: [{ title: 'Same!', run: 'a' }, { title: 'same', run: 'b' }] }), 'Two entries would both be called x.same; give them different titles.');
   assert.equal(read({}), undefined);
   assert.equal(slug('Reseed dev DB'), 'reseed-dev-db');
@@ -456,8 +456,44 @@ test('a panel with an items function is a list panel, filled by renderListPanel 
   assert.deepEqual(await renderListPanel(broken!, set, ctx), { note: "Couldn't fill this panel: no git here" });
   assert.match((await renderListPanel(slow!, set, { ...ctx, timeoutMs: 50 })).note ?? '', /took over/);
   assert.deepEqual(await renderListPanel(notList!, set, ctx), { note: "The panel's items function didn't return a list." });
-  assert.equal(readPatchModule('x', 'project', '/x.ts', { panels: [{ title: 'Both', url: 'https://a.dev', items: () => [] }] }).info.error, 'panels[0] ("Both") should have url or items, not both.');
+  assert.equal(readPatchModule('x', 'project', '/x.ts', { panels: [{ title: 'Both', url: 'https://a.dev', items: () => [] }] }).info.error, 'panels[0] ("Both") should have one of url, items or html, not more.');
 });
+
+test('a panel with an html function is an html panel: the page it returns, with the same notes as a list', async () => {
+  const { renderListPanel, HTML_PANEL_BYTES } = await import('../../src/patches.ts');
+  const home = tmpDir();
+  const app = project(home, 'dev/app', { 'package.json': '{}' });
+  writePatch(path.join(app, '.threadbear/patches'), 'work.ts', `
+    export default {
+      panels: [
+        { title: "Pipeline", icon: "shippingbox", html: async ({ cwd, threadId, sh }) => "<p>" + threadId + " " + cwd + " " + (await sh("echo from-sh")).trim() + "</p>" },
+        { title: "Broken", html: () => { throw new Error("no aws here") } },
+        { title: "Slow", html: () => new Promise(() => {}) },
+        { title: "Not a string", html: () => ["<p>"] },
+        { title: "Huge", html: () => "x".repeat(1_000_001) },
+      ],
+    };
+  `);
+  const set = await loadPatchSet(app, home);
+  const [page, broken, slow, notString, huge] = set.panels;
+  assert.deepEqual(page, { id: 'work.pipeline', title: 'Pipeline', kind: 'html', icon: 'shippingbox', patch: 'work' });
+  assert.deepEqual(checkPanel(page as never), []);
+  const ctx = {
+    cwd: app,
+    threadId: 't1',
+    timeoutMs: 120_000,
+    run: async (command: string, cwd: string) => runCommand(command, { cwd, env: process.env }),
+  };
+  assert.deepEqual(await renderListPanel(page!, set, ctx), { html: `<p>t1 ${app} from-sh</p>` });
+  assert.deepEqual(await renderListPanel(broken!, set, ctx), { note: "Couldn't fill this panel: no aws here" });
+  assert.match((await renderListPanel(slow!, set, { ...ctx, timeoutMs: 50 })).note ?? '', /took over/);
+  assert.deepEqual(await renderListPanel(notString!, set, ctx), { note: "The panel's html function didn't return a string." });
+  assert.equal(HTML_PANEL_BYTES, 1_000_000);
+  assert.match((await renderListPanel(huge!, set, ctx)).note ?? '', /over 1 MB/);
+  assert.equal(readPatchModule('x', 'project', '/x.ts', { panels: [{ title: 'Both', html: () => '', items: () => [] }] }).info.error, 'panels[0] ("Both") should have one of url, items or html, not more.');
+  assert.equal(readPatchModule('x', 'project', '/x.ts', { panels: [{ title: 'Both', html: () => '', url: 'https://a.dev' }] }).info.error, 'panels[0] ("Both") should have one of url, items or html, not more.');
+});
+
 
 test('a tool patch (appliesTo) applies only where its name is found, from any project folder, and runs there', async () => {
   const home = tmpDir();

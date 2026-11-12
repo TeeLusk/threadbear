@@ -84,6 +84,8 @@ struct DockPane: View {
             ImagePanel(threadId: thread.id, panel: panel)
         case .list:
             ListPanel(thread: thread, panel: panel)
+        case .html:
+            HtmlPanel(thread: thread, panel: panel)
         }
     }
 }
@@ -1344,6 +1346,138 @@ private struct ImagePanel: View {
     static func openSimulator() {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iphonesimulator") else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+}
+
+// MARK: - HTML panels
+
+/// An `html` panel: the page its patch's `html` function writes for this
+/// thread, asked for when it's shown and every 15 seconds while it is. It
+/// shows in a web view with scripts off and no network, that never
+/// navigates: a click on a link opens it as a highlight's link does
+/// (docs/protocol.md, "Patches"). The page is replaced only when it has
+/// changed, with the scroll position put back, so a refresh doesn't flash.
+private struct HtmlPanel: View {
+    @Environment(AppModel.self) private var app
+    let thread: ThreadSummary
+    let panel: Panel
+    @State private var render: PanelRender?
+
+    var body: some View {
+        Group {
+            if let html = render?.html {
+                HtmlWebView(html: html, leaving: { link in app.openLink(link, overPanel: panel.id, in: thread) })
+            } else if let render {
+                PaneNote(text: render.note ?? "Nothing to show.")
+            } else {
+                PaneNote(text: "Loading…")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: "\(thread.id)/\(panel.id)") {
+            render = nil
+            while !Task.isCancelled {
+                let result = await app.renderPanel(threadId: thread.id, panelId: panel.id, failure: "Couldn't get this page from the runner.")
+                if Task.isCancelled { return }
+                // A failed refresh keeps the page that's showing.
+                if let result, result.html == nil, render?.html != nil {
+                    // keep it
+                } else {
+                    render = result ?? PanelRender(note: "Not connected to the runner.")
+                }
+                #if DEBUG
+                PanelDebug.note(panel.id, render, image: nil)
+                #endif
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
+    }
+}
+
+private struct HtmlWebView: NSViewRepresentable {
+    let html: String
+    let leaving: (URL) -> Void
+    @Environment(\.isDockGhost) private var isGhost
+
+    func makeCoordinator() -> HtmlPanelCoordinator { HtmlPanelCoordinator() }
+
+    func makeNSView(context: Context) -> WebPanelContainer {
+        let container = WebPanelContainer()
+        container.show(context.coordinator.view)
+        return container
+    }
+
+    func updateNSView(_ container: WebPanelContainer, context: Context) {
+        if isGhost { return }
+        context.coordinator.leaving = leaving
+        container.show(context.coordinator.view)
+        context.coordinator.show(html)
+    }
+}
+
+@MainActor
+final class HtmlPanelCoordinator: NSObject, WKNavigationDelegate {
+    let view: WKWebView
+    var leaving: ((URL) -> Void)?
+    private var shown: String?
+    private var scrollTo: Double = 0
+
+    override init() {
+        let config = WKWebViewConfiguration()
+        // The page is HTML and CSS: nothing in it runs. The app's own
+        // scroll script below runs in its own world, which this doesn't touch.
+        config.defaultWebpagePreferences.allowsContentJavaScript = false
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        view = FirstClickWebView(frame: .zero, configuration: config)
+        view.underPageBackgroundColor = .windowBackgroundColor
+        super.init()
+        view.navigationDelegate = self
+    }
+
+    /// Nothing in the page reaches the network: its own styles, and `data:`
+    /// pictures and fonts, only. First in the document, so nothing the patch
+    /// writes comes before it.
+    nonisolated static func page(_ html: String) -> String {
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:\">" + html
+    }
+
+    /// Loads the page if it's not the one showing, then puts the scroll back.
+    func show(_ html: String) {
+        if html == shown { return }
+        let first = shown == nil
+        shown = html
+        guard !first else {
+            view.loadHTMLString(Self.page(html), baseURL: nil)
+            return
+        }
+        view.evaluateJavaScript("window.scrollY", in: nil, in: .defaultClient) { [weak self] result in
+            guard let self else { return }
+            if case .success(let y) = result, let y = y as? Double { self.scrollTo = y }
+            self.view.loadHTMLString(Self.page(html), baseURL: nil)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard scrollTo > 0 else { return }
+        let y = scrollTo
+        scrollTo = 0
+        webView.evaluateJavaScript("window.scrollTo(0, \(y))", in: nil, in: .defaultClient, completionHandler: nil)
+    }
+
+    nonisolated static func opens(_ url: URL?) -> Bool {
+        guard let scheme = url?.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https" || scheme == "mailto"
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        // The load we asked for is the only navigation there is; a click
+        // on a link goes to the app's link handling instead.
+        if action.navigationType == .linkActivated {
+            if Self.opens(action.request.url), let url = action.request.url { leaving?(url) }
+            decisionHandler(.cancel)
+        } else {
+            decisionHandler(action.navigationType == .other ? .allow : .cancel)
+        }
     }
 }
 

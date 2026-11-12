@@ -1175,6 +1175,10 @@ async function dispatch(client, method, p) {
         await new Promise((r) => setTimeout(r, 200));
         return { items: panel.mockItems ?? [] };
       }
+      if (panel.kind === 'html') {
+        await new Promise((r) => setTimeout(r, 200));
+        return { html: panel.mockHtml ?? '<p>Nothing to show.</p>' };
+      }
       if (panel.kind !== 'image') return { note: 'This panel has nothing to render.' };
       const file = path.join(here, 'fixtures/demo-upload-resume/media/progress-after.png');
       await new Promise((r) => setTimeout(r, 300));
@@ -3563,6 +3567,12 @@ The new hero is shorter, and every page now leads with what the app does.
           actions: [{ id: 'stop-4321', title: 'Stop', icon: 'stop.fill' }] },
         { title: 'Production', detail: 'main, deployed 2 days ago', url: 'https://example.com', icon: 'globe', section: 'Elsewhere', trailing: '2d' },
       ],
+    }, {
+      id: 'deploys.pipeline', title: 'Pipeline', kind: 'html', icon: 'shippingbox', patch: 'deploys',
+      mockHtml: '<body style="margin:0;padding:16px;background:#14161a;color:#e6e8eb;font:13px -apple-system,sans-serif"><h3 style="margin:0 0 12px">landing-rebuild</h3>' +
+        [['#3fb950', 'Source', 'Succeeded'], ['#d29922', 'Approval', 'Waiting for you'], ['#f85149', 'Deploy', 'Failed: no image at /docs/hero.png']]
+          .map(([c, n, t]) => `<div style="padding:8px 0;border-top:1px solid #2a2e35"><span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${c};margin-right:8px"></span>${n}<div style="color:#8b929b;margin-left:16px">${t}</div></div>`).join('') +
+        '<p><a href="https://example.com" style="color:#58a6ff">Open the console</a></p></body>',
     }];
     site.summary.patches = [{ id: 'deploys', source: 'project', file: path.join(root, '.threadbear/patches/deploys.ts') }];
   }

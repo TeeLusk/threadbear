@@ -409,7 +409,7 @@ export function checkCliStatus(c: Obj): string[] {
 export function checkPanel(p: Obj): string[] {
   const problems: string[] = [];
   for (const k of ['id', 'title', 'patch']) if (!isStr(p[k])) problems.push(k);
-  if (p.kind !== 'url' && p.kind !== 'image' && p.kind !== 'list') problems.push('kind');
+  if (p.kind !== 'url' && p.kind !== 'image' && p.kind !== 'list' && p.kind !== 'html') problems.push('kind');
   if (p.kind === 'url' && !isStr(p.url)) problems.push('url (required for kind url)');
   for (const k of ['url', 'note', 'projectId', 'icon', 'iconFile', 'summary']) if (p[k] !== undefined && !isStr(p[k])) problems.push(k);
   if (p.badge !== undefined && !(Number.isInteger(p.badge) && p.badge > 0)) problems.push('badge');

@@ -138,7 +138,8 @@ public enum BusyThreadAction {
         if !thread.status.isBusy {
             // Only background work: sub-agents or jobs the runner stops
             // when it lets the CLI go.
-            let what = BackgroundWork.short(thread.background).lowercased()
+            let short = BackgroundWork.short(thread.background)
+            let what = short == "Queued" ? "a job queued" : short.lowercased()
             return ("\(verb) and stop the background work?", "This thread still has \(what) in the background. \(doing) it now stops them.")
         }
         let state = thread.status == .waiting ? "is waiting for you" : "is still working"

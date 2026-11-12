@@ -111,7 +111,19 @@ function syncDeployment(home) {
 // it deploys only what the other one left (usually nothing).
 const LOCK_WAIT_SECS = 30 * 60;
 const LOCKED_ENV = 'DEPLOY_BACKEND_LOCK_HELD';
+// The id this run's wait was reported queued under, for the copy that has
+// the lock to say it's over (docs/protocol.md, "Queued jobs").
+const QUEUED_ENV = 'DEPLOY_BACKEND_QUEUED_ID';
 let unlocked = false;
+
+// Tells the thread's runner this deploy waits for its turn, or has it, with
+// scripts/queued.sh: nothing outside a thread, and never an error.
+function queued(waiting, id = `backend-${process.pid}`) {
+  const script = path.join(import.meta.dirname, '..', '..', 'scripts', 'queued.sh');
+  if (!process.env.THREADBEAR_THREAD_ID || !fs.existsSync(script)) return;
+  const args = waiting ? ['wait', id, 'backend deploy', 'another backend deploy', String(process.pid)] : ['done', id];
+  spawnSync('/bin/bash', [script, ...args], { stdio: 'ignore', timeout: 10_000 });
+}
 
 function lockTool(file, cmd, { wait }) {
   if (process.platform === 'darwin' && fs.existsSync('/usr/bin/lockf')) {
@@ -141,8 +153,14 @@ function underLock(home, argv) {
   }
   // Only for the message: a busy lock right now means a wait.
   const probe = lockTool(file, [process.execPath, '-e', ''], { wait: 0 });
-  if (probe && spawnSync(probe.cmd, probe.args, { stdio: 'ignore' }).status !== 0) say('Waiting for another backend deploy to finish...');
-  const r = spawnSync(tool.cmd, tool.args, { stdio: 'inherit', env: { ...process.env, [LOCKED_ENV]: '1' } });
+  const busy = Boolean(probe && spawnSync(probe.cmd, probe.args, { stdio: 'ignore' }).status !== 0);
+  if (busy) {
+    say('Waiting for another backend deploy to finish...');
+    queued(true);
+  }
+  // The copy under the lock says when it has it (main, below).
+  const r = spawnSync(tool.cmd, tool.args, { stdio: 'inherit', env: { ...process.env, [LOCKED_ENV]: '1', ...(busy ? { [QUEUED_ENV]: `backend-${process.pid}` } : {}) } });
+  if (busy) queued(false);
   if (r.error) throw new Fail(`${tool.cmd} failed: ${r.error.message}`);
   if (r.status === tool.timedOut) throw new Fail(`Another backend deploy was still running after ${LOCK_WAIT_SECS / 60} minutes.`);
   return r.status ?? 1;
@@ -226,6 +244,7 @@ function main(argv) {
   if (!v['dry-run']) {
     const locked = underLock(home, argv);
     if (locked !== undefined) return locked;
+    if (process.env[QUEUED_ENV]) queued(false, process.env[QUEUED_ENV]);
     waitForOldLock(home);
   }
   const state = readJson(stateFile);

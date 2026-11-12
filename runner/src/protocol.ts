@@ -273,6 +273,9 @@ export type ThreadSummary = {
   // (and ones just finished whose result it's about to read). Absent when
   // there's none.
   background?: BackgroundTask[];
+  // Jobs of the thread's waiting for their turn on a lock (docs/protocol.md,
+  // "Queued jobs"), oldest first. Absent when there's none.
+  queued?: QueuedJob[];
   // The sub-agents the agent has started, newest 20, oldest first. Absent
   // when it has started none.
   subagents?: Subagent[];
@@ -642,6 +645,9 @@ export type BackgroundTask = {
   description: string;
   finished?: boolean;
 };
+
+// A job waiting for its turn on a lock, as it said (threads.queued).
+export type QueuedJob = { id: string; what?: string; behind?: string; since: string };
 
 // Agents are still working for this thread: sub-agents, or a workflow's
 // (kind "other"), including ones just finished whose result is still to be

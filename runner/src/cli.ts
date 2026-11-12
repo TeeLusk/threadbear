@@ -57,6 +57,10 @@ const OPTIONS = {
   remove: { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   'despite-red': { type: 'boolean' },
+  what: { type: 'string' },
+  behind: { type: 'string' },
+  pid: { type: 'string' },
+  done: { type: 'boolean' },
   // tb-dev.ts
   last: { type: 'string' },
   tools: { type: 'boolean' },
@@ -152,6 +156,10 @@ const HELP = `tb: talk to the Threadbear runner
                                   marked "# tb land: hold while red" holds the landings it
                                   would run for while it's red on main; --despite-red
                                   lands anyway, for the fix
+  tb queued <id> --what <job> --behind <what> [--pid <pid>] | tb queued <id> --done
+                                  from a thread's job: it's waiting for its turn on a lock, or
+                                  has it now; the app says Queued meanwhile. Does nothing
+                                  outside a thread, and never fails
   tb pair                         what to copy to another Mac (this runner's token file and
                                   host) so its app can open this Mac's threads
   tb runner add <name> (--ssh <host> | --out <file>) [--id <runnerId>]
@@ -218,6 +226,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   export: ['out'],
   rpc: [],
   land: ['dry-run', 'despite-red'],
+  queued: ['what', 'behind', 'pid', 'done'],
   pair: [],
   runner: ['ssh', 'out', 'id', 'json', 'finish', 'replace', 'drop', 'snapshot', 'keys-checked', 'lock-out', 'purge'],
 };
@@ -284,6 +293,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'activity') return activityCommand(cfg, values);
   // Works with no runner too: from any thread/ worktree, by git alone.
   if (cmd === 'land') return landCommand(cfg, Boolean(values['dry-run']), Boolean(values['despite-red']));
+  if (cmd === 'queued') return queuedCommand(cfg, args[0], values);
   // tb pair and tb runner use this Mac's keys straight from disk, so the
   // runner never sees them to refuse them (tb-connect.ts).
   if (cmd === 'pair' || cmd === 'runner') {
@@ -331,6 +341,36 @@ async function main(argv: string[]): Promise<number> {
 }
 
 type Flags = Record<string, string | boolean | string[] | undefined>;
+
+// `tb queued` (docs/protocol.md, "Queued jobs"). Quiet and always 0: a
+// job reports this on its way into a wait, and nothing about the report
+// (no thread, an older runner, no connection) may hold it up or fail it.
+async function queuedCommand(cfg: ReturnType<typeof loadConfig>, id: string | undefined, f: Flags): Promise<number> {
+  const threadId = process.env.THREADBEAR_THREAD_ID;
+  if (!threadId || !id) return 0;
+  const pid = typeof f.pid === 'string' && /^\d+$/.test(f.pid) ? Number(f.pid) : process.ppid;
+  await reportQueued(cfg, threadId, { id, pid, queued: !f.done, what: typeof f.what === 'string' ? f.what : undefined, behind: typeof f.behind === 'string' ? f.behind : undefined });
+  return 0;
+}
+
+export async function reportQueued(cfg: ReturnType<typeof loadConfig>, threadId: string, job: { id: string; pid: number; queued: boolean; what?: string; behind?: string }): Promise<void> {
+  let client: RunnerClient | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const report = (async () => {
+      client = await connectTb(cfg, runnerUrl(cfg));
+      await client.call('hello', { client: 'tb', version: '1' });
+      await client.call('threads.queued', { threadId, ...job });
+    })();
+    // A runner that doesn't answer doesn't keep the job waiting on this.
+    await Promise.race([report, new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('timed out')), 5000)))]);
+  } catch {
+    // Reporting is a courtesy: the job goes on regardless.
+  } finally {
+    if (timer) clearTimeout(timer);
+    (client as RunnerClient | undefined)?.close();
+  }
+}
 
 // `tb land` (docs/thread-worktrees.md, worktrees.ts). The checkout this
 // runs in, if that's on a thread/ branch; inside a thread
@@ -389,9 +429,11 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean, 
     console.error(`Couldn't read the repo's patches: ${(e as Error).message}`);
     return 1;
   }
+  const queuedId = `land-${process.pid}`;
   return land({ ...target, ...(landHow ? { land: landHow } : {}) }, {
     dryRun,
     checkFrom: path.relative(realpath(target.path), realpath(from)),
+    ...(threadId ? { queued: (waiting: boolean) => reportQueued(cfg, threadId, { id: queuedId, pid: process.pid, queued: waiting, what: 'tb land', behind: 'another landing of this repo' }) } : {}),
     // Read after the landing lock and rebase: main may have changed the
     // check while we waited. Running tb land asks for this patch's check.
     readCheck: async () => (await findWorktreePatch(from, undefined, undefined, undefined, TRUST_ALL, true))?.check,

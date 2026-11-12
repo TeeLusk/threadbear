@@ -172,6 +172,9 @@ HOST_LIST="${1:?usage: check-remote.sh <ssh host>[,<ssh host>...] [check.sh opti
 shift
 read -ra HOSTS <<<"$(printf '%s' "$HOST_LIST" | tr ',' ' ')"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Tells the thread's runner when this waits its turn (docs/protocol.md,
+# "Queued jobs"); does nothing outside a thread.
+QUEUED="$ROOT/scripts/queued.sh"
 # A folder only this account can use: it exists (made here if not, mode
 # 0700), isn't a symlink, is owned by this user and has mode 0700 exactly.
 # One that's anything else is never repaired or used (Daybreak, 7 Nov: a
@@ -533,10 +536,15 @@ take_copylock() {
   else /usr/bin/lockf -k "$1" /bin/sh -c "$hold" sh "$ready" "$$" "$release" & fi
   holder=$!
   # Waiting for another check from this checkout counts towards MAX_SECS too.
+  # Past the first look, the thread's runner hears it's queued (queued.sh).
+  local polls=0 said=""
   until [ -e "$ready" ] || ! kill -0 "$holder" 2>/dev/null; do
-    if [ "$(date +%s)" -ge "$DEADLINE" ]; then kill_tree "$holder"; wait "$holder" 2>/dev/null; holder="" release=""; over_time busy; fi
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then kill_tree "$holder"; wait "$holder" 2>/dev/null; holder="" release=""; [ -z "$said" ] || "$QUEUED" done "copy-$$"; over_time busy; fi
+    polls=$((polls + 1))
+    if [ "$polls" = 5 ]; then "$QUEUED" wait "copy-$$" "check" "another check from this checkout" "$$"; said=1; fi
     sleep 0.2
   done
+  [ -z "$said" ] || "$QUEUED" done "copy-$$"
   # The helper gone with no ready file never had the lock (a lock file it
   # can't open): no copy without it.
   if [ ! -e "$ready" ]; then
@@ -553,6 +561,23 @@ drop_copylock() {
   wait "$holder" 2>/dev/null
   rm -f "$release"
   holder="" release=""
+}
+# The host's own lock says "Waiting for another check on <host>" while
+# another check has it: queued from that line until the next one, which is
+# this check under way. Lines pass through as they come.
+queue_watch() {
+  local line said=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$said" ] && [[ "$line" == "Waiting for another check on "* ]]; then
+      "$QUEUED" wait "host-$$" "check" "another check on $1" "$$"
+      said=1
+    elif [ "$said" = 1 ]; then
+      "$QUEUED" done "host-$$"
+      said=2
+    fi
+    printf '%s\n' "$line"
+  done
+  [ "$said" != 1 ] || "$QUEUED" done "host-$$"
 }
 finish() {
   drop_copylock
@@ -694,7 +719,7 @@ while :; do
   # A failed step's log path is on the host: its logs come back here, and the
   # path in the output is changed to match.
   local_logs="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-check-remote.XXXXXX")"
-  watched "$HOST" "${SSH[@]}" "$HOST" "$remote_cmd" 2>&1 | rewrite_logs "$remote_base/tmp-$id/threadbear-check." "$local_logs"
+  watched "$HOST" "${SSH[@]}" "$HOST" "$remote_cmd" 2>&1 | queue_watch "$HOST" | rewrite_logs "$remote_base/tmp-$id/threadbear-check." "$local_logs"
   code=${PIPESTATUS[0]}
   if [ "$code" = 125 ]; then
     rmdir "$local_logs" 2>/dev/null

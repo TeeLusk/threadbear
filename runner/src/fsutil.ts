@@ -83,7 +83,7 @@ export function removeTempFiles(...dirs: string[]): number {
   return removed;
 }
 
-function pidAlive(pid: number): boolean {
+export function pidAlive(pid: number): boolean {
   // 0 or less would ask about a process group, which is always there.
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {

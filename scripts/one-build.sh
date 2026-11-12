@@ -27,14 +27,29 @@ mkdir -p "$dir" || exec "$@"
 lock="$dir/build.lock"
 export THREADBEAR_BUILD_LOCK_HELD=1
 
+# Waiting: said here, and to the thread's runner, which shows the job as
+# Queued until the lock is ours (scripts/queued.sh; this shell's pid is the
+# lock tool's after exec, so the runner sees the wait end if it's killed).
+queued="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/queued.sh"
+waiting() {
+  echo "Waiting for another Threadbear build on this machine to finish..." >&2
+  "$queued" wait "build-$$" "$(basename "$1")${2:+ $2}" "another Threadbear build on this machine" "$$"
+}
+
 if [ -x /usr/bin/lockf ]; then
   # A quick try first, only to say why it's waiting. It keeps the file too (-k):
   # without it lockf unlinks the file as `true` ends, and a build already waiting
   # on that file would take a lock on nothing, beside the one made next.
-  /usr/bin/lockf -k -s -t 0 "$lock" true 2>/dev/null || echo "Waiting for another Threadbear build on this machine to finish..." >&2
+  if ! /usr/bin/lockf -k -s -t 0 "$lock" true 2>/dev/null; then
+    waiting "$@"
+    exec /usr/bin/lockf -k "$lock" "$queued" done "build-$$" -- "$@"
+  fi
   exec /usr/bin/lockf -k "$lock" "$@"
 elif command -v flock >/dev/null 2>&1; then
-  flock -n "$lock" true 2>/dev/null || echo "Waiting for another Threadbear build on this machine to finish..." >&2
+  if ! flock -n "$lock" true 2>/dev/null; then
+    waiting "$@"
+    exec flock "$lock" "$queued" done "build-$$" -- "$@"
+  fi
   exec flock "$lock" "$@"
 fi
 exec "$@"

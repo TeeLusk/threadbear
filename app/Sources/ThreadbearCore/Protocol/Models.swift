@@ -901,11 +901,16 @@ public struct BackgroundTask: Sendable, Hashable, Codable {
     /// The CLI's own words: the sub-agent's brief, the command. May be empty.
     public var description: String
     public var finished: Bool
+    /// Set when it's waiting for its turn on a lock: what it waits for
+    /// ("another landing of this repo"), or "" when it didn't say. From the
+    /// summary's `queued` (protocol "Queued jobs"), never sent.
+    public var queuedBehind: String?
 
-    public init(kind: Kind, description: String, finished: Bool = false) {
+    public init(kind: Kind, description: String, finished: Bool = false, queuedBehind: String? = nil) {
         self.kind = kind
         self.description = description
         self.finished = finished
+        self.queuedBehind = queuedBehind
     }
 
     public init(from decoder: Decoder) throws {
@@ -924,6 +929,22 @@ public struct BackgroundTask: Sendable, Hashable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case kind, description, finished
+    }
+}
+
+/// A job of the thread's waiting for its turn on a lock, as it said
+/// (protocol "Queued jobs"): a landing behind another, a build, a check.
+public struct QueuedJob: Sendable, Hashable, Codable {
+    public var id: String
+    public var what: String?
+    public var behind: String?
+    public var since: String?
+
+    public init(id: String, what: String? = nil, behind: String? = nil, since: String? = nil) {
+        self.id = id
+        self.what = what
+        self.behind = behind
+        self.since = since
     }
 }
 
@@ -1263,6 +1284,9 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     /// Background sub-agents and shell jobs the CLI is still running (and
     /// ones just finished whose result it's about to read). Empty when none.
     public var background: [BackgroundTask]
+    /// Jobs waiting for their turn on a lock (protocol "Queued jobs"). The
+    /// background shell jobs are marked from these (`queuedBehind`).
+    public var queued: [QueuedJob] = []
     /// The sub-agents the agent has started: the newest 20, oldest first.
     public var subagents: [Subagent]
     /// The projects it's in, oldest first. Empty when it's in none (or the
@@ -1457,7 +1481,8 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         actions = c.lossyArray(Action.self, forKey: .actions)
         hooks = c.lossyArray(Hook.self, forKey: .hooks)
         patches = c.lossyArray(PatchInfo.self, forKey: .patches)
-        background = c.lossyArray(BackgroundTask.self, forKey: .background)
+        queued = c.lossyArray(QueuedJob.self, forKey: .queued)
+        background = BackgroundWork.marking(c.lossyArray(BackgroundTask.self, forKey: .background), queued: queued)
         subagents = c.lossyArray(Subagent.self, forKey: .subagents)
         projects = c.lossyArray(ThreadProject.self, forKey: .projects)
         poolId = ((try? c.decodeIfPresent(String.self, forKey: .poolId)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
@@ -1527,6 +1552,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
         if !hooks.isEmpty { try c.encode(hooks, forKey: .hooks) }
         if !patches.isEmpty { try c.encode(patches, forKey: .patches) }
         if !background.isEmpty { try c.encode(background, forKey: .background) }
+        if !queued.isEmpty { try c.encode(queued, forKey: .queued) }
         if !subagents.isEmpty { try c.encode(subagents, forKey: .subagents) }
         if !projects.isEmpty { try c.encode(projects, forKey: .projects) }
         try c.encodeIfPresent(poolId, forKey: .poolId)
@@ -1556,7 +1582,7 @@ public struct ThreadSummary: Sendable, Hashable, Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, title, cwd, accountId, provider, model, effort, modelInUse, effortInUse, permissionMode, status, live, needsYou, pendingReviews
         case createdAt, updatedAt, lastActivityAt, snoozedUntil, snoozedUntilRestart, snoozedUntilRelease, wakeWhen, waitingOn, woke, archivedAt, starredAt, onOldRunner, preview
-        case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, contextLong, continuing, continuedIn, costUsd, panels, actions, hooks, patches, background, subagents
+        case lastSeq, lastSeenSeq, nativeSessionId, contextTokens, contextWindow, contextLong, continuing, continuedIn, costUsd, panels, actions, hooks, patches, background, queued, subagents
         case projects, worktree, needs, asks, asksSeq, highlightsAt, schedule, startedBy, asked, keywords, poolId, waitingForRoom, carryOnAtReset, waitingForNetwork, panelRequest, share, sample, looseEnds, moving, prs
     }
 

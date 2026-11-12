@@ -348,6 +348,8 @@ type ThreadSummary = {
                         // agent hasn't read yet. Absent when there's none.
                         // Set during a turn too; between turns it's the
                         // sign the thread is still being worked on
+  queued?: QueuedJob[]  // jobs of the thread's waiting for their turn on a
+                        // lock (see Queued jobs). Absent when there's none
   subagents?: Subagent[] // the sub-agents the agent has started, foreground
                         // and background: the newest 20, oldest first.
                         // Absent when it has started none
@@ -1130,6 +1132,7 @@ the summary and then the reply.
 | `threads.samples` | `{ cwd: string, remove?: boolean }` | `{ threads: ThreadSummary[] }`. The app's first-run tour's sample threads (`runner/src/samples.ts`): made up exchanges written as finished turns with no CLI, in `cwd` (the app's `~/ThreadbearThreads/Welcome`, where it writes an example patch), with `sample: true`; the first needs you, with a card of asks, and one is left unread. Asking again deletes any there are and makes them afresh (writing the patch again if it's gone, and trusting it as written). `remove: true` deletes them all, archived and hibernating ones too, and returns none. `threads.send` to a sample is `-32602` |
 | `threads.send` | `{ threadId, text, images?: ImageRef[], answers?: AskAnswer[], origin?: "phone" }` | `{ turnId }`. `text` can place the `images` among its words with `[Picture N]` markers (Pictures in a message). `origin: "phone"` is only for a phone command the primary passes on to a draining runner (Sync, "Commands"), so the message keeps its origin there; any other `origin` is `-32602`. If a turn is running and its CLI is live, the message goes into that turn straight away (a `user.message` under the running `turnId`, which is returned): the agent takes it at its next step, or right after its reply if that was already finishing, and the turn doesn't complete until it has been answered. If the thread was moved to another login (usually another provider) during the running turn, a message from Mike (or the phone) doesn't steer into the old CLI: the turn is stopped (`system.note` "Stopped here so <model> can take over.") and the message starts the next turn on the new login, with the handoff, as T3 Code does. If the agent is waiting on a card for its own tool call (an approval or a question, with an `itemId`), a message from Mike declines that card first (`approval.resolved` with `deny` and a `message` telling the agent he wrote instead), as the CLI reads nothing else until the card is answered; a background subagent's card is left open. Otherwise (the CLI is still starting or leaving, messages are already waiting, a move or fresh CLI is due on the next turn, Stop has been pressed, or the turn was opened only for a card) the message is queued and starts its own turn when the running one ends |
 | `threads.interrupt` | `{ threadId }` | `{}` |
+| `threads.queued` | `{ threadId, id, pid, queued: boolean, what?, behind? }` | `{}`: a job of the thread's says it's waiting for its turn (`queued: true`) or has it now (`false`). See Queued jobs |
 | `threads.edit` | `{ threadId, seq, text, images?: ImageRef[], stopBackground?: boolean }` | `{ turnId, rewound: { seq, fromSeq, toSeq, files } }`. Replaces the message at `seq` and carries on from there (see Editing a message): stops any turn, cuts the conversation back to just before it, undoes the agent's file changes since, and sends `text` as a new turn. Answers once the new turn has started, which can take a few seconds. `-32602` with the reason when the message can't be edited; `-32020` while another edit of the thread is under way or the runner is handing over; `-32050` while the thread has background work running and `stopBackground` isn't `true` (see Editing a message) |
 | `threads.continueFresh` | `{ threadId }` | `{ turnId }`. Continue in a new thread (Long threads): sends the thread a message asking its agent for a handoff, and once that turn completes starts a new thread with it. `-32020` busy while a turn is running or a handoff is already being written |
 | `threads.update` | `{ threadId, title?, titleBy?: "mike" \| "agent", cwd?, accountId?, poolId?: string \| null, model?: string \| null, effort?: EffortLevel \| null, permissionMode?, snoozedUntil?: string \| null, archived?: boolean, archivedBy?: "mike" \| "agent" \| "threadbear", verdict?: "worked" \| "didntWork" \| "notNeeded", starred?: boolean, carryOnAtReset?: boolean, carryOn?: boolean }` | `{ thread: ThreadSummary }`. `carryOn` with an `accountId` on a thread whose last turn stopped at its login's limit carries on there at once with the runner's own carry-on message, rather than waiting for one from Mike (the limit box's Continue now on, since 12 Nov 2026); otherwise it's ignored. `archivedBy` and `verdict` go with `archived: true`; see "Who archived a thread". `starred` sets or clears `starredAt`; starring a thread that's already starred keeps its place, and neither stops a turn. A `title` is Mike's unless `titleBy` is `"agent"` (the `update_thread` tool, unless the agent says Mike asked for it). Once Mike has named a thread, an agent's different title is `-32602` and nothing in the call changes, and no model title replaces it. `snoozedUntil` is an ISO time, or `"restart"` for until the runner next starts (any start: a planned restart, a crash, a reboot), when the thread wakes before the restart's resume is sent, so a thread put away while its own restart waited is still carried on. `"release"` is the same but only a start (or taking it over from a draining runner) on another release than this runner's wakes it, so a crash or a restart on the same build leaves it asleep (`snoozedUntilRelease`); a runner from a source checkout has no release to tell apart, so there it is `"restart"`. `update_thread`, `end_turn`'s `snooze` and `tb snooze` take it too. Snoozing or archiving releases the CLI (and archives a Codex thread in Codex too). Changing account or cwd takes effect on the next turn; an account change during a turn says so in a `system.note` ("<model> takes over from your next message, which stops this turn."), see `threads.send`. A model or effort change reaches a live Claude CLI straight away (`null` goes back to the default); on Codex it applies from the next turn, with a `system.note` if a turn is running. A folder change on the same Claude account copies the native session's transcript to the new folder and resumes it; on the same Codex account the session carries on in the new folder from the next turn. Otherwise (or if that fails) it starts a new native session with a handoff note: the thread so far under a 16,000-character budget (runner/src/handoff-history.ts, after T3 Code's): messages, tool calls with a little of their output, edited files and errors; the last user message, the last reply and the first message first, then newest to oldest, with gaps marked and a pointer to `read_thread` for the rest. An account of the other provider switches `provider`, resets `model` and `effort` to that provider's defaults unless the same call sets them, and clears the thread's "Always allow" rules. `model` and `effort` are checked as in "Models and effort across providers". `accountId` pins the thread to that login (clearing `poolId`). `poolId: null` pins it to its current login; a pool id puts it in that pool, and moves it onto one of the pool's logins at once (from the next turn) if its current one isn't in it; an unknown one is `-32602`. A move from one Claude login to another copies the session's transcript into the new login's config folder and resumes it there, as a folder move does |
@@ -1686,6 +1689,33 @@ back if it said it would, and use `schedule_message` for a long wait.
   this thread about its stopped background work: <why>." instead. The third
   wake says it's the last.
 - A crash stops the work without saying what it was, so nothing is told then.
+
+### Queued jobs
+
+Added 12 Nov 2026. A job that waits on a lock (a landing behind another
+landing, a check behind another check on the check host, a build behind
+another build on this Mac) looked to the app like one working: Ville saw
+"1 job running" while `tb land` sat on "Waiting for another landing". The
+CLI only says a background job is there, so the jobs say it themselves:
+`threads.queued` with `queued: true` when one starts waiting, and
+`queued: false` with the same `id` once it has its turn. `what` is the job
+("tb land"), `behind` what it waits for ("another landing of this repo").
+`pid` is the waiting process: the runner drops the entry once it has gone,
+so one killed while waiting doesn't stay queued.
+
+The thread's summary has them as `queued: { id, what?, behind?, since }[]`,
+oldest first, and a `thread.updated` goes out at each change. The Mac app
+says "Queued" on the thread's row and "Queued behind another landing" on
+the transcript's background line. A thread's own key may report only for
+that thread; a caller with the runner's token, for any.
+
+`tb queued <id> --what <job> --behind <what> [--pid <pid>]` reports one
+and `tb queued <id> --done` ends it, from a thread's shell
+(`THREADBEAR_THREAD_ID`); elsewhere they do nothing. `scripts/queued.sh`
+wraps them for shell scripts (`one-build.sh`, `check-remote.sh`), and
+`tb land` and `deploy-backend.mjs` call the runner themselves. Any failure
+(an older runner, no connection) is ignored: reporting never holds a job
+up.
 
 ### Stuck background jobs
 

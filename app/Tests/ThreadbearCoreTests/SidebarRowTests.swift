@@ -72,6 +72,29 @@ final class SidebarRowTests: XCTestCase {
         XCTAssertEqual(ThreadRowLook(thread).status, .background)
     }
 
+    /// A job waiting its turn on a lock (protocol "Queued jobs") says
+    /// Queued, not running: Ville saw "1 job running" while tb land
+    /// waited behind another landing (12 Nov).
+    func testQueuedJobsSayQueued() throws {
+        let land = BackgroundTask(kind: .shell, description: "tb land")
+        let marked = BackgroundWork.marking([BackgroundTask(kind: .agent, description: "a"), land], queued: [QueuedJob(id: "land-1", what: "tb land", behind: "another landing of this repo")])
+        XCTAssertNil(marked[0].queuedBehind, "only shell jobs")
+        XCTAssertEqual(marked[1].queuedBehind, "another landing of this repo")
+        XCTAssertEqual(BackgroundWork.short([marked[1]]), "Queued")
+        XCTAssertEqual(BackgroundWork.short(marked), "2 jobs", "not all of it is waiting")
+        XCTAssertEqual(BackgroundWork.line([marked[1]]), "1 job queued behind another landing of this repo")
+        XCTAssertEqual(BackgroundWork.line(marked), "1 job queued behind another landing of this repo, 1 sub-agent working")
+        XCTAssertEqual(BackgroundWork.detail([marked[1]]), "tb land (queued behind another landing of this repo)")
+        XCTAssertEqual(BackgroundWork.marking([land], queued: []), [land])
+        // From the runner's summary, and kept through the app's own copy.
+        let json = #"{"id":"a","title":"t","cwd":"/","accountId":"c","provider":"claude","permissionMode":"full","status":"idle","live":true,"needsYou":false,"createdAt":"2026-11-12T00:00:00Z","updatedAt":"2026-11-12T00:00:00Z","lastActivityAt":"2026-11-12T00:00:00Z","preview":"","lastSeq":1,"lastSeenSeq":1,"background":[{"kind":"shell","description":"tb land"}],"queued":[{"id":"land-1","what":"tb land","behind":"another landing of this repo","since":"2026-11-12T00:00:00Z"},{"bad":1}]}"#
+        let summary = try JSONDecoder().decode(ThreadSummary.self, from: Data(json.utf8))
+        XCTAssertEqual(summary.queued.map(\.id), ["land-1"])
+        XCTAssertEqual(BackgroundWork.short(summary.background), "Queued")
+        let again = try JSONDecoder().decode(ThreadSummary.self, from: JSONEncoder().encode(summary))
+        XCTAssertEqual(again.background, summary.background)
+    }
+
     func testBackgroundWords() {
         let agent = { (d: String) in BackgroundTask(kind: .agent, description: d) }
         let shell = { (d: String) in BackgroundTask(kind: .shell, description: d) }

@@ -150,6 +150,11 @@ export class CallerGate {
         if (id === threadId) throw new RpcError(ErrorCode.notAllowed, "That's the thread this runs in. Just end the turn.");
         return { ...p, byAgent: true };
       }
+      // Its own jobs only (docs/protocol.md, "Queued jobs").
+      case 'threads.queued': {
+        if (str(p, 'threadId') !== threadId) throw new RpcError(ErrorCode.notAllowed, "A thread reports only its own jobs as queued.");
+        return p;
+      }
       case 'threads.update':
         return this.update(threadId, caller, p, needs);
       case 'threads.setProjects': {

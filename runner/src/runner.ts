@@ -54,7 +54,7 @@ import type {
 } from './protocol.ts';
 import { agentsStillWorking, ErrorCode, LIMITS, PROTOCOL_VERSION, RpcError, sentByAgent } from './protocol.ts';
 import { activeProviders, cliName, providerInfo, providerName, providersForHello } from './providers.ts';
-import type { ArchivedBy, ArchiveVerdict, LibrarianStatus, LooseEnd, Project, Schedule } from './protocol.ts';
+import type { ArchivedBy, ArchiveVerdict, LibrarianStatus, LooseEnd, Project, QueuedJob, Schedule } from './protocol.ts';
 import { Projects } from './projects.ts';
 import type { Settings } from './settings.ts';
 import type {
@@ -87,7 +87,7 @@ import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage
 import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
-import { isDirectory } from './fsutil.ts';
+import { isDirectory, pidAlive } from './fsutil.ts';
 import { commandFolders } from './tools.ts';
 import { copySessionTranscript, subagentTranscriptPath } from './transcripts.ts';
 import { historyItems, selectHistory } from './handoff-history.ts';
@@ -387,6 +387,11 @@ type Runtime = {
   lastOutputAt?: number;
   frozen?: boolean;
   tasks: BackgroundTask[]; // background work the live CLI is running
+  // Jobs that said they're waiting for their turn (threads.queued), by
+  // their id, with the waiting process, and the timer that drops one
+  // whose process has gone.
+  queued?: Map<string, QueuedJob & { pid: number }>;
+  queuedTimer?: ReturnType<typeof setInterval>;
   // The version of the CLI running the live session, from its cliVersion
   // output (Codex reports it; Claude doesn't yet).
   cliVersion?: string;
@@ -509,6 +514,8 @@ export type Drain = {
 
 // How often a draining runner looks again at threads it keeps for
 // background work, since that work's limit passes without an event.
+// How often a queued job's process is looked for (docs/protocol.md, "Queued jobs").
+export const QUEUED_CHECK_MS = 3000;
 export const DRAIN_CHECK_MS = 5000;
 // How long background shells and monitors hold a kept thread after its last
 // turn. Most are waits that end by themselves, and the runner updates after
@@ -2746,6 +2753,43 @@ export class Runner {
   // byMike: his Stop, in the app or on the phone. Everything else that stops
   // a turn (an agent's interrupt_thread, an archive, a move) mustn't reach
   // the agent as his decision (docs/protocol.md, "Who stopped it").
+  // docs/protocol.md, "Queued jobs": a job of the thread's says it's
+  // waiting for its turn on a lock, or has it now. Kept while its process
+  // lives, as one killed while waiting never says it's done.
+  setQueued(threadId: string, job: { id: string; pid: number; queued: boolean; what?: string; behind?: string }): Record<string, never> {
+    const st = this.mustGet(threadId);
+    const { rt } = st;
+    const clip = (t?: string) => (t ? t.slice(0, 200) : undefined);
+    if (job.queued) {
+      rt.queued ??= new Map();
+      if (!rt.queued.has(job.id) && rt.queued.size >= 20) return {};
+      rt.queued.set(job.id, { id: job.id, pid: job.pid, ...(job.what ? { what: clip(job.what) } : {}), ...(job.behind ? { behind: clip(job.behind) } : {}), since: rt.queued.get(job.id)?.since ?? this.isoNow() });
+      rt.queuedTimer ??= setInterval(() => this.dropGoneQueued(st), QUEUED_CHECK_MS);
+      rt.queuedTimer.unref?.();
+    } else if (!rt.queued?.delete(job.id)) return {};
+    if (!rt.queued?.size) this.stopQueuedTimer(st);
+    this.markDirty(st);
+    return {};
+  }
+
+  private dropGoneQueued(st: ThreadState): void {
+    const { rt } = st;
+    let changed = false;
+    for (const [id, j] of rt.queued ?? []) {
+      if (pidAlive(j.pid)) continue;
+      rt.queued!.delete(id);
+      changed = true;
+    }
+    if (!rt.queued?.size) this.stopQueuedTimer(st);
+    if (changed) this.markDirty(st);
+  }
+
+  private stopQueuedTimer(st: ThreadState): void {
+    if (st.rt.queuedTimer) clearInterval(st.rt.queuedTimer);
+    st.rt.queuedTimer = undefined;
+    st.rt.queued = undefined;
+  }
+
   interrupt(threadId: string, opts: { byMike?: boolean } = {}): Record<string, never> {
     const st = this.mustGet(threadId);
     const { rt } = st;
@@ -3506,6 +3550,7 @@ export class Runner {
     if (set.hooks.length) s.hooks = set.hooks;
     if (patches.length) s.patches = patches;
     if (background.length) s.background = background;
+    if (rt.queued?.size) s.queued = [...rt.queued.values()].map(({ pid: _pid, ...j }) => j);
     if (rec.subagents?.length) s.subagents = rec.subagents.map(publicSubagent);
     const projects = this.projects?.threadProjects(rec);
     if (projects) s.projects = projects;

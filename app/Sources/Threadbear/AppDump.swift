@@ -1475,6 +1475,12 @@ struct AppDump: Encodable {
             let links = HighlightSections.capped(sections.links, limit: HighlightSections.linkLimit, showAll: flags?.allLinks ?? false)
             add(HighlightFold.links, "Links", count: sections.links.count, rows: links.shown.map(item) + (links.more > 0 ? [Pane.Row(title: "Show all \(sections.links.count)", symbol: "ellipsis")] : []))
         }
+        if !sections.runs.isEmpty {
+            let runs = HighlightSections.capped(sections.runs, limit: HighlightSections.runLimit, showAll: flags?.allRuns ?? false)
+            add(HighlightFold.runs, "Runs", count: sections.runs.count, rows: runs.shown.map {
+                Pane.Row(title: $0.workflow, trailing: $0.status.word.isEmpty ? nil : $0.status.word, detail: CiRunText.detail($0, now: app.now), symbol: CiRunText.symbol($0.status))
+            } + (runs.more > 0 ? [Pane.Row(title: "Show all \(sections.runs.count)", symbol: "ellipsis")] : []))
+        }
         if !sections.commits.isEmpty || !sections.edited.isEmpty {
             let commits = HighlightSections.capped(sections.commits, limit: HighlightSections.commitLimit, showAll: flags?.allCommits ?? false)
             var rows = commits.shown.map(item)
@@ -1498,7 +1504,7 @@ struct AppDump: Encodable {
         let sections = HighlightSections.build(fetched)
         if sections.isEmpty { return "empty" }
         let parts = [("pinned", sections.pinned.count), ("files", sections.files.count), ("links", sections.links.count),
-                     ("commits", sections.commits.count), ("edited", sections.edited.count)]
+                     ("runs", sections.runs.count), ("commits", sections.commits.count), ("edited", sections.edited.count)]
         let counts = parts.filter { $0.1 > 0 }.map { "\($0.1) \($0.0)" }
         let folded = app.collapsedHighlights.isEmpty ? [] : ["folded: \(app.collapsedHighlights.sorted().joined(separator: " "))"]
         return ((sections.brief != nil ? ["a brief"] : []) + counts + folded).joined(separator: ", ")

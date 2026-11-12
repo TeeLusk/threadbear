@@ -4604,6 +4604,8 @@ type Highlight = {
   sha?: string          // commit: short sha
   branch?: string       // commit
   pushed?: true         // commit: a later git push in the thread sent its branch
+  pushedAt?: string     // commit: when that push was
+  repo?: string         // commit: "owner/name", from the push's "To" line, on GitHub
   seq: number           // the event it was first seen in (a pin: lastSeq then)
   lastSeq: number       // the latest event that mentioned it
   at: string            // when it was first seen
@@ -4615,6 +4617,18 @@ type ThreadHighlights = {
                         // at most 200
   brief?: { text: string; at: string } // the librarian's line on where
                         // the thread is up to (see Projects)
+  runs?: CiRun[]        // experiment ciRuns: GitHub Actions runs, newest
+                        // first, at most 30 (below)
+}
+type CiRun = {
+  id: string            // "run:<GitHub's run id>"
+  workflow: string      // its name
+  status: "queued" | "running" | "passed" | "failed" | "cancelled" | "skipped"
+  url: string           // the run on github.com
+  sha: string           // short
+  branch?: string
+  event?: string        // push, pull_request, workflow_dispatch...
+  at: string            // when GitHub made it
 }
 ```
 
@@ -4636,6 +4650,25 @@ time a client asks and then from where it got to:
 - **Commits**: the `[branch sha] message` line `git commit` prints. A
   later `git push` that prints `a..b branch -> branch` (or `[new branch]`)
   marks that branch's commits `pushed`.
+
+**Runs** (experiment `ciRuns`, off by default). A commit marked `pushed`
+with a `repo`, or one whose short sha resolves in the thread's folder, and
+a `gh workflow run` that worked (its workflow, `--ref`, `-R`, and the run's
+id when gh printed the run's URL) are watched. The runner asks the `gh`
+CLI on the user's own login, in the thread's folder through a login shell:
+`gh run list --commit <full sha>` for a commit, the first
+`workflow_dispatch` run of that workflow since the dispatch, then
+`gh run view <id>`, for a dispatch. It never reads a token. The first look
+is 5 seconds after a tool result that looks like a push or a dispatch
+(and on `threads.highlights`, so a restart picks up where it was); then
+every 15 seconds, doubling while nothing changes, at most 2 minutes. A
+watch ends when its runs have all finished (30 seconds or more after the
+push, as runs come a few seconds later), after 3 minutes with no runs, or
+after 2 hours. Nothing is asked for an archived or deleted thread, or with
+the experiment off. A failing `gh` (missing, logged out, offline) counts
+as a quiet look. A change of a run's status sets `highlightsAt`; a quiet
+look sends nothing. The app shows them as Runs, between Links and Changes,
+each row opening its `url`. A client that doesn't know `runs` ignores it.
 
 **Pins.** An agent pins with the `pin` tool: `{ path? | url?, title?,
 note?, show? }` (a path relative to its folder is fine; it must exist;

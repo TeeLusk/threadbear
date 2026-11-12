@@ -1,4 +1,5 @@
 import type { HighlightState } from './highlights.ts';
+import type { CiRunsState } from './ci-runs.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { WaitingForRoom, Ask, AskAnswer, NeedsWho, DesignReview, ReplyButton, ReviewDraft, EffortLevel, MessageOrigin, PanelRequest, PermissionMode, ThreadShare, PersistedEvent, Provider, ArchivedBy, ArchiveVerdict, Subagent, ThreadProject, ThreadSchedule, ThreadStartedBy, ThreadStatus, ImageRef, LooseEnd, ContextUsage, LabReviewLedger, ReviewFinding } from './protocol.ts';
@@ -288,6 +289,8 @@ export type ThreadRecord = {
   highlights?: HighlightState;
   highlightsAt?: string; // a pin, a removal or a new brief
   prs?: import('./pr-status-types.ts').TrackedPr[]; // pull request status (runner/prs.ts)
+  // GitHub Actions runs it set off (ci-runs.ts, experiment ciRuns).
+  ciRuns?: CiRunsState;
   brief?: { text: string; at: string }; // the librarian's line on where the thread is up to
   // The thread's own git worktree (worktrees.ts), once it's made.
   worktree?: WorktreeRecord;

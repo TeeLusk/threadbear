@@ -3590,6 +3590,13 @@ The new hero is shorter, and every page now leads with what the app does.
       ],
       edited: ['ios/App/Info.plist', 'ios/fastlane/Fastfile', 'ios/RELEASE_NOTES.md']
         .map((rel) => `/Users/mike/dev/me/app/${rel}`),
+      // GitHub Actions runs its pushes set off (experiment ciRuns).
+      runs: [
+        { id: 'run:903', workflow: 'TestFlight upload', status: 'running', url: 'https://github.com/mikecann/app/actions/runs/903', sha: '9f3c2e1', branch: 'beta-2', event: 'push', at: new Date(Date.now() - 90_000).toISOString() },
+        { id: 'run:902', workflow: 'Lint', status: 'queued', url: 'https://github.com/mikecann/app/actions/runs/902', sha: '9f3c2e1', branch: 'beta-2', event: 'push', at: new Date(Date.now() - 95_000).toISOString() },
+        { id: 'run:901', workflow: 'CI', status: 'failed', url: 'https://github.com/mikecann/app/actions/runs/901', sha: '9f3c2e1', branch: 'beta-2', event: 'push', at: new Date(Date.now() - 100_000).toISOString() },
+        { id: 'run:880', workflow: 'CI', status: 'passed', url: 'https://github.com/mikecann/app/actions/runs/880', sha: '4b7d0a8', branch: 'beta-2', event: 'push', at: new Date(Date.now() - 14 * 60_000).toISOString() },
+      ],
     });
   }
   // Threads Mike didn't start (docs/protocol.md, "Who started a thread").

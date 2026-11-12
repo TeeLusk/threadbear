@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { PersistedEvent } from './protocol.ts';
 import { replaceLinks, trimEndOf } from './linear-text.ts';
+import type { CiRun } from './ci-runs.ts';
 
 export type HighlightKind = 'file' | 'link' | 'pr' | 'commit';
 export type HighlightHow = 'pinned' | 'written' | 'opened' | 'mentioned' | 'created' | 'committed';
@@ -29,6 +30,8 @@ export type Highlight = {
   sha?: string;
   branch?: string;
   pushed?: true;
+  pushedAt?: string; // commit: when that push was
+  repo?: string; // commit: owner/name, from the push's "To" line, on GitHub
   seq: number;
   lastSeq: number;
   at: string;
@@ -38,6 +41,8 @@ export type ThreadHighlights = {
   highlights: Highlight[];
   edited: string[];
   brief?: { text: string; at: string };
+  // GitHub Actions runs the thread set off, newest first (experiment ciRuns).
+  runs?: CiRun[];
 };
 
 // Kept on the thread record.
@@ -49,7 +54,13 @@ export type HighlightState = {
   // Command calls whose result matters (git commit, git push, gh pr
   // create), by itemId, until their tool.result comes.
   pending?: Record<string, { command: string }>;
+  // Workflows started with `gh workflow run`, for the ciRuns experiment
+  // (ci-runs.ts). Not shown as highlights.
+  dispatches?: Dispatch[];
 };
+
+export type Dispatch = { seq: number; workflow: string; ref?: string; repo?: string; runId?: number; at: string };
+const DISPATCHES_KEPT = 20;
 
 export const HIGHLIGHTS_KEPT = 80;
 export const EDITED_KEPT = 200;
@@ -106,7 +117,7 @@ export function observe(state: HighlightState, events: Iterable<PersistedEvent>,
               if (isFile(abs)) add({ id: `file:${abs}`, kind: 'file', title: path.basename(abs), path: abs, how: 'opened', seq: e.seq }, e);
             }
           }
-          if (gitRuns(input.command, 'commit') || gitRuns(input.command, 'push') || /\bgh\s+pr\s+create\b/.test(input.command)) {
+          if (gitRuns(input.command, 'commit') || gitRuns(input.command, 'push') || /\bgh\s+pr\s+create\b/.test(input.command) || /\bgh\s+workflow\s+run\b/.test(input.command)) {
             (state.pending ??= {})[e.itemId] = { command: input.command };
           }
         }
@@ -134,14 +145,24 @@ export function observe(state: HighlightState, events: Iterable<PersistedEvent>,
             add(item, e);
           }
         }
+        if (e.ok) {
+          const d = dispatchOf(call.command, text);
+          if (d) {
+            state.dispatches = [...(state.dispatches ?? []), { ...d, seq: e.seq, at: e.ts }].slice(-DISPATCHES_KEPT);
+            changed = true;
+          }
+        }
         if (gitRuns(call.command, 'push') && e.ok) {
           const branches = new Set([...pushedBranches(text), ...pushArgBranches(call.command)]);
+          const repo = pushedRepo(text);
           for (const item of state.items) {
             if (item.kind !== 'commit' || item.pushed) continue;
             // A push whose branch can't be told (`git push -q`) sends what
             // the thread has just committed, near enough.
             if (!branches.size || !item.branch || branches.has(item.branch)) {
               item.pushed = true;
+              item.pushedAt = e.ts;
+              if (repo) item.repo = repo;
               item.lastSeq = e.seq;
               changed = true;
             }
@@ -368,6 +389,41 @@ export function pushArgBranches(command: string): string[] {
 // cubic in a push's output of newlines (64 KB of them is hours). No line
 // break of any kind in that space, as `^` starts again after each one (a
 // \r, U+2028 and U+2029 too), and each start would scan the rest of the run.
+// The GitHub repo a push went to, from git's "To <remote>" line.
+export function pushedRepo(text: string): string | undefined {
+  const m = /^To (?:https:\/\/(?:[^@\s/]+@)?github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([\w.-]+\/[\w.-]+?)(?:\.git)?\/?\s*$/m.exec(text);
+  return m?.[1];
+}
+
+// A `gh workflow run <workflow> [--ref x] [-R owner/repo]` that worked: the
+// workflow, and the run's id when gh printed its URL.
+export function dispatchOf(command: string, text: string): Omit<Dispatch, 'seq' | 'at'> | undefined {
+  const m = /\bgh\s+workflow\s+run\s+(.*)/.exec(command);
+  if (!m) return undefined;
+  const words = (m[1].split(/\s*(?:&&|\|\||;|\||\n)/)[0].match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^(["'])(.*)\1$/, '$2'));
+  let workflow: string | undefined;
+  const out: Omit<Dispatch, 'seq' | 'at' | 'workflow'> = {};
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const flag = /^(--ref|-r|--repo|-R)(?:=(.*))?$/.exec(w);
+    if (flag) {
+      const v = flag[2] ?? words[++i];
+      if (!v) break;
+      if (flag[1] === '--ref' || flag[1] === '-r') out.ref = v;
+      else if (/^[\w.-]+\/[\w.-]+$/.test(v)) out.repo = v;
+    } else if (/^-[fF]$|^--(?:field|raw-field|json)$/.test(w)) i++;
+    else if (w.startsWith('-')) continue;
+    else workflow ??= w;
+  }
+  if (!workflow) return undefined;
+  const run = /github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)/.exec(text);
+  if (run) {
+    out.runId = Number(run[2]);
+    out.repo ??= run[1];
+  }
+  return { workflow, ...out };
+}
+
 export function pushedBranches(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(/^[^\S\n\r\u2028\u2029]*(?:[+*][^\S\n\r\u2028\u2029]*)?(?:[0-9a-f]{7,40}\.{2,3}[0-9a-f]{7,40}|\[new branch\])\s+(\S+)\s+->\s+\S+/gm)) out.add(m[1]!);

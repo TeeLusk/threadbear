@@ -813,6 +813,9 @@ From the top, and only when there's something to show:
   or mentioned.
 - **Links**: web pages and pull requests it opened or mentioned (one
   with a card under Pull requests isn't listed again).
+- **Runs**: with the GitHub Actions runs experiment on (see
+  [Experiments](experiments.md)), the workflow runs its pushes set off,
+  each queued, running, passed or failed. Click one to open it on GitHub.
 - **Changes**: its commits, and a line such as "4 files edited" that
   opens to the code it changed.
 

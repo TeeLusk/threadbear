@@ -189,11 +189,14 @@ public struct ThreadHighlights: Sendable, Hashable, Codable {
     /// Absolute, newest first.
     public var edited: [String]
     public var brief: Brief?
+    /// GitHub Actions runs it set off, newest first (experiment ciRuns).
+    public var runs: [CiRun]
 
-    public init(highlights: [Highlight] = [], edited: [String] = [], brief: Brief? = nil) {
+    public init(highlights: [Highlight] = [], edited: [String] = [], brief: Brief? = nil, runs: [CiRun] = []) {
         self.highlights = highlights
         self.edited = edited
         self.brief = brief
+        self.runs = runs
     }
 
     public init(from decoder: Decoder) throws {
@@ -201,9 +204,115 @@ public struct ThreadHighlights: Sendable, Hashable, Codable {
         highlights = c.lossyArray(Highlight.self, forKey: .highlights)
         edited = c.lossyArray(String.self, forKey: .edited)
         brief = (try? c.decodeIfPresent(Brief.self, forKey: .brief)) ?? nil
+        runs = c.lossyArray(CiRun.self, forKey: .runs)
     }
 
-    enum CodingKeys: String, CodingKey { case highlights, edited, brief }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(highlights, forKey: .highlights)
+        try c.encode(edited, forKey: .edited)
+        try c.encodeIfPresent(brief, forKey: .brief)
+        if !runs.isEmpty { try c.encode(runs, forKey: .runs) }
+    }
+
+    enum CodingKeys: String, CodingKey { case highlights, edited, brief, runs }
+}
+
+/// A GitHub Actions run a thread's push or `gh workflow run` set off
+/// (docs/protocol.md, "Highlights", Runs).
+public struct CiRun: Sendable, Hashable, Codable, Identifiable {
+    public enum Status: Sendable, Hashable {
+        case queued, running, passed, failed, cancelled, skipped
+        /// One from a newer runner: drawn as plain, with no word.
+        case other(String)
+
+        public init(raw: String) {
+            switch raw {
+            case "queued": self = .queued
+            case "running": self = .running
+            case "passed": self = .passed
+            case "failed": self = .failed
+            case "cancelled": self = .cancelled
+            case "skipped": self = .skipped
+            default: self = .other(raw)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .queued: "queued"
+            case .running: "running"
+            case .passed: "passed"
+            case .failed: "failed"
+            case .cancelled: "cancelled"
+            case .skipped: "skipped"
+            case .other(let raw): raw
+            }
+        }
+
+        /// The word at the end of its row.
+        public var word: String {
+            switch self {
+            case .queued: "Queued"
+            case .running: "Running"
+            case .passed: "Passed"
+            case .failed: "Failed"
+            case .cancelled: "Cancelled"
+            case .skipped: "Skipped"
+            case .other: ""
+            }
+        }
+
+        public var going: Bool { self == .queued || self == .running }
+    }
+
+    public var id: String
+    public var workflow: String
+    public var status: Status
+    public var url: String
+    public var sha: String
+    public var branch: String?
+    public var event: String?
+    public var at: Date?
+
+    public init(id: String, workflow: String, status: Status, url: String, sha: String, branch: String? = nil, event: String? = nil, at: Date? = nil) {
+        self.id = id
+        self.workflow = workflow
+        self.status = status
+        self.url = url
+        self.sha = sha
+        self.branch = branch
+        self.event = event
+        self.at = at
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        url = try c.decode(String.self, forKey: .url)
+        workflow = ((try? c.decodeIfPresent(String.self, forKey: .workflow)) ?? nil) ?? "Workflow"
+        status = Status(raw: ((try? c.decodeIfPresent(String.self, forKey: .status)) ?? nil) ?? "")
+        sha = ((try? c.decodeIfPresent(String.self, forKey: .sha)) ?? nil) ?? ""
+        branch = (try? c.decodeIfPresent(String.self, forKey: .branch)) ?? nil
+        event = (try? c.decodeIfPresent(String.self, forKey: .event)) ?? nil
+        at = ((try? c.decodeIfPresent(String.self, forKey: .at)) ?? nil).flatMap(ISO8601.parse)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(workflow, forKey: .workflow)
+        try c.encode(status.rawValue, forKey: .status)
+        try c.encode(url, forKey: .url)
+        try c.encode(sha, forKey: .sha)
+        try c.encodeIfPresent(branch, forKey: .branch)
+        try c.encodeIfPresent(event, forKey: .event)
+        try c.encodeIfPresent(at.map(ISO8601.format), forKey: .at)
+    }
+
+    enum CodingKeys: String, CodingKey { case id, workflow, status, url, sha, branch, event, at }
+
+    public var link: URL? { URL(string: url) }
 }
 
 /// One row of a `list` panel, from `panels.render`.

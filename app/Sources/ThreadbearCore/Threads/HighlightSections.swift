@@ -9,6 +9,8 @@ public struct HighlightSections: Sendable, Hashable {
     public var files: [Highlight] = []
     /// Links and pull requests.
     public var links: [Highlight] = []
+    /// GitHub Actions runs, newest first (experiment ciRuns).
+    public var runs: [CiRun] = []
     public var commits: [Highlight] = []
     /// Edited files not already listed as a pin or a file.
     public var edited: [String] = []
@@ -17,6 +19,7 @@ public struct HighlightSections: Sendable, Hashable {
     /// have fifteen commits, which pushed Files and Links off screen.
     public static let commitLimit = 5
     public static let linkLimit = 10
+    public static let runLimit = 5
     /// The runner keeps a thread's newest 20 sub-agents.
     public static let subagentLimit = 5
     /// Cards shown in a column of a project's board before "N more".
@@ -44,7 +47,7 @@ public struct HighlightSections: Sendable, Hashable {
 
     /// Nothing to show but the empty line.
     public var isEmpty: Bool {
-        brief == nil && pinned.isEmpty && files.isEmpty && links.isEmpty && commits.isEmpty && edited.isEmpty
+        brief == nil && pinned.isEmpty && files.isEmpty && links.isEmpty && runs.isEmpty && commits.isEmpty && edited.isEmpty
     }
 
     public static func build(_ highlights: ThreadHighlights) -> HighlightSections {
@@ -66,6 +69,7 @@ public struct HighlightSections: Sendable, Hashable {
                 if item.path != nil { sections.files.append(item) } else if item.url != nil { sections.links.append(item) }
             }
         }
+        sections.runs = highlights.runs.filter { $0.link != nil }
         let listed = Set((sections.pinned + sections.files).compactMap(\.path))
         var seen = Set<String>()
         sections.edited = highlights.edited.filter { !listed.contains($0) && seen.insert($0).inserted }
@@ -84,6 +88,7 @@ public enum HighlightFold {
     public static let pinned = "pinned"
     public static let files = "files"
     public static let links = "links"
+    public static let runs = "runs"
     public static let changes = "changes"
     public static func project(_ id: String) -> String { "project:\(id)" }
 }
@@ -313,5 +318,47 @@ public enum PanelIcon {
         case .list: return "list.bullet"
         case .html: return "doc.richtext"
         }
+    }
+}
+
+/// The words on a GitHub Actions run's row in Highlights.
+public enum CiRunText {
+    /// "feat · a1b2c3d · 4m ago": its branch, commit and when it started.
+    public static func detail(_ run: CiRun, now: Date) -> String {
+        var bits: [String] = []
+        if let branch = run.branch, !branch.isEmpty { bits.append(branch) }
+        if !run.sha.isEmpty { bits.append(run.sha) }
+        if let at = run.at { bits.append(ago(at, now: now)) }
+        return bits.joined(separator: " · ")
+    }
+
+    /// "just now", "4m ago", "3h ago", "2 days ago".
+    public static func ago(_ date: Date, now: Date) -> String {
+        let seconds = now.timeIntervalSince(date)
+        if seconds < 60 { return "just now" }
+        let minutes = Int(saturating: (seconds / 60).rounded(.down))
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = Int(saturating: (seconds / 3600).rounded(.down))
+        if hours < 24 { return "\(hours)h ago" }
+        let days = Int(saturating: (seconds / 86_400).rounded(.down))
+        return days == 1 ? "1 day ago" : "\(days) days ago"
+    }
+
+    /// The SF Symbol for its status.
+    public static func symbol(_ status: CiRun.Status) -> String {
+        switch status {
+        case .queued: "circle"
+        case .running: "circle.dashed"
+        case .passed: "checkmark.circle"
+        case .failed: "xmark.circle"
+        case .cancelled: "minus.circle"
+        case .skipped, .other: "arrow.uturn.right.circle"
+        }
+    }
+
+    /// The row's tooltip.
+    public static func tip(_ run: CiRun) -> String {
+        let word = run.status.word
+        return word.isEmpty ? "Open the run on GitHub" : "\(word). Click to open the run on GitHub."
     }
 }

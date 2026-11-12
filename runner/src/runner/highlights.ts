@@ -8,6 +8,7 @@ import type { PanelPlace, PanelRequest, ThreadSummary } from '../protocol.ts';
 import { ErrorCode, RpcError } from '../protocol.ts';
 import { cutOut } from '../store.ts';
 import { emptyHighlights, MAX_URL, observe as observeHighlights, pinItem, remove as removeHighlight, unpin as unpinHighlight, upsert as upsertHighlight, view as highlightsView, absolute, type ThreadHighlights } from '../highlights.ts';
+import { experimentOn } from '../experiments.ts';
 import { PANEL_ACK_WAIT_MS, PANEL_PLACES, resolvePanel } from '../panel-requests.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +21,10 @@ export const highlightsPart = {
   highlights(this: Runner, threadId: string): ThreadHighlights {
     const st = this.mustGet(threadId);
     this.catchUpHighlights(st);
-    return highlightsView(st.rec.highlights!, st.rec.brief);
+    this.kickCiRuns(st);
+    const out = highlightsView(st.rec.highlights!, st.rec.brief);
+    if (st.rec.ciRuns?.runs.length && experimentOn(this.cfg.home, 'ciRuns')) out.runs = st.rec.ciRuns.runs.map((r) => ({ ...r }));
+    return out;
   },
 
   removeHighlight(this: Runner, threadId: string, highlightId: string): { thread: ThreadSummary } {

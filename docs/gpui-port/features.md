@@ -277,6 +277,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `highlights.subagents` | Sub-agents list | Status, click to read | Drawn. | build | S | `HighlightsView` |
 | `highlights.started` | Threads it started | Ordered by state | Drawn. | build | S | `HighlightsView`, `StartedThreadRows` |
 | `highlights.pinned` | Pinned, Files, Links | Rows with a note, open in pane | Drawn rows with decoded thumbnails. | build | M | `HighlightsView` (`PaneRow`) |
+| `highlights.runs` | Runs | GitHub Actions runs with status, click opens the run (experiment ciRuns) | Drawn rows. | build | S | `HighlightsView` (`runRow`), `CiRunText` |
 | `highlights.changes` | Changes | Commits, N files edited opens code | Drawn. | build | S | `HighlightsView` |
 | `highlights.rowmenus` | Row menus | File and link menus, Reveal, Copy, Remove, Copy sha | gpui-kit menu, with Reveal going through the open gate. | kit | S | `HighlightsView` (`FileMenu`, `LinkMenu`) |
 | `highlights.dragout` | Drag out | Files to other apps | `start_external_drag` on macOS and Wayland; Windows and X11 need our own shim. | shim | M | `FileDrag` |

@@ -166,6 +166,16 @@ struct HighlightsView: View {
                 if links.more > 0 { showAll(sections.links.count) { flags.allLinks = true } }
             }
         }
+        // GitHub Actions runs its pushes set off (experiment ciRuns), between
+        // the links and the commits behind them (Ville picked this, 12 Nov).
+        if !sections.runs.isEmpty {
+            SectionHeading(title: "Runs", icon: "play.circle", fold: fold(HighlightFold.runs, count: sections.runs.count))
+            if !isFolded(HighlightFold.runs) {
+                let runs = HighlightSections.capped(sections.runs, limit: HighlightSections.runLimit, showAll: flags.allRuns)
+                ForEach(runs.shown) { runRow($0) }
+                if runs.more > 0 { showAll(sections.runs.count) { flags.allRuns = true } }
+            }
+        }
         if !sections.commits.isEmpty || !sections.edited.isEmpty {
             SectionHeading(title: "Changes", icon: "arrow.triangle.branch", fold: fold(HighlightFold.changes, count: sections.commits.count + sections.edited.count))
             if !isFolded(HighlightFold.changes) {
@@ -288,6 +298,28 @@ struct HighlightsView: View {
             }
     }
 
+    /// A run: its status as the icon, the workflow, then branch, commit and
+    /// when. Opens the run on GitHub.
+    private func runRow(_ run: CiRun) -> some View {
+        let color: Color? = switch run.status {
+        case .passed: Color(nsColor: Theme.addedText)
+        case .failed: Color(nsColor: Theme.failed)
+        default: nil
+        }
+        let icon = CiRunText.symbol(run.status)
+        return PaneRow(icon: icon, iconColor: color, title: run.workflow, trailing: run.status.word.isEmpty ? nil : run.status.word,
+                       detail: CiRunText.detail(run, now: app.now), titleTruncation: .tail, detailTruncation: .tail) {
+            if let url = run.link { app.openLink(url, title: run.workflow, in: thread) }
+        }
+        .tip(CiRunText.tip(run))
+        .iconContextMenu {
+            if let url = run.link { LinkMenu(url: url, thread: thread, title: run.workflow) }
+            if !run.sha.isEmpty {
+                Button("Copy sha", systemImage: "number") { app.copyToPasteboard(run.sha) }
+            }
+        }
+    }
+
     private func projectLink(_ link: ProjectLink) -> some View {
         let address = HighlightText.address(link.url)
         return PaneRow(icon: "globe", title: link.title, detail: address == link.title ? nil : address, titleTruncation: .tail) {
@@ -332,6 +364,7 @@ struct HighlightsView: View {
 final class HighlightsFlags {
     var editedOpen = false
     var allLinks = false
+    var allRuns = false
     var allCommits = false
     var allSubagents = false
     var allStarted = false

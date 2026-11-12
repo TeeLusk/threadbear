@@ -59,6 +59,30 @@ final class HighlightsTests: XCTestCase {
         XCTAssertTrue(HighlightSections.build(ThreadHighlights(brief: .init(text: "  "))).isEmpty)
     }
 
+    func testRunsDecodeTolerantlyAndShowBetweenLinksAndChanges() throws {
+        let json = """
+        {"highlights":[],"edited":[],"runs":[
+          {"id":"run:2","workflow":"CI","status":"failed","url":"https://github.com/o/r/actions/runs/2","sha":"a1b2c3d","branch":"feat","event":"push","at":"2026-11-12T10:00:00Z"},
+          {"id":"run:1","workflow":"Lint","status":"warping","url":"https://github.com/o/r/actions/runs/1","sha":"a1b2c3d","new":1},
+          {"id":"run:0","workflow":"No url"}
+        ]}
+        """
+        let decoded = try JSONDecoder().decode(ThreadHighlights.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.runs.map(\.id), ["run:2", "run:1"], "the one without a url is skipped")
+        XCTAssertEqual(decoded.runs[0].status, .failed)
+        XCTAssertEqual(decoded.runs[1].status, .other("warping"))
+        XCTAssertEqual(decoded.runs[1].status.word, "")
+        XCTAssertEqual(try JSONDecoder().decode(ThreadHighlights.self, from: JSONEncoder().encode(decoded)), decoded)
+        let sections = HighlightSections.build(decoded)
+        XCTAssertEqual(sections.runs.count, 2)
+        XCTAssertFalse(sections.isEmpty)
+        let now = try XCTUnwrap(ISO8601.parse("2026-11-12T10:04:30Z"))
+        XCTAssertEqual(CiRunText.detail(decoded.runs[0], now: now), "feat · a1b2c3d · 4m ago")
+        XCTAssertEqual(CiRunText.detail(decoded.runs[1], now: now), "a1b2c3d")
+        XCTAssertEqual(CiRunText.tip(decoded.runs[0]), "Failed. Click to open the run on GitHub.")
+        XCTAssertEqual(CiRunText.ago(now, now: now), "just now")
+    }
+
     func testBriefPointsSplitTheBullets() {
         XCTAssertEqual(HighlightSections.points("- Added the Tandem card\n\n  - Panel follows the thread \n• Waiting on Mike to test"),
                        ["Added the Tandem card", "Panel follows the thread", "Waiting on Mike to test"])

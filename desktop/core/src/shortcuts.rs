@@ -170,7 +170,7 @@ pub enum ShortcutCommand {
 }
 
 impl ShortcutCommand {
-    pub const ALL: [ShortcutCommand; 23] = [
+    pub const ALL: [ShortcutCommand; 24] = [
         Self::NewThread,
         Self::Archive,
         Self::Hibernate,
@@ -432,11 +432,11 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_are_the_twenty_three_in_the_menus() {
+    fn the_defaults_are_the_twenty_four_in_the_menus() {
         let keys: Vec<ShortcutKey> = ShortcutCommand::ALL.iter().filter_map(|c| c.default_key()).collect();
         let unique: std::collections::HashSet<&ShortcutKey> = keys.iter().collect();
         assert_eq!(keys.len(), unique.len(), "two commands can't start on one key");
-        assert_eq!(ShortcutCommand::ALL.len(), 23);
+        assert_eq!(ShortcutCommand::ALL.len(), 24);
         assert_eq!(ShortcutCommand::CollapseThreads.default_key(), Some(key("cmd+/")));
     }
 

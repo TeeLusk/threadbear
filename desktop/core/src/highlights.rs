@@ -1080,6 +1080,18 @@ pub struct PanelItem {
     pub tone: Option<String>,
     pub section: Option<String>,
     pub trailing: Option<String>,
+    /// Buttons at the end of the row (`panels.runItemAction`).
+    pub actions: Vec<PanelItemAction>,
+}
+
+/// A button on a list panel's row (`PanelItem.actions`): the runner keeps
+/// its command, so only its id goes back.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct PanelItemAction {
+    pub id: String,
+    pub title: String,
+    pub icon: Option<String>,
 }
 
 impl PanelItem {
@@ -1472,6 +1484,20 @@ mod tests {
         assert_eq!(items[4].symbol(), None, "a tone this app doesn't know is plain");
         assert_eq!(items[4].tone_kind(), None);
         assert!(render.note.is_none());
+    }
+
+    #[test]
+    fn panel_render_decodes_row_actions() {
+        let render = PanelRender::decode(&json!({"items": [
+            {"title": "pnpm dev", "actions": [{"id": "stop-98517", "title": "Stop", "icon": "stop.fill", "future": 1}, {"id": "open", "title": "Open"}]},
+            {"title": "plain"}
+        ]}));
+        let items = render.items.expect("items");
+        assert_eq!(items[0].actions, [
+            PanelItemAction { id: "stop-98517".into(), title: "Stop".into(), icon: Some("stop.fill".into()) },
+            PanelItemAction { id: "open".into(), title: "Open".into(), icon: None },
+        ]);
+        assert!(items[1].actions.is_empty());
     }
 
     #[test]

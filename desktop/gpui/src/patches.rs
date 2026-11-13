@@ -15,7 +15,7 @@ use crate::style::px;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use threadbear_core::highlights::{self as core, patches as words, Action, Panel, PanelItem, PanelRender, PatchInfo};
+use threadbear_core::highlights::{self as core, patches as words, Action, Panel, PanelItem, PanelItemAction, PanelRender, PatchInfo};
 use threadbear_core::inbox::ThreadSummary;
 
 /// The list panel is asked for its rows this often while it's showing
@@ -32,7 +32,8 @@ pub(crate) struct PanelsState {
     polling: HashSet<String>,
     /// Patch versions whose Trust has been pressed (`trustingPatches`).
     pub trusting: HashSet<String>,
-    /// Actions running now, by "<thread>/<action>" (`runningActions`).
+    /// Actions running now, by "<thread>/<action>" (`runningActions`), and
+    /// list rows' buttons by "<thread>/<panel>/<action id>".
     pub running: HashSet<String>,
 }
 
@@ -40,6 +41,10 @@ use std::sync::Arc;
 
 fn panel_key(thread_id: &str, panel_id: &str) -> String {
     format!("{thread_id}/{panel_id}")
+}
+
+fn row_action_key(thread_id: &str, panel_id: &str, action_id: &str) -> String {
+    format!("{thread_id}/{panel_id}/{action_id}")
 }
 
 fn trust_key(file: &str, hash: &str) -> String {
@@ -171,7 +176,7 @@ impl SidePane {
                     crate::files::pane_note("Loading…", p).into_any_element()
                 }
                 Some(render) => match render.items.clone().filter(|i| !i.is_empty()) {
-                    Some(items) => self.render_list_panel(thread, items, p, cx),
+                    Some(items) => self.render_list_panel(thread, id, items, p, cx),
                     None => {
                         let note = render.note.clone().unwrap_or_else(|| "Nothing in this list.".to_owned());
                         crate::files::pane_note(&note, p).into_any_element()
@@ -216,7 +221,7 @@ impl SidePane {
             .into_any_element()
     }
 
-    fn render_list_panel(&mut self, thread: &ThreadSummary, items: Vec<PanelItem>, p: Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn render_list_panel(&mut self, thread: &ThreadSummary, panel_id: &str, items: Vec<PanelItem>, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let reserves = items.iter().any(|i| i.symbol().is_some());
         let headings = PanelItem::headings(&items);
         let mut list = v_flex().py(px(8.));
@@ -224,13 +229,15 @@ impl SidePane {
             if let Some(heading) = headings[index].clone() {
                 list = list.child(self.heading(crate::highlights::Heading { key: format!("panel-{index}"), title: heading, icon: None, count: None, folded: false, foldable: false, accessory: None }, p, cx));
             }
-            list = list.child(self.list_row(item, index, reserves, thread, p, cx));
+            list = list.child(self.list_row(item, index, reserves, thread, panel_id, p, cx));
         }
         div().id("list-panel").size_full().overflow_y_scroll().child(list).into_any_element()
     }
 
-    /// A row with a link or a file opens it the way a highlight does.
-    fn list_row(&mut self, item: &PanelItem, index: usize, reserves: bool, thread: &ThreadSummary, p: Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// A row with a link or a file opens it the way a highlight does. Its
+    /// actions are small buttons at its end.
+    #[allow(clippy::too_many_arguments)]
+    fn list_row(&mut self, item: &PanelItem, index: usize, reserves: bool, thread: &ThreadSummary, panel_id: &str, p: Palette, cx: &mut Context<Self>) -> AnyElement {
         let color = match item.tone_kind() {
             Some("attention") => Some(p.needs_you),
             Some("failed") => Some(p.failed),
@@ -244,7 +251,8 @@ impl SidePane {
             .trailing(item.trailing.clone())
             .trailing_symbol(if item.tone_kind() == Some("done") && item.icon.is_some() { Some("checkmark") } else { None })
             .detail(item.detail.clone())
-            .detail_lines(2);
+            .detail_lines(2)
+            .accessory(self.row_buttons(item, index, &thread.id, panel_id, p, cx));
         let (path, url, title) = (item.path.clone(), item.url.clone(), item.title.clone());
         let thread2 = thread.clone();
         if path.is_some() || url.is_some() {
@@ -272,6 +280,74 @@ impl SidePane {
             });
         }
         row.render(p, cx).into_any_element()
+    }
+
+    /// A list row's buttons: its icon (or title, with none), a spinner
+    /// while it runs, and no second press until it's done.
+    fn row_buttons(&mut self, item: &PanelItem, index: usize, thread_id: &str, panel_id: &str, p: Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if item.actions.is_empty() {
+            return None;
+        }
+        let hover = p.hover;
+        let mut buttons = h_flex().flex_none().gap(px(2.)).items_center();
+        for action in &item.actions {
+            let key = row_action_key(thread_id, panel_id, &action.id);
+            let running = self.panels.running.contains(&key);
+            let face = match (running, action.icon.as_deref().filter(|i| !i.is_empty())) {
+                (true, _) => Spinner::new().with_size(px(11.)).color(p.secondary).into_any_element(),
+                (false, Some(symbol)) => icon(symbol, 11., p.secondary).into_any_element(),
+                (false, None) => div().text_size(px(style::size::SMALL)).text_color(p.secondary).child(action.title.clone()).into_any_element(),
+            };
+            let tip = if running { format!("{}: running…", action.title) } else { format!("{}: {}", action.title, item.title) };
+            let mut button = div()
+                .id(SharedString::from(format!("panel-row-{index}-{}", action.id)))
+                .min_w(px(20.))
+                .h(px(20.))
+                .px(px(4.))
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(face);
+            if !running {
+                button = button.cursor_pointer().hover(move |s| s.bg(hover));
+            }
+            let (thread, panel, action2, row) = (thread_id.to_owned(), panel_id.to_owned(), action.clone(), item.title.clone());
+            buttons = buttons.child(tipped(button, tip).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.run_row_action(thread.clone(), panel.clone(), &action2, &row, cx);
+            })));
+        }
+        Some(buttons.into_any_element())
+    }
+
+    /// Runs a list row's button (`panels.runItemAction`), then draws the
+    /// panel again, as what it did (a process it stopped) changes the rows.
+    pub(crate) fn run_row_action(&mut self, thread_id: String, panel_id: String, action: &PanelItemAction, row: &str, cx: &mut Context<Self>) {
+        let key = row_action_key(&thread_id, &panel_id, &action.id);
+        if !self.panels.running.insert(key.clone()) {
+            return;
+        }
+        cx.notify();
+        let (client, action_id, title) = (self.client.clone(), action.id.clone(), format!("{}: {row}", action.title));
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "panels.runItemAction", json!({ "threadId": thread_id, "panelId": panel_id, "actionId": action_id })).await;
+            this.update(cx, |t, cx| {
+                t.panels.running.remove(&key);
+                match res {
+                    Err(e) => t.note_error(format!("{title} didn't run: {}", e.message), cx),
+                    Ok(v) if v.get("ok").and_then(Value::as_bool) == Some(false) => {
+                        let code = v.get("exitCode").and_then(Value::as_i64).map(|c| format!(" (exit {c})")).unwrap_or_default();
+                        t.note_error(format!("{title} failed{code}. What it printed is in the thread."), cx);
+                    }
+                    Ok(_) => {}
+                }
+                t.fetch_panel(panel_key(&thread_id, &panel_id), thread_id.clone(), panel_id.clone(), cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The Patches section (`PatchesList`).
@@ -679,7 +755,8 @@ impl SidePane {
                                 sections.push(json!({ "key": heading, "title": heading, "count": 0, "folded": false, "rows": [] }));
                             }
                             let last = sections.last_mut().expect("a section");
-                            let row = json!({ "title": item.title, "trailing": item.trailing, "detail": item.detail, "symbol": item.icon.clone().filter(|i| !i.is_empty()).or_else(|| item.tone_kind().map(str::to_owned)) });
+                            let actions: Vec<Value> = item.actions.iter().map(|a| json!({ "id": a.id, "title": a.title, "running": self.panels.running.contains(&row_action_key(&thread.id, id, &a.id)) })).collect();
+                            let row = json!({ "title": item.title, "trailing": item.trailing, "detail": item.detail, "symbol": item.icon.clone().filter(|i| !i.is_empty()).or_else(|| item.tone_kind().map(str::to_owned)), "actions": actions });
                             last["rows"].as_array_mut().expect("rows").push(row);
                             last["count"] = json!(last["count"].as_i64().unwrap_or(0) + 1);
                         }
@@ -730,6 +807,19 @@ pub(crate) fn action_command(side: &Entity<SidePane>, thread: &ThreadSummary, cm
     let Some(action) = actions.into_iter().find(|a| a.id == id) else { return Err(format!("no action {id}; this thread has {}", thread.actions().iter().map(|a| a.id.clone()).collect::<Vec<_>>().join(", "))) };
     side.update(cx, |pane, cx| pane.run_action(&action, thread.id.clone(), cx));
     Ok(json!(format!("ok ran {id}")))
+}
+
+/// Presses a list row's button: `{"cmd":"row-action","panel":…,"row":<title>,"action":<title or id>}`.
+#[cfg(feature = "automation")]
+pub(crate) fn row_action_command(side: &Entity<SidePane>, thread: &ThreadSummary, cmd: &Value, cx: &mut App) -> Result<Value, String> {
+    let panel = cmd["panel"].as_str().unwrap_or("");
+    let (row, wanted) = (cmd["row"].as_str().unwrap_or(""), cmd["action"].as_str().unwrap_or(""));
+    let items = side.read(cx).panels.renders.get(&panel_key(&thread.id, panel)).and_then(|r| r.items.clone()).ok_or_else(|| format!("the panel {panel} hasn't been drawn"))?;
+    let item = items.iter().find(|i| i.title == row).ok_or_else(|| format!("no row {row:?} in {panel}"))?;
+    let action = item.actions.iter().find(|a| a.title == wanted || a.id == wanted).ok_or_else(|| format!("the row {row:?} has no button {wanted:?}"))?.clone();
+    let (thread_id, panel_id, title) = (thread.id.clone(), panel.to_owned(), item.title.clone());
+    side.update(cx, |pane, cx| pane.run_row_action(thread_id, panel_id, &action, &title, cx));
+    Ok(json!(format!("ok pressed {wanted} on {row}")))
 }
 
 /// The `actions` part of the dump, the Swift app's shape.

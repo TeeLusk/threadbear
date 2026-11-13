@@ -915,6 +915,8 @@ pub(crate) struct PaneRow {
     pub on_menu: Option<Rc<dyn Fn(&mut SidePane, Point<Pixels>, &mut Window, &mut Context<SidePane>)>>,
     /// A file on this Mac it drags out as (file_drag.rs).
     pub drag: Option<String>,
+    /// Buttons at the row's end (a list panel row's actions).
+    pub accessory: Option<AnyElement>,
 }
 
 impl PaneRow {
@@ -937,6 +939,7 @@ impl PaneRow {
             on_click: None,
             on_menu: None,
             drag: None,
+            accessory: None,
         }
     }
 
@@ -1022,6 +1025,11 @@ impl PaneRow {
         self
     }
 
+    pub(crate) fn accessory(mut self, accessory: Option<AnyElement>) -> Self {
+        self.accessory = accessory;
+        self
+    }
+
     pub(crate) fn render(self, p: Palette, cx: &mut Context<SidePane>) -> impl IntoElement + use<> {
         let hover = p.hover;
         let label_color = if self.quiet { p.secondary } else { p.fg };
@@ -1055,7 +1063,8 @@ impl PaneRow {
             .rounded(px(CORNER))
             .when_some(self.icon, |s, symbol| s.child(div().w(px(16.)).flex_none().flex().justify_center().pt(px(1.)).child(icon(&symbol, 12., self.icon_color.unwrap_or(p.icon)))))
             .when(needs_blank_icon, |s| s.child(div().w(px(16.)).flex_none()))
-            .child(body);
+            .child(body)
+            .when_some(self.accessory, |s, a| s.child(a));
         let row = row.when(self.on_click.is_some(), |s| s.hover(move |st| st.bg(hover)).cursor_pointer());
         let mut wrapper = div().id(self.id).px(px(OUTER_INSET)).child(row);
         if let Some(tip) = self.tip {
@@ -1797,7 +1806,7 @@ impl SidePane {
 
 /// Scripted commands for the pane, the same names and shapes as the Swift
 /// app's (app/README.md): `panel`, `highlight`, `preview`, `folder`,
-/// `trust`, `action`, `project-why`, and `collapse`/`expand` with
+/// `trust`, `action`, `row-action`, `project-why`, and `collapse`/`expand` with
 /// `highlightSection`.
 #[cfg(feature = "automation")]
 pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App) -> Result<Value, String> {
@@ -1840,6 +1849,7 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
         "folder" => crate::folders::folder_command(&side, &thread, cmd, window, cx),
         "trust" => crate::patches::trust_command(&side, &thread, cmd, cx),
         "action" => crate::patches::action_command(&side, &thread, cmd, cx),
+        "row-action" => crate::patches::row_action_command(&side, &thread, cmd, cx),
         other => Err(format!("unknown pane command {other:?}")),
     }
 }

@@ -98,9 +98,14 @@ type LoadedPatch = { info: PatchInfo; panels: Panel[]; actions: Action[]; hooks:
 // deleted, before the cleanup, landed or not: for what setup made outside
 // the folder (a Convex deployment per worktree, elie-h's fork, 6 Nov), as a
 // branch landed by a squashed PR never counts as merged here.
+// `land: "pr"` is for a repo whose branches reach main through pull
+// requests merged on GitHub (elie-h's fork, 6 Nov: squash-merged PRs, so a
+// local main moved to the branch forked from origin's after every land):
+// `tb land` pushes the branch and opens or updates its PR instead
+// (worktrees.ts, landAsPr).
 // `setupRun` and `teardownRun` are `setup` and `teardown` as they run, for
 // a patch trusted by its hash (bindAutomatic); absent, they run as written.
-export type WorktreeConfig = { setup?: string; check?: string; teardown?: string; keep?: string[]; setupRun?: string; teardownRun?: string };
+export type WorktreeConfig = { setup?: string; check?: string; teardown?: string; keep?: string[]; land?: 'pr'; setupRun?: string; teardownRun?: string };
 
 // A folder of one of the thread's projects.
 export type ProjectFolder = { folder: string; projectId: string };
@@ -578,7 +583,7 @@ export function readPatchModule(id: string, source: 'home' | 'project', file: st
   };
   let worktree: WorktreeConfig | undefined;
   if (v.worktree !== undefined) {
-    const w = v.worktree as { setup?: unknown; check?: unknown; teardown?: unknown; keep?: unknown };
+    const w = v.worktree as { setup?: unknown; check?: unknown; teardown?: unknown; keep?: unknown; land?: unknown };
     if (!w || typeof w !== 'object' || Array.isArray(w)) return problem('worktree should be an object with setup and/or check.');
     worktree = {};
     for (const key of ['setup', 'check', 'teardown'] as const) {
@@ -593,6 +598,10 @@ export function readPatchModule(id: string, source: 'home' | 'project', file: st
         return problem('worktree.keep should be a list of folders inside the repo, like "app/.build".');
       }
       worktree.keep = keep as string[];
+    }
+    if (w.land !== undefined && w.land !== 'main') {
+      if (w.land !== 'pr') return problem('worktree.land should be "main" (move main to the branch) or "pr" (push it and open a pull request).');
+      worktree.land = 'pr';
     }
   }
   const actions: Action[] = [];

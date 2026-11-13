@@ -23,6 +23,10 @@ export default {
     // Run in the worktree's root when the thread is archived or deleted,
     // before the cleanup. Optional. Held to the same trust rules as setup.
     teardown: "./scripts/teardown.sh",
+    // "pr": tb land pushes the branch and opens or updates its pull
+    // request rather than moving main (see "Landing as a pull request").
+    // Optional; "main" by default.
+    land: "pr",
   },
   // actions, panels, hooks as before
 };
@@ -45,7 +49,14 @@ runs at background priority. Action buttons you press run as normal.
 `threads.create` (and `create_thread`, and schedules that start a thread)
 for a folder inside an opted-in repo:
 
-1. Makes `git worktree add -b thread/<id8> <parent>/<repo>-threads/<id8>
+1. Brings main up to origin's first, when the main checkout has an
+   `origin`: `git fetch origin main` (20 s at most), then a fast-forward
+   of main if it's only behind, holding the landing lock (elie-h's fork,
+   6 Nov: PRs merged on GitHub never reached the local main, so threads
+   started 111 commits behind). If main has commits of its own, the fetch
+   fails or a landing is moving main, main is left as it is and the
+   thread's "Working in a worktree" note says why.
+   Then makes `git worktree add -b thread/<id8> <parent>/<repo>-threads/<id8>
    main` from the main checkout, where `<id8>` is the first 8 characters of
    the thread id. A leftover folder or branch of that name is an error
    shown in the thread, and the thread starts in the main checkout as
@@ -238,6 +249,33 @@ failed one has `exit`, a dry run `dryRun: true`, and a step that only passed
 when check.sh ran its failing files again has `secondRun`, naming the tests.
 Past 1 MiB it's cut back to the newest 1000 lines. It stays on this Mac,
 and a log that can't be written never stops a landing.
+
+## Landing as a pull request
+
+A repo whose branches reach main through PRs merged on GitHub (squashed,
+say) sets `land: "pr"` (elie-h's fork, 6 Nov: fast-forwarding the local
+main to a thread's commits forked it from origin's after every land). Then
+`tb land`, in the worktree:
+
+1. Refuses with uncommitted changes, as before.
+2. Fetches origin's main, fast-forwards the local main to it if it's only
+   behind (never otherwise), and rebases the branch on `origin/main` (a
+   branch with a merge on it has origin's main merged in instead). A
+   conflict is undone and the files named.
+3. Runs the check, as before.
+4. Pushes the branch to origin with `--force-with-lease` against what
+   origin had for it a moment before, so a later land's rebase replaces it
+   but someone else's push to it is never overwritten.
+5. Opens a PR with `gh pr create` (title from the first commit, body from
+   its message, or a list of the commits) unless the branch has one open
+   already, which the push has just updated, and prints its URL.
+
+It doesn't join the landing queue or wait for the lock, as it never moves
+main itself. `--dry-run` stops before the push. The thread has no Land
+chip: what's worth pressing then (open the PR, merge it, see CI) turns on
+the PR's state on GitHub, which a patch running `gh` can show. A squashed
+PR never counts as merged here, so its worktree stays when the thread is
+archived; `teardown` runs either way.
 
 ## Cleaning up
 

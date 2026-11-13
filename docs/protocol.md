@@ -4460,7 +4460,7 @@ access none of this changes anything.
 | `convex` | a folder with `convex/` and a `package.json` or `convex.json` beside it (a bare folder called `convex` isn't enough) | `convex.dashboard`, a `url` panel: `https://dashboard.convex.dev/d/<name>` for the `CONVEX_DEPLOYMENT` in `.env.local` (then `.env`), `http://127.0.0.1:6790` for an anonymous local deployment, the dashboard's front page with no deployment yet. A cloud deployment's panel also has `convex`, with the deployment's URL from the `.env.local` (then `.env`) line ending `CONVEX_URL` (`CONVEX_URL`, `VITE_CONVEX_URL`, ...). Only those lines of the file are read, and a file over 64 KB is skipped as if it weren't there |
 | `planetscale` | a folder with a `.pscale.yml` file (what `pscale branch switch` writes) | `planetscale.dashboard`, a `url` panel: `https://app.planetscale.com/<org>/<database>/<branch>` for the file's `org`, `database` and `branch` (without `/<branch>` when it has none), the dashboard's front page when it has no usable org and database. Only names of letters, digits, `_` and `-` go into the address, and a file over 64 KB is skipped as if it weren't there |
 | `xcode` | a folder with an `.xcodeproj` or `.xcworkspace` | `xcode.simulator`, an `image` panel drawn by `panels.render` |
-| `worktree` | a thread with a worktree of its own (see Worktrees) | no panel: the action `worktree.land`, "Land", which runs `tb land` |
+| `worktree` | a thread with a worktree of its own (see Worktrees) | no panel: the action `worktree.land`, "Land", which runs `tb land` (none with `land: "pr"`) |
 
 A client shows what it can: a `url` panel in a web view, an `image` panel
 by asking `panels.render` now and then while it's on screen, a `list`
@@ -4618,6 +4618,7 @@ export default {
     check: "./check.sh --quick",    // run by `tb land` before main moves; optional
     teardown: "./scripts/teardown.sh", // run in the worktree's root when the thread is archived
                                     // or deleted, before the cleanup; optional (as setup)
+    land: "pr",                     // tb land pushes and opens a PR instead; optional, "main" by default
   },
 }
 ```
@@ -4626,10 +4627,15 @@ The first patch in the thread's own folder chain with a `worktree` wins;
 `~/.threadbear/patches/` and project folders never count. The repo is the
 git toplevel of the folder holding `.threadbear/`, and its main checkout
 is the one with `main` checked out. A malformed `worktree` (not an object,
-or a `setup`, `check` or `teardown` that isn't a command) is the file's `error`.
+a `setup`, `check` or `teardown` that isn't a command, or a `land` other
+than `"main"` or `"pr"`) is the file's `error`.
 
 A new thread in such a repo (from `threads.create`, `create_thread` or a
 schedule, unless `worktree: false`) gets, before its first turn starts:
+main fast-forwarded to `origin/main` when it's only behind it (fetched
+first, 20 s at most, when the main checkout has an `origin`, holding the
+landing lock; a main with commits of its own, a failed fetch or a landing
+under way leaves main as it is, and the worktree's `system.note` says why),
 `git worktree add -b thread/<id8> <parent>/<repo>-threads/<id8> main` from
 the main checkout (`<id8>` is the thread id's first 8 characters), a `cwd`
 in the same subfolder of it, `setup` run in its root (an `action.run` with
@@ -4665,6 +4671,17 @@ main (a conflict aborts and names the files), runs `check`, then
 `git merge --ff-only` in the main checkout (refused, and nothing changed,
 if main's own uncommitted changes are in the way) and prints what landed.
 It never pushes. `--dry-run` stops before main moves.
+
+With `land: "pr"` (a repo whose PRs are squash-merged on GitHub), `tb
+land` instead fetches origin's main and rebases on `origin/main`,
+fast-forwarding the local main to it only when it's just behind, runs
+`check`, pushes the branch (`--force-with-lease` against what origin had
+for it) and opens a PR with `gh pr create` unless it has one open, then
+prints the PR's URL. It doesn't queue or wait for other landings.
+`--dry-run` stops before the push. The thread gets no `worktree.land`
+action (what's worth pressing then turns on the PR's state, which a patch
+running `gh` can read), and the agent's brief and the worktree's note say
+`tb land` opens a PR.
 
 When the thread is archived or deleted, `teardown` runs first in the
 worktree's root, whether or not the branch landed (an `action.run` with

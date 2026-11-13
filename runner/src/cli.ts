@@ -146,8 +146,9 @@ const HELP = `tb: talk to the Threadbear runner
                                   summarize or generate. It spends like any other
   tb land [--dry-run] [--despite-red]
                                   in a thread's own worktree: rebase its branch on main, run
-                                  the repo's check, then move main to it (never pushes);
-                                  --dry-run stops before main moves. A GitHub workflow
+                                  the repo's check, then move main to it (never pushes; with
+                                  the patch's land: "pr", push it and open or update its PR);
+                                  --dry-run stops before anything moves. A GitHub workflow
                                   marked "# tb land: hold while red" holds the landings it
                                   would run for while it's red on main; --despite-red
                                   lands anyway, for the fix
@@ -379,7 +380,16 @@ async function landCommand(cfg: ReturnType<typeof loadConfig>, dryRun: boolean, 
     console.error(refused);
     return 1;
   }
-  return land(target, {
+  // The patch's land ("pr": push it and open a pull request), from the
+  // worktree's own copy, so a branch that changes it lands under its own.
+  let landHow: 'pr' | undefined;
+  try {
+    landHow = (await findWorktreePatch(from, undefined, undefined, undefined, TRUST_ALL, true))?.land;
+  } catch (e) {
+    console.error(`Couldn't read the repo's patches: ${(e as Error).message}`);
+    return 1;
+  }
+  return land({ ...target, ...(landHow ? { land: landHow } : {}) }, {
     dryRun,
     checkFrom: path.relative(realpath(target.path), realpath(from)),
     // Read after the landing lock and rebase: main may have changed the

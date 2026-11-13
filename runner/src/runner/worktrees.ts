@@ -63,7 +63,7 @@ export const worktreesPart = {
     rec.updatedAt = this.isoNow();
     this.markDirty(st);
     this.log.info('made a worktree', { threadId: rec.id, path: made.worktree.path, branch: made.worktree.branch });
-    this.emit(st, { type: 'system.note', text: `Working in a worktree of its own at ${made.worktree.path}, on the branch ${made.worktree.branch}. tb land puts it on main.` }, turnId);
+    this.emit(st, { type: 'system.note', text: `Working in a worktree of its own at ${made.worktree.path}, on the branch ${made.worktree.branch}. ${made.worktree.land === 'pr' ? 'tb land opens a pull request for it.' : 'tb land puts it on main.'}${made.note ? ` ${made.note}` : ''}` }, turnId);
     await this.setUpWorktree(st, made, patch, turnId);
   },
 
@@ -317,10 +317,13 @@ export const worktreesPart = {
     return `[Threadbear] Your worktree at ${w.path} ${went} after its work landed on main. You're now in the main checkout, ${to}, which other threads share: stage your own files by name.`;
   },
 
-  // The Land chip, for a thread with a worktree of its own.
+  // The Land chip, for a thread with a worktree of its own. None when it
+  // lands as a PR (elie-h's fork, 7 Nov): what's worth pressing then (open
+  // it, merge it, see CI) turns on the PR's state on GitHub, which a patch
+  // running gh can read and the runner doesn't.
   worktreeAction(this: Runner, rec: ThreadRecord): Action | undefined {
     const w = rec.worktree;
-    if (!w || w.removedAt) return undefined;
+    if (!w || w.removedAt || w.land === 'pr') return undefined;
     // This runner's own tb, in full: a login shell's PATH may not have it.
     const tb = path.join(BIN_DIR, 'tb');
     const quoted = /^[\w./-]+$/.test(tb) ? tb : `'${tb.replace(/'/g, `'\\''`)}'`;

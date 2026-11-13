@@ -465,6 +465,12 @@ async function recoverLandedFor(t: LandTarget, common: string, out: (line: strin
   } catch {
     return;
   }
+  // Already there: commits that went straight onto main, replayed within
+  // the second they were made, come out as the same commits.
+  if (landed === head) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
   if ((await gitOut(t.path, ['rev-parse', '--abbrev-ref', 'HEAD'])) !== t.branch) return;
   if (!(await git(t.path, ['merge-base', '--is-ancestor', landed, `refs/heads/${MAIN}`])).ok) return;
   if ((await git(t.path, ['reset', '-q', '--keep', landed])).ok) {

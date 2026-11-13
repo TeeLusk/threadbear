@@ -305,8 +305,9 @@ test("a branch that landed while its tb was stopped is moved to what landed by i
   sh(c.path, 'git commit -q --allow-empty -m "Empty on c"');
   const asked = sh(c.path, 'git rev-parse HEAD');
   // What a group check landed for it (as a holder that couldn't move its
-  // branch leaves it): its commits on main.
-  sh(main, `git cherry-pick --allow-empty ${asked}~1 ${asked}`);
+  // branch leaves it): its commits on main, made again a while later, as
+  // within the same second they'd be the very same commits.
+  sh(main, `GIT_COMMITTER_DATE='2030-01-01T00:00:00Z' git cherry-pick --allow-empty ${asked}~1 ${asked}`);
   const landed = sh(main, 'git rev-parse main');
   const done = path.join(main, '.git', 'threadbear-land-done');
   fs.mkdirSync(done, { recursive: true });
@@ -316,5 +317,21 @@ test("a branch that landed while its tb was stopped is moved to what landed by i
   assert.match(out.out[0], /landed while its tb was stopped/);
   assert.equal(out.out[1], `Nothing to land: ${c.branch} has no commits that aren't on main.`);
   assert.equal(sh(main, 'git log --format=%s main | grep -c "Empty on c"'), '1');
+  assert.ok(!fs.existsSync(path.join(done, asked)));
+});
+
+test('a branch already at what landed for it is left alone, and its note goes quietly', async () => {
+  const { main } = makeRepo();
+  const [c] = branches(main, ['c']);
+  sh(c.path, 'git commit -q --allow-empty -m "Empty on c"');
+  const asked = sh(c.path, 'git rev-parse HEAD');
+  // Replayed onto main within the second it was made: the same commits.
+  sh(main, `git merge -q --ff-only ${asked}`);
+  const done = path.join(main, '.git', 'threadbear-land-done');
+  fs.mkdirSync(done, { recursive: true });
+  fs.writeFileSync(path.join(done, asked), asked);
+  const out = capture();
+  assert.equal(await land({ ...c, check: 'true' }, out.opts), 0, out.err.join('\n'));
+  assert.deepEqual(out.out, [`Nothing to land: ${c.branch} has no commits that aren't on main.`]);
   assert.ok(!fs.existsSync(path.join(done, asked)));
 });

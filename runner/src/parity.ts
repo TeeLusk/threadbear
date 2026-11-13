@@ -40,6 +40,7 @@ export const THREAD_REQUESTS: Record<string, Row> = {
   'threads.edit': { what: 'Editing a message', relay: { no: 'It undoes file changes on that Mac, so it waits for a way to show what it undid.' }, phone: { no: 'Not on the phone.' } },
   'threads.delete': { what: 'Deleting it', relay: { no: 'Done on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.highlights': { what: 'Its highlights', relay: { no: 'Highlights are files on that Mac.' }, phone: { no: 'Not on the phone.' } },
+  'threads.prs': { what: 'Its pull requests\' checks and reviews', relay: { no: 'The checks list is kept on that Mac; the summary\'s prs still shows.' }, phone: { no: 'Not on the phone.' } },
   'threads.removeHighlight': { what: 'Removing a highlight', relay: { no: 'Highlights are files on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.explain': { what: 'Explain', relay: { no: 'Runs a model on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.subagent': { what: "Reading a sub-agent's work", relay: { no: 'Sub-agents stay on that Mac.' }, phone: { no: 'Not on the phone.' } },

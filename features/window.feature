@@ -77,3 +77,24 @@ Feature: The window and its panels
     When I sort the Inbox oldest first
     And the app is quit and opened again
     Then the Inbox is sorted oldest first
+
+  # Settings › General › Panel layout picks the default for every project;
+  # View › Panel Layout picks it for the project in front (PanelLayouts).
+  @dock.projectlayouts @gpui-pending
+  Scenario: A project with its own layout keeps its panels when I go to another project
+    Given I open the thread "Rename the Settings tabs"
+    When I choose "Own Layout for Threadbear" from the menu bar
+    And I choose "Show Terminal" from the menu bar
+    Then the panels include "terminal"
+    When I open the thread "Pick a colour for the new Share button"
+    Then the panels don't include "terminal"
+    When I open the thread "Rename the Settings tabs"
+    Then the panels include "terminal"
+
+  @dock.projectlayouts @gpui-pending
+  Scenario: A project can go back to the shared layout
+    Given I open the thread "Rename the Settings tabs"
+    When I choose "Own Layout for Threadbear" from the menu bar
+    And I choose "Show Terminal" from the menu bar
+    And I choose "Shared Layout ★" from the menu bar
+    Then the panels don't include "terminal"

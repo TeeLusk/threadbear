@@ -1935,12 +1935,15 @@ extension Automation {
         guard let menu = NSApp.mainMenu else { return [] }
         return menu.items.compactMap { top in
             guard let submenu = top.submenu else { return nil }
+            submenu.delegate?.menuNeedsUpdate?(submenu)
             submenu.update()
             let items: [[String: Any]] = submenu.items.compactMap { item in
                 if item.isSeparatorItem { return nil }
                 var out: [String: Any] = ["title": item.title, "enabled": item.isEnabled]
                 if let key = ShortcutKey(menuItem: item) { out["key"] = key.display }
                 if let sub = item.submenu {
+                    // SwiftUI fills a submenu in as it opens.
+                    sub.delegate?.menuNeedsUpdate?(sub)
                     sub.update()
                     out["items"] = sub.items.filter { !$0.isSeparatorItem }.map(\.title)
                 }
@@ -1954,6 +1957,8 @@ extension Automation {
     @MainActor
     private static func findMenuItem(_ title: String, in menu: NSMenu?) -> (menu: NSMenu, index: Int)? {
         guard let menu else { return nil }
+        // SwiftUI fills a menu in as it opens (View › Panel Layout's titles).
+        menu.delegate?.menuNeedsUpdate?(menu)
         menu.update()
         for (index, item) in menu.items.enumerated() {
             if item.title == title, !item.isSeparatorItem { return (menu, index) }

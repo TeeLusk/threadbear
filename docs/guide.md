@@ -727,6 +727,20 @@ Show or Hide Panels (⌥⌘P) for the panels beside the thread, Show or Hide
 Terminal (⌘J), and Reset Panel Layout, which puts everything back how it
 started. Threadbear remembers your layout between launches.
 
+To begin with, every thread shares one panel layout. To give each project
+a layout of its own, go to Settings > General > Panel layout and pick
+"Each project has its own". Each project then keeps its panels where you
+put them. When you open a thread in another project, the panels slide to
+that project's layout. A project starts with a copy of the shared layout.
+Threads that are in no project use the shared layout. The threads list
+keeps its width, and threads in panels of their own stay open.
+
+To choose for one project, open one of its threads and use View > Panel
+Layout. Pick Shared Layout or Own Layout for that project. A star marks
+the default for all projects. Make Shared the Default or Make Own Layout
+the Default changes it. Reset Panel Layout resets only the layout that
+is showing.
+
 ### Terminal
 <!-- slug: terminal -->
 

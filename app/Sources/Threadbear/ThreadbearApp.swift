@@ -95,6 +95,7 @@ struct ThreadbearApp: App {
                         .shortcut(.togglePanels)
                     Button(app.terminalShown ? "Hide Terminal" : "Show Terminal", systemImage: WindowDock.terminalSymbol) { app.toggleTerminal() }
                         .shortcut(.toggleTerminal)
+                    PanelLayoutMenu(app: app)
                     Button("Reset Panel Layout", systemImage: "rectangle.3.group") { app.dock.setLayout(WindowDock.defaultLayout) }
                         .shortcut(.resetPanelLayout)
                 }

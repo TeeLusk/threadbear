@@ -610,8 +610,12 @@ final class AppModel {
     /// as the pointer leaves the row to get into the menu.
     var menuOpenRow: String?
     /// The window's panels and where they are (WindowDock), saved as Mike
-    /// moves them.
-    @ObservationIgnored let dock = WindowDock.makeController()
+    /// moves them, to the shared layout or the project's own (PanelLayouts).
+    @ObservationIgnored let panelLayouts: PanelLayouts
+    @ObservationIgnored let dock: DockController
+    /// Bumped when a project's or the default layout pick changes, so View ›
+    /// Panel Layout and Settings redraw (PanelLayouts isn't observed).
+    var layoutModeVersion = 0
     /// Panels opened as tabs beside the main panel for what it's showing
     /// (a review, so far). They close when the main panel moves on to
     /// something else, unless Mike has dragged them out of its group by
@@ -841,6 +845,8 @@ final class AppModel {
     @ObservationIgnored var connectionErrorMessage: String?
 
     init() {
+        panelLayouts = PanelLayouts()
+        dock = WindowDock.makeController(layouts: panelLayouts)
         // The dock saves its layout on every change (WindowDock); this
         // follows panels in and out of the main panel's group as well.
         let save = dock.onChange

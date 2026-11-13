@@ -83,3 +83,12 @@ Then('that row is taller than it was', async function (this: ThreadbearWorld) {
   });
   assert.ok(after > noted.height, `${after} is not taller than ${noted.height}`);
 });
+
+// A panel anywhere in the layout, by its name in the dump's dock line.
+Then('the panels include {string}', async function (this: ThreadbearWorld, panel: string) {
+  await this.until(`"${panel}" in the panels`, (d) => d.dock?.includes(panel) === true);
+});
+
+Then("the panels don't include {string}", async function (this: ThreadbearWorld, panel: string) {
+  await this.until(`no "${panel}" in the panels`, (d) => d.dock !== undefined && !d.dock.includes(panel));
+});

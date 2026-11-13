@@ -28,6 +28,8 @@ extension AppModel {
         mainTabs = []
         for panel in stale { dock.close(panel) }
         if dock.layout.contains(WindowDock.main) { dock.select(WindowDock.main) }
+        // Another project may have a layout of its own (PanelLayouts).
+        followLayoutContext()
     }
 
     /// After every layout change: a tab dragged out of the main panel's

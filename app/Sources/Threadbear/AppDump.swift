@@ -475,6 +475,8 @@ struct AppDump: Encodable {
         var showing: Bool
         var transcript: Transcript?
     }
+    /// Whose panel layout is showing: "shared" or "project <id>" (PanelLayouts).
+    var panelLayout: String = ""
     /// The window's zoom, in percent (TextZoom).
     var zoom: Int = 100
     /// "end" or "empty" while the end-of-inbox note is up (InboxEndToast).
@@ -1012,6 +1014,7 @@ struct AppDump: Encodable {
             },
             keyHints: keyHints(app),
             pageSwipe: pageSwipe(app),
+            panelLayout: app.panelLayouts.current.map { "project \($0)" } ?? "shared",
             zoom: TextZoom.shared.percent,
             inboxEndNote: app.inboxEndNote.map { $0.empty ? "empty" : "end" },
             rails: rails(app),
@@ -1914,6 +1917,7 @@ struct AppDump: Encodable {
             + (composer.effort == "default" ? "" : "effort \(composer.effort), ") + Self.modeText(composer.mode))
         lines.append("  model chip: \(composer.chip)")
         lines.append("dock: \(dock)")
+        lines.append("panel layout: \(panelLayout)")
         if !pools.isEmpty {
             lines.append("pools:")
             for pool in pools {

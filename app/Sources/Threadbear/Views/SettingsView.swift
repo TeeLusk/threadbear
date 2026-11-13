@@ -238,6 +238,16 @@ private struct GeneralSettings: View {
             .onChange(of: appearance) { _, new in new.apply() }
         }
 
+        SettingsSection("Panel layout",
+                        about: "Where you put the panels beside the thread. Shared: one layout for everything. Each project has its own: every project remembers where you put its panels, and they slide into place when you open one of its threads. A project starts from the shared layout. Threads in no project use the shared layout. To choose for one project, open one of its threads and use View > Panel Layout.",
+                        ask: "change it for you.") {
+            let _ = app.layoutModeVersion
+            Picker("Panel layout", selection: Binding(get: { app.panelLayouts.mode }, set: { app.setLayoutDefault($0) })) {
+                ForEach(PanelLayouts.Mode.allCases) { Text($0.title).tag($0) }
+            }
+            .tip("One panel layout for everything, or one for each project")
+        }
+
         SettingsSection("Quitting",
                         about: "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
                         ask: "change it for you.") {

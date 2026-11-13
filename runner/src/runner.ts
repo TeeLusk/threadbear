@@ -487,6 +487,8 @@ type Runtime = {
   // one is under way.
   ciTimer?: TimerHandle;
   ciChecking?: boolean;
+  // Command calls that may set off runs, by itemId, until their result.
+  ciCalls?: Set<string>;
 };
 
 export type ThreadState = { rec: ThreadRecord; rt: Runtime };

@@ -4654,12 +4654,15 @@ time a client asks and then from where it got to:
 **Runs** (experiment `ciRuns`, off by default). A commit marked `pushed`
 with a `repo`, or one whose short sha resolves in the thread's folder, and
 a `gh workflow run` that worked (its workflow, `--ref`, `-R`, and the run's
-id when gh printed the run's URL) are watched. The runner asks the `gh`
+id when gh printed the run's URL), and a `gh run rerun <id or URL>` (that
+run, by id) are watched. The runner asks the `gh`
 CLI on the user's own login, in the thread's folder through a login shell:
 `gh run list --commit <full sha>` for a commit, the first
 `workflow_dispatch` run of that workflow since the dispatch, then
-`gh run view <id>`, for a dispatch. It never reads a token. The first look
-is 5 seconds after a tool result that looks like a push or a dispatch
+`gh run view <id>`, for a dispatch. It never reads a token. A re-run is
+followed with `gh run view <id>`. The first look
+is 5 seconds after the result of such a command (told by the command, as
+gh prints nothing for a re-run outside a terminal, or by its output)
 (and on `threads.highlights`, so a restart picks up where it was); then
 every 15 seconds, doubling while nothing changes, at most 2 minutes. A
 watch ends when its runs have all finished (30 seconds or more after the

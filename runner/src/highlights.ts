@@ -117,7 +117,7 @@ export function observe(state: HighlightState, events: Iterable<PersistedEvent>,
               if (isFile(abs)) add({ id: `file:${abs}`, kind: 'file', title: path.basename(abs), path: abs, how: 'opened', seq: e.seq }, e);
             }
           }
-          if (gitRuns(input.command, 'commit') || gitRuns(input.command, 'push') || /\bgh\s+pr\s+create\b/.test(input.command) || /\bgh\s+workflow\s+run\b/.test(input.command)) {
+          if (gitRuns(input.command, 'commit') || gitRuns(input.command, 'push') || /\bgh\s+pr\s+create\b/.test(input.command) || /\bgh\s+(?:workflow\s+run|run\s+rerun)\b/.test(input.command)) {
             (state.pending ??= {})[e.itemId] = { command: input.command };
           }
         }
@@ -397,7 +397,11 @@ export function pushedRepo(text: string): string | undefined {
 
 // A `gh workflow run <workflow> [--ref x] [-R owner/repo]` that worked: the
 // workflow, and the run's id when gh printed its URL.
+// A `gh run rerun <id or url> [-R owner/repo]` is followed by that run's
+// id, with no workflow.
 export function dispatchOf(command: string, text: string): Omit<Dispatch, 'seq' | 'at'> | undefined {
+  const rerun = /\bgh\s+run\s+rerun\b(.*)/.exec(command);
+  if (rerun) return rerunOf(rerun[1]);
   const m = /\bgh\s+workflow\s+run\s+(.*)/.exec(command);
   if (!m) return undefined;
   const words = (m[1].split(/\s*(?:&&|\|\||;|\||\n)/)[0].match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^(["'])(.*)\1$/, '$2'));
@@ -422,6 +426,28 @@ export function dispatchOf(command: string, text: string): Omit<Dispatch, 'seq' 
     out.repo ??= run[1];
   }
   return { workflow, ...out };
+}
+
+function rerunOf(rest: string): Omit<Dispatch, 'seq' | 'at'> | undefined {
+  const words = rest.split(/\s*(?:&&|\|\||;|\||\n)/)[0].match(/\S+/g) ?? [];
+  let runId: number | undefined;
+  let repo: string | undefined;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const flag = /^(--repo|-R|--job|-j)(?:=(.*))?$/.exec(w);
+    if (flag) {
+      const v = flag[2] ?? words[++i];
+      if ((flag[1] === '--repo' || flag[1] === '-R') && v && /^[\w.-]+\/[\w.-]+$/.test(v)) repo = v;
+      continue;
+    }
+    const url = /github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)/.exec(w);
+    if (url) {
+      runId ??= Number(url[2]);
+      repo ??= url[1];
+    } else if (/^\d+$/.test(w)) runId ??= Number(w);
+  }
+  if (!runId) return undefined;
+  return repo ? { workflow: '', runId, repo } : { workflow: '', runId };
 }
 
 export function pushedBranches(text: string): string[] {

@@ -9,7 +9,7 @@ reminder: a55bcdda
 
 ## What it does
 
-When a thread pushes a commit to GitHub, or starts a workflow with `gh workflow run`, its Highlights get a Runs section: each GitHub Actions run that set off, with its workflow, branch and commit, whether it's queued, running, passed or failed, and a link to the run on github.com. Threadbear asks the `gh` command you're logged into (`gh run list`), never your token. It asks 5 seconds after the push, then every 15 seconds to 2 minutes, only while a run is queued or running, and stops once they've all finished, after 3 minutes with no runs, or after 2 hours. It never asks for an archived thread. Without `gh`, or logged out, the section stays empty.
+When a thread pushes a commit to GitHub, starts a workflow with `gh workflow run`, or re-runs one with `gh run rerun`, its Highlights get a Runs section: each GitHub Actions run that set off, with its workflow, branch and commit, whether it's queued, running, passed or failed, and a link to the run on github.com. Threadbear asks the `gh` command you're logged into (`gh run list`, `gh run view`), never your token. It asks 5 seconds after the push, then every 15 seconds to 2 minutes, only while a run is queued or running, and stops once they've all finished, after 3 minutes with no runs, or after 2 hours. It never asks for an archived thread. Without `gh`, or logged out, the section stays empty.
 
 ## Lives in
 

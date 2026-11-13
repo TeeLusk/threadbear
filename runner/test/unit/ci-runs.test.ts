@@ -54,6 +54,11 @@ test('ciRuns: the repo comes from a push to GitHub, and a dispatch from gh workf
   assert.deepEqual(dispatchOf('cd app && gh workflow run "Deploy preview" -R o/r && echo ok', ''), { workflow: 'Deploy preview', repo: 'o/r' });
   assert.deepEqual(dispatchOf('gh workflow run ci.yml', 'https://github.com/o/r/actions/runs/99\n'), { workflow: 'ci.yml', runId: 99, repo: 'o/r' });
   assert.equal(dispatchOf('gh workflow list', ''), undefined);
+  // A re-run is followed by its run's id.
+  assert.deepEqual(dispatchOf('gh run rerun 43395974641 --failed -R o/r', '✓ Requested rerun (failed jobs) of run 43395974641'), { workflow: '', runId: 43395974641, repo: 'o/r' });
+  assert.deepEqual(dispatchOf('gh run rerun https://github.com/o/r/actions/runs/77', ''), { workflow: '', runId: 77, repo: 'o/r' });
+  assert.deepEqual(dispatchOf('gh run rerun --job 5 12', ''), { workflow: '', runId: 12 });
+  assert.equal(dispatchOf('gh run rerun', ''), undefined, 'gh asks which run: nothing to follow');
 });
 
 test('ciRuns: pushed commits and dispatches become watches, once each', () => {
@@ -123,6 +128,30 @@ test('ciRuns: a push with no runs is let go after three minutes; a failing gh is
   await check(state, gh, async () => FULL, T0 + 60_000);
   assert.equal(watching(state), true);
   await check(state, gh, async () => FULL, T0 + 4 * 60_000);
+  assert.equal(watching(state), false);
+});
+
+test('ciRuns: a re-run of a finished run shows it going again, and follows it until it finishes', async () => {
+  const state = emptyCiRuns();
+  state.runs.push({ id: 'run:5', workflow: 'Lint', status: 'failed', url: 'https://github.com/o/r/actions/runs/5', sha: 'a1b2c3d', at: '2026-11-11T10:00:00Z' });
+  const hl = emptyHighlights();
+  observe(hl, [
+    ev({ type: 'tool.call', itemId: 'r', name: 'Bash', kind: 'command', title: '', input: { command: 'gh run rerun 5 -R o/r' } }),
+    ev({ type: 'tool.result', itemId: 'r', ok: true, text: '✓ Requested rerun of run 5\n', truncated: false, images: [] }, '2026-11-12T10:00:00.000Z'),
+  ], { cwd: '/x', home: '/h', exists: () => false });
+  assert.equal(addWatches(state, hl), true);
+  let status = 'queued';
+  const calls: string[][] = [];
+  const gh = async (args: string[]) => {
+    calls.push(args);
+    return JSON.stringify({ ...ghRun(5, 'Lint', status, status === 'completed' ? 'success' : ''), createdAt: '2026-11-11T10:00:00Z' });
+  };
+  assert.equal(await check(state, gh, async () => undefined, T0 + 5_000), true);
+  assert.deepEqual(calls[0].slice(0, 5), ['run', 'view', '5', '-R', 'o/r']);
+  assert.equal(state.runs[0].status, 'queued');
+  status = 'completed';
+  await check(state, gh, async () => undefined, T0 + 60_000);
+  assert.equal(state.runs[0].status, 'passed');
   assert.equal(watching(state), false);
 });
 
@@ -203,6 +232,18 @@ test('ciRuns: a push in a thread shows its runs in Highlights, and the runner st
   h.clock.advance(10 * 60_000);
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(commands.length, asked, 'nothing more asked');
+});
+
+test('ciRuns: a re-run in a thread is followed even though gh prints nothing', async () => {
+  const { h, id, commands, setRuns } = setup();
+  setRuns([{ ...ghRun(5, 'Lint', 'queued'), createdAt: '2026-11-11T10:00:00Z' }]);
+  const s = h.adapter.sessions.at(-1)!;
+  s.out({ kind: 'event', event: { type: 'tool.call', itemId: 'r', name: 'Bash', kind: 'command', title: 'rerun', input: { command: 'gh run rerun 5 -R o/r' } } });
+  s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'r', ok: true, text: '', truncated: false, images: [] } });
+  await until(() => Boolean(h.runner.threads.get(id)!.rt.ciTimer), 'a look booked');
+  h.clock.advance(5_000);
+  await until(() => h.runner.highlights(id).runs?.[0]?.id === 'run:5', 'the re-run');
+  assert.match(commands.at(-1)!, /^gh 'run' 'view' '5' '-R' 'o\/r'/);
 });
 
 test('ciRuns: off, or archived, nothing is asked and no runs are shown', async () => {

@@ -19,8 +19,9 @@ const FIRST_LOOK_MS = 5_000;
 const GH_TIMEOUT_MS = 20_000;
 
 // A tool result that may have set off runs: git push's "a..b x -> y" or
-// "[new branch]" line, or what `gh workflow run` prints.
-const MAYBE_RUNS = /->|workflow_dispatch|actions\/runs\//;
+// "[new branch]" line, or what `gh workflow run` or `gh run rerun` prints.
+const MAYBE_RUNS = /->|workflow_dispatch|actions\/runs\/|[Rr]equested rerun/;
+const MAYBE_RUN_COMMAND = /\bgit\b[^\n]*\bpush\b|\bgh\s+(?:workflow\s+run|run\s+rerun)\b/;
 
 export type CiShell = (cwd: string, command: string) => Promise<string>;
 
@@ -32,9 +33,18 @@ function shell(cwd: string, command: string): Promise<string> {
 }
 
 export const ciRunsPart = {
-  // From emit: a command's result that looks like a push or a dispatch.
+  // From emit: the result of a command that may have set off runs (a push,
+  // `gh workflow run`, `gh run rerun`), told by the command, as gh prints
+  // nothing for a re-run outside a terminal, or by what it printed.
   ciRunsEvent(this: Runner, st: ThreadState, body: EventBody): void {
-    if (body.type !== 'tool.result' || !body.ok || !MAYBE_RUNS.test(body.text ?? '')) return;
+    if (body.type === 'tool.call') {
+      const command = (body.input as { command?: unknown } | undefined)?.command;
+      if (typeof command === 'string' && MAYBE_RUN_COMMAND.test(command)) (st.rt.ciCalls ??= new Set()).add(body.itemId);
+      return;
+    }
+    if (body.type !== 'tool.result') return;
+    const asked = st.rt.ciCalls?.delete(body.itemId) ?? false;
+    if (!body.ok || !(asked || MAYBE_RUNS.test(body.text ?? ''))) return;
     if (!experimentOn(this.cfg.home, 'ciRuns')) return;
     // After this event is in the log, so catching up sees it.
     queueMicrotask(() => this.kickCiRuns(st));

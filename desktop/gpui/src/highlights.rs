@@ -858,6 +858,8 @@ pub(crate) struct Palette {
     pub accent: Hsla,
     pub failed: Hsla,
     pub needs_you: Hsla,
+    pub ready: Hsla,
+    pub blocked: Hsla,
     pub card: Hsla,
     pub card_border: Hsla,
 }
@@ -875,6 +877,8 @@ pub(crate) fn palette(cx: &App) -> Palette {
         accent: style::accent(cx),
         failed: style::failed(cx),
         needs_you: style::needs_you_text(cx),
+        ready: style::ready(cx),
+        blocked: style::blocked(cx),
         card: style::primary_opacity(cx, 0.05),
         card_border: style::card_border(cx),
     }

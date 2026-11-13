@@ -446,6 +446,16 @@ pub fn failed(cx: &App) -> Hsla {
     pick(cx, rgb(0xff453a).into(), hsla(0.0, 0.71, 0.46, 1.0))
 }
 
+/// `Theme.ready`: a list panel row that's good to go (systemGreen in dark).
+pub fn ready(cx: &App) -> Hsla {
+    pick(cx, rgb(0x30d158).into(), srgb(0.10, 0.50, 0.20, 1.))
+}
+
+/// `Theme.blocked`: a list panel row waiting on someone else (systemYellow in dark).
+pub fn blocked(cx: &App) -> Hsla {
+    pick(cx, rgb(0xffd60a).into(), srgb(0.62, 0.48, 0., 1.))
+}
+
 /// `.secondary` text (secondaryLabelColor).
 pub fn secondary_text(cx: &App) -> Hsla {
     pick(cx, white(0.55), black(0.5))

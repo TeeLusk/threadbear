@@ -241,6 +241,8 @@ impl SidePane {
         let color = match item.tone_kind() {
             Some("attention") => Some(p.needs_you),
             Some("failed") => Some(p.failed),
+            Some("ready") => Some(p.ready),
+            Some("blocked") => Some(p.blocked),
             _ => None,
         };
         // A patch's detail is usually a sentence, so it gets two lines and keeps its start.

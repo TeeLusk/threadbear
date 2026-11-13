@@ -193,7 +193,7 @@ pub fn try_symbol(name: &str) -> Option<Icon> {
         "folder.fill" => IconName::Folder,
         "wrench.and.screwdriver.fill" => IconName::Wrench,
         "person.crop.circle.badge.exclamationmark" => IconName::UserRoundX,
-        "checkmark.circle.fill" => IconName::CircleCheck,
+        "checkmark.circle.fill" | "checkmark.circle" => IconName::CircleCheck,
         "arrow.up.right" => IconName::ArrowUpRight,
         "arrow.up.left.and.arrow.down.right" => IconName::Maximize2,
         "key" => IconName::Key,

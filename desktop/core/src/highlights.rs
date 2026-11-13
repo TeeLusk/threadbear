@@ -1096,7 +1096,7 @@ pub struct PanelItemAction {
 
 impl PanelItem {
     pub fn tone_kind(&self) -> Option<&str> {
-        self.tone.as_deref().filter(|t| matches!(*t, "attention" | "failed" | "done"))
+        self.tone.as_deref().filter(|t| matches!(*t, "attention" | "failed" | "done" | "ready" | "blocked"))
     }
 
     /// The row's own icon, else one for its tone, else none (`ListPanel.icon`).
@@ -1108,6 +1108,8 @@ impl PanelItem {
             Some("attention") => Some("exclamationmark.circle"),
             Some("failed") => Some("xmark.circle"),
             Some("done") => Some("checkmark"),
+            Some("ready") => Some("checkmark.circle"),
+            Some("blocked") => Some("clock"),
             _ => None,
         }
     }
@@ -1473,16 +1475,20 @@ mod tests {
             {"title": "Build", "tone": "failed", "path": "/w/site/build.log"},
             {"title": "Deploy", "tone": "done"},
             {"title": "Odd", "tone": "sparkly"},
-            {"detail": "no title"}
+            {"detail": "no title"},
+            {"title": "Merge", "tone": "ready"},
+            {"title": "Review", "tone": "blocked"}
         ], "note": null}));
         let items = render.items.expect("items");
-        assert_eq!(items.len(), 6, "a row with no title has one that's empty");
+        assert_eq!(items.len(), 8, "a row with no title has one that's empty");
         assert_eq!(items[0].symbol(), Some("arrow.triangle.branch"));
         assert_eq!(items[1].symbol(), Some("exclamationmark.circle"));
         assert_eq!(items[2].symbol(), Some("xmark.circle"));
         assert_eq!(items[3].symbol(), Some("checkmark"));
         assert_eq!(items[4].symbol(), None, "a tone this app doesn't know is plain");
         assert_eq!(items[4].tone_kind(), None);
+        assert_eq!((items[6].tone_kind(), items[6].symbol()), (Some("ready"), Some("checkmark.circle")));
+        assert_eq!((items[7].tone_kind(), items[7].symbol()), (Some("blocked"), Some("clock")));
         assert!(render.note.is_none());
     }
 

@@ -741,6 +741,9 @@ final class AppModel {
     /// Actions whose command is running, as "<threadId>/<actionId>", so
     /// the chip shows it and a second click doesn't start another.
     var runningActions: Set<String> = []
+    /// Bumped by "<threadId>/<panelId>" when a row's button has run, so the
+    /// list panel draws itself again then rather than at its next poll.
+    var panelDraws: [String: Int] = [:]
     /// The automation hook's `focus`: a scripted app is never in front, so
     /// it never marked anything read; with this it acts as if Mike were
     /// looking at it. Never set outside a scripted debug run.

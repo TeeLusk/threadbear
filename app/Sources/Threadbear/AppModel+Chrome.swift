@@ -236,6 +236,30 @@ extension AppModel {
         }
     }
 
+    static func rowActionKey(threadId: String, panelId: String, actionId: String) -> String { "\(threadId)/\(panelId)/\(actionId)" }
+
+    /// Runs a button on a list panel's row, then has the panel drawn
+    /// again (panelDraws), as what it did (a process it stopped) changes
+    /// the rows.
+    func runRowAction(_ action: PanelItemAction, row: String, panelId: String, in threadId: String) {
+        let key = Self.rowActionKey(threadId: threadId, panelId: panelId, actionId: action.id)
+        guard !runningActions.contains(key), let client = client(for: threadId) else { return }
+        runningActions.insert(key)
+        Task {
+            let title = "\(action.title): \(row)"
+            do {
+                let result = try await client.runPanelItemAction(threadId: threadId, panelId: panelId, actionId: action.id)
+                if result.ok == false {
+                    showError("\(title) failed\(result.exitCode.map { " (exit \($0))" } ?? ""). What it printed is in the thread.", in: threadId, doing: "pressing \(action.title) on a panel's row")
+                }
+            } catch {
+                showError("\(title) didn't run: \(error.localizedDescription)", in: threadId, doing: "pressing \(action.title) on a panel's row")
+            }
+            panelDraws["\(threadId)/\(panelId)", default: 0] += 1
+            runningActions.remove(key)
+        }
+    }
+
     /// Trusts patch files waiting in a thread's folder, as the Patches
     /// panel showed them; the runner then loads them.
     func trustPatches(_ patches: [PatchInfo], in threadId: String) {

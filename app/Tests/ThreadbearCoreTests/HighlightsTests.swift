@@ -226,6 +226,19 @@ final class ListPanelTests: XCTestCase {
         XCTAssertEqual(PanelItem.headings(items), ["Waiting · 1", "Shipped · 2", nil, nil, "Shipped · 2"])
     }
 
+    func testListPanelRowActions() throws {
+        let json = #"""
+        {"items":[
+          {"title":"pnpm dev","actions":[{"id":"stop-98517","title":"Stop","icon":"stop.fill","later":1},{"title":"no id"},{"id":"open","title":"Open"}]},
+          {"title":"plain"}
+        ]}
+        """#
+        let items = try XCTUnwrap(try JSONDecoder().decode(PanelRender.self, from: Data(json.utf8)).items)
+        // One without an id is dropped; the rest of the row still decodes.
+        XCTAssertEqual(items[0].actions, [PanelItemAction(id: "stop-98517", title: "Stop", icon: "stop.fill"), PanelItemAction(id: "open", title: "Open")])
+        XCTAssertEqual(items[1].actions, [])
+    }
+
     func testRailIcons() {
         XCTAssertEqual(PanelIcon.symbol(for: Panel(id: "convex.dashboard", title: "Convex")), "cylinder.split.1x2")
         XCTAssertEqual(PanelIcon.symbol(for: Panel(id: "xcode.simulator", title: "Simulator", kind: .image)), "iphone")

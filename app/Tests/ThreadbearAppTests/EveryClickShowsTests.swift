@@ -22,7 +22,7 @@ final class EveryClickShowsTests: XCTestCase {
 
     /// The calls that change something.
     private static let changing: Set<String> = [
-        "send", "editMessage", "createThread", "hibernateWhen", "removeHighlight", "runAction", "trustPatches",
+        "send", "editMessage", "createThread", "hibernateWhen", "removeHighlight", "runAction", "runPanelItemAction", "trustPatches",
         "interrupt", "updateThread", "share", "tickAsk", "respond", "answerStartRequest", "approvePlan",
         "answerSecret", "checkClis", "updateCli", "setCliPolicy", "createSchedule", "updateSchedule",
         "deleteSchedule", "setRunnerOrder", "runSchedule", "createProject", "updateProject", "setProjectIcon",
@@ -46,6 +46,7 @@ final class EveryClickShowsTests: XCTestCase {
         "AppModel+ThreadActions.swift hibernateWhen": "the row goes at once",
         "AppModel+Chrome.swift runAction": "runningActions: the chip spins",
         "AppModel+Chrome.swift trustPatches": "trustingPatches: the row spins",
+        "AppModel+Chrome.swift runRowAction": "runningActions: the row's button spins",
         "AppModel+Chrome.swift investigateError": "creatingThread: the banner spins",
         "PoolsModel.swift savePools": "async: Settings awaits it and shows its own state",
         "Schedules.swift saveSchedule": "async: the editor awaits it and shows its own state",

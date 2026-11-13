@@ -226,9 +226,11 @@ public struct PanelItem: Sendable, Hashable, Codable {
     public var section: String?
     /// Short and faint at the end of the title's line: a date or a count.
     public var trailing: String?
+    /// Buttons at the end of the row (`panels.runItemAction`).
+    public var actions: [PanelItemAction]
 
     public init(title: String, detail: String? = nil, url: String? = nil, path: String? = nil, icon: String? = nil, tone: Tone? = nil,
-                section: String? = nil, trailing: String? = nil) {
+                section: String? = nil, trailing: String? = nil, actions: [PanelItemAction] = []) {
         self.title = title
         self.detail = detail
         self.url = url
@@ -237,6 +239,7 @@ public struct PanelItem: Sendable, Hashable, Codable {
         self.tone = tone
         self.section = section
         self.trailing = trailing
+        self.actions = actions
     }
 
     public init(from decoder: Decoder) throws {
@@ -249,9 +252,25 @@ public struct PanelItem: Sendable, Hashable, Codable {
         tone = (try? c.decodeIfPresent(Tone.self, forKey: .tone)) ?? nil
         section = (try? c.decodeIfPresent(String.self, forKey: .section)) ?? nil
         trailing = (try? c.decodeIfPresent(String.self, forKey: .trailing)) ?? nil
+        actions = c.lossyArray(PanelItemAction.self, forKey: .actions)
     }
 
-    enum CodingKeys: String, CodingKey { case title, detail, url, path, icon, tone, section, trailing }
+    enum CodingKeys: String, CodingKey { case title, detail, url, path, icon, tone, section, trailing, actions }
+}
+
+/// A button on a list panel's row. The runner keeps the command it runs, so
+/// only its id goes back.
+public struct PanelItemAction: Sendable, Hashable, Codable {
+    public var id: String
+    public var title: String
+    /// An SF Symbol name.
+    public var icon: String?
+
+    public init(id: String, title: String, icon: String? = nil) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+    }
 }
 
 extension PanelItem {

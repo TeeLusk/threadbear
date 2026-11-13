@@ -1357,6 +1357,7 @@ private struct ListPanel: View {
     let thread: ThreadSummary
     let panel: Panel
     @State private var render: PanelRender?
+    @State private var drawn: String?
 
     var body: some View {
         Group {
@@ -1367,7 +1368,15 @@ private struct ListPanel: View {
                         let headings = PanelItem.headings(items)
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                             if let heading = headings[index] { SectionHeading(title: heading) }
-                            row(item, reservesIcon: reserves)
+                            if item.actions.isEmpty {
+                                row(item, reservesIcon: reserves)
+                            } else {
+                                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                                    row(item, reservesIcon: reserves)
+                                    buttons(item)
+                                        .padding(.trailing, SidebarMetrics.outerInset + zoomed(8))
+                                }
+                            }
                         }
                     }
                     .padding(.vertical, zoomed(8))
@@ -1379,8 +1388,10 @@ private struct ListPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: "\(thread.id)/\(panel.id)") {
-            render = nil
+        .task(id: "\(thread.id)/\(panel.id)/\(app.panelDraws["\(thread.id)/\(panel.id)"] ?? 0)") {
+            // Drawn again after a row's button ran: the rows stay meanwhile.
+            if drawn != "\(thread.id)/\(panel.id)" { render = nil }
+            drawn = "\(thread.id)/\(panel.id)"
             while !Task.isCancelled {
                 let result = await app.renderPanel(threadId: thread.id, panelId: panel.id, failure: "Couldn't get this list from the runner.")
                 if Task.isCancelled { return }
@@ -1416,6 +1427,35 @@ private struct ListPanel: View {
                     LinkMenu(url: link, thread: thread, title: item.title)
                 }
             }
+    }
+
+    /// A row's buttons at its end: an icon (or the title, with none), a
+    /// spinner while its command runs, and no second press until it's done.
+    private func buttons(_ item: PanelItem) -> some View {
+        HStack(spacing: zoomed(2)) {
+            ForEach(item.actions, id: \.id) { action in
+                let running = app.runningActions.contains(AppModel.rowActionKey(threadId: thread.id, panelId: panel.id, actionId: action.id))
+                Button {
+                    app.runRowAction(action, row: item.title, panelId: panel.id, in: thread.id)
+                } label: {
+                    Group {
+                        if running {
+                            ProgressView().controlSize(.mini)
+                        } else if let icon = action.icon, !icon.isEmpty {
+                            Image(systemName: icon).font(.system(size: zoomed(10)))
+                        } else {
+                            Text(action.title).font(.system(size: TypeScale.small))
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: zoomed(20), minHeight: zoomed(20))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(running)
+                .tip(running ? "\(action.title): running…" : "\(action.title): \(item.title)")
+            }
+        }
     }
 
     /// The row's own icon, else one for its tone, else none.

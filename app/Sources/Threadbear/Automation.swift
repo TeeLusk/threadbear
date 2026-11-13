@@ -1053,6 +1053,23 @@ enum Automation {
             if c["up"] as? Bool == true { pane.goUp() }
             try? await Task.sleep(for: .milliseconds(500))
             return "ok \(app.panePreview[app.selectedThread?.id ?? ""].map { "showing \($0.title)" } ?? "no preview"); \(FolderPaneView.current?.summary ?? "no folder")"
+        case "row-action":
+            // {"cmd":"row-action","panel":"deploys.previews","row":"Local","action":"Stop"}
+            // presses a list panel row's button (by title or id) and waits for it.
+            guard let thread = app.selectedThread else { return "error no thread selected" }
+            let panelId = c["panel"] as? String ?? "", rowTitle = c["row"] as? String ?? "", wanted = c["action"] as? String ?? ""
+            guard let items = PanelDebug.renders[panelId]?.items else { return "error the panel \(panelId) hasn't been drawn" }
+            guard let item = items.first(where: { $0.title == rowTitle }) else { return "error no row \(rowTitle) in \(panelId)" }
+            guard let action = item.actions.first(where: { $0.title == wanted || $0.id == wanted }) else { return "error the row \(rowTitle) has no button \(wanted)" }
+            app.runRowAction(action, row: item.title, panelId: panelId, in: thread.id)
+            let key = AppModel.rowActionKey(threadId: thread.id, panelId: panelId, actionId: action.id)
+            let deadline = Date().addingTimeInterval(number(c["timeout"]) ?? 60)
+            while Date() < deadline, app.runningActions.contains(key) {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            if app.runningActions.contains(key) { return "error \(wanted) still running after the timeout" }
+            try? await Task.sleep(for: .milliseconds(150))
+            return "ok pressed \(wanted) on \(rowTitle)"
         case "action":
             // {"cmd":"action","id":"reseed.reseed-dev-db"} runs that action of
             // the selected thread and waits for a command to finish.

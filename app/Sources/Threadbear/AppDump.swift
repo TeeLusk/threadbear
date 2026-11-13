@@ -718,6 +718,13 @@ struct AppDump: Encodable {
             var symbol: String?
             /// Needs you's tick box.
             var ticked: Bool?
+            /// A list panel row's buttons.
+            var actions: [RowAction]?
+        }
+        struct RowAction: Codable {
+            var id: String
+            var title: String
+            var running: Bool
         }
         struct Section: Codable {
             var key: String
@@ -1320,7 +1327,8 @@ struct AppDump: Encodable {
                         sections.append(Pane.Section(key: heading, title: heading, count: 0, folded: false, rows: []))
                     }
                     let symbol = item.icon.flatMap { $0.isEmpty ? nil : $0 } ?? item.tone.map(\.rawValue)
-                    sections[sections.count - 1].rows.append(Pane.Row(title: item.title, trailing: item.trailing, detail: item.detail, symbol: symbol))
+                    let actions = item.actions.map { Pane.RowAction(id: $0.id, title: $0.title, running: app.runningActions.contains(AppModel.rowActionKey(threadId: thread.id, panelId: panel.id, actionId: $0.id))) }
+                    sections[sections.count - 1].rows.append(Pane.Row(title: item.title, trailing: item.trailing, detail: item.detail, symbol: symbol, actions: actions.isEmpty ? nil : actions))
                     sections[sections.count - 1].count += 1
                 }
                 pane.list = sections

@@ -191,6 +191,12 @@ public extension RPCClient {
         return try await call("actions.run", .object(["threadId": .string(threadId), "actionId": .string(actionId)]), as: ActionRunResult.self, timeout: .seconds(minutes * 60))
     }
 
+    /// Runs a button on a list panel's row, from the panel's last draw.
+    /// Answers when its command has finished (ten minutes at most).
+    func runPanelItemAction(threadId: String, panelId: String, actionId: String) async throws -> ActionRunResult {
+        try await call("panels.runItemAction", .object(["threadId": .string(threadId), "panelId": .string(panelId), "actionId": .string(actionId)]), as: ActionRunResult.self, timeout: .seconds(11 * 60))
+    }
+
     /// Trusts the versions of the thread's waiting patch files that were
     /// shown (by hash), so they load (docs/protocol.md, "Trusting a
     /// folder's patches").

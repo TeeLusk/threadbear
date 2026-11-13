@@ -11,7 +11,7 @@
 //
 // Settings: runner.json `cacheKeepAlive` (all optional):
 //   { "enabled": true, "minContextTokens": 50000, "intervalMinutes": 55,
-//     "maxPings": 3, "timeZone": "America/Phoenix",
+//     "maxPings": 3, "timeZone": "<this Mac's own>",
 //     "weekdays": [7, 15], "weekends": [7, 20] }
 // weekdays and weekends are [from, to) in hours of the day, in timeZone.
 import type { RunnerJson } from './config.ts';
@@ -35,7 +35,8 @@ export const DEFAULT_KEEP_ALIVE: KeepAliveConfig = {
   minContextTokens: 50_000,
   intervalMs: 55 * 60_000,
   maxPings: 3,
-  timeZone: 'America/Phoenix',
+  // The hours are the Mac's own unless runner.json names a zone.
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   weekdays: [7, 15],
   weekends: [7, 20],
 };

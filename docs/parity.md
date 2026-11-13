@@ -29,6 +29,7 @@ website, which read every thread through Convex.
 | What fills its context | `threads.contextUsage` | No: Asked of the CLI on that Mac; the ring's popover there shows the totals only. | No: Not on the phone. |
 | Ticking an ask on the card | `threads.tickAsk` | No: Ticks stay on that Mac. | No: The phone sends picks with its answer instead. |
 | Editing a message | `threads.edit` | No: It undoes file changes on that Mac, so it waits for a way to show what it undid. | No: Not on the phone. |
+| Continue in a new thread (the long thread card) | `threads.continueFresh` | No: The handoff and the new thread are made on that Mac. | No: Not on the phone. |
 | Deleting it | `threads.delete` | No: Done on that Mac. | No: Not on the phone. |
 | Its highlights | `threads.highlights` | No: Highlights are files on that Mac. | No: Not on the phone. |
 | Its pull requests' checks and reviews | `threads.prs` | No: The checks list is kept on that Mac; the summary's prs still shows. | No: Not on the phone. |

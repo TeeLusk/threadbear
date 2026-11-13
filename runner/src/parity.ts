@@ -38,6 +38,7 @@ export const THREAD_REQUESTS: Record<string, Row> = {
   'threads.contextUsage': { what: 'What fills its context', relay: { no: "Asked of the CLI on that Mac; the ring's popover there shows the totals only." }, phone: { no: 'Not on the phone.' } },
   'threads.tickAsk': { what: 'Ticking an ask on the card', relay: { no: 'Ticks stay on that Mac.' }, phone: { no: 'The phone sends picks with its answer instead.' } },
   'threads.edit': { what: 'Editing a message', relay: { no: 'It undoes file changes on that Mac, so it waits for a way to show what it undid.' }, phone: { no: 'Not on the phone.' } },
+  'threads.continueFresh': { what: 'Continue in a new thread (the long thread card)', relay: { no: 'The handoff and the new thread are made on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.delete': { what: 'Deleting it', relay: { no: 'Done on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.highlights': { what: 'Its highlights', relay: { no: 'Highlights are files on that Mac.' }, phone: { no: 'Not on the phone.' } },
   'threads.prs': { what: 'Its pull requests\' checks and reviews', relay: { no: 'The checks list is kept on that Mac; the summary\'s prs still shows.' }, phone: { no: 'Not on the phone.' } },

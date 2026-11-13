@@ -9,6 +9,7 @@ import type { CachePing } from '../adapters/types.ts';
 import { keepAliveConfig, pingPlan, type KeepWarmThread } from '../cache-keepalive.ts';
 import { claudeOptions, claudeSettingsWithoutCommands } from '../claude-trust.ts';
 import { paths, readRunnerJson } from '../config.ts';
+import { experimentOn } from '../experiments.ts';
 import { loginOk } from '../pools.ts';
 import { threadEnv } from '../restart.ts';
 
@@ -44,6 +45,9 @@ export const keepWarmPart = {
 
   // Sends the pings that are due, one after another, and says what went.
   async keepWarmTick(this: Runner): Promise<SentPing[]> {
+    // An experiment (experiments/cacheKeepAlive.md): off unless it's on,
+    // and then runner.json's cacheKeepAlive sets the limits.
+    if (!experimentOn(this.cfg.home, 'cacheKeepAlive')) return [];
     const cfg = keepAliveConfig(readRunnerJson(this.cfg.home));
     if (!cfg.enabled || this.stopping) return [];
     const sent: SentPing[] = [];

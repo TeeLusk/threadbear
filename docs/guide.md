@@ -1253,27 +1253,15 @@ as it is for now.
 ### Keeping the cache warm
 
 Claude keeps a conversation in its prompt cache for an hour after each
-call. Coming back to a big thread after that means the whole conversation
-is read in again at full price, about twenty times what reading it from
-the cache costs. So when a Claude thread is waiting on you in Needs you
-with more than 50K tokens of context, Threadbear sends it a tiny ping
-about 55 minutes after its last call, which reads the cache and keeps it
-for another hour.
-
-The ping goes to a throwaway copy of the conversation, on the login the
-thread last ran on, so nothing is added to the thread and nothing shows up
-as a new one. It gets at most 3 pings while it waits; answering it, or any
-new turn, starts the count again. Pings only go out from 7:00 to 15:00 on
-weekdays and 7:00 to 20:00 at weekends (Phoenix time), never to a thread
-that's done, hibernating, archived, working or in a sandbox, and never on
-a login with no room left. Their tokens count in Usage like any other
-call, and each one is a line in the runner log ("cache ping").
-
-To turn it off, put `"cacheKeepAlive": false` in `runner.json` in
-Threadbear's data folder (or ask any thread to). The limits can be changed
-there too: `"cacheKeepAlive": { "minContextTokens": 50000,
-"intervalMinutes": 55, "maxPings": 3, "timeZone": "America/Phoenix",
-"weekdays": [7, 15], "weekends": [7, 20] }`. Changes apply within a minute.
+call, and coming back to a big thread after that reads it all in again at
+full price. The Cache pings experiment (Settings > General > Experiments,
+off by default) sends a big thread that's waiting on you a tiny ping
+before the hour is up, a few times at most and only in working hours;
+[experiments.md](experiments.md) says exactly when. The limits are
+`"cacheKeepAlive": { "minContextTokens": 50000, "intervalMinutes": 55,
+"maxPings": 3, "timeZone": "Europe/London", "weekdays": [7, 15],
+"weekends": [7, 20] }` in `runner.json` (the zone is your Mac's unless you
+name one), and `false` there stops them even with the experiment on.
 
 ## Standing instructions
 <!-- slug: instructions -->

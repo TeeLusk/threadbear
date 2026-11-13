@@ -301,8 +301,8 @@ File references are where to look.
   big context, and about 55 minutes after one's last call sends a one-word
   turn to a throwaway fork of its session, through the `claude` CLI on the
   same login, to keep its prompt cache. Nothing is written to disk (no
-  transcript); at most 3 per wait, in set hours. Off with
-  `"cacheKeepAlive": false` in `runner.json`.
+  transcript); at most 3 per wait, in set hours. Only while the
+  `cacheKeepAlive` experiment is on (off by default).
 - **Keeping the Mac awake** (`runner/src/keep-awake.ts`, on unless
   Settings > General > Sleep or `"keepAwake": false` in `runner.json`
   turns it off): while a thread is working and for 3

@@ -45,6 +45,17 @@ Then('the list row {string} says {string} and {string}', async function (this: T
   });
 });
 
+Then('the list row {string} has the button {string}', async function (this: ThreadbearWorld, title: string, button: string) {
+  await this.until(`"${title}" with ${button}`, (d) => {
+    const row = pane(d)?.list?.flatMap((s) => s.rows).find((r) => r.title === title);
+    return !!row?.actions?.some((a) => a.title === button);
+  });
+});
+
+When('I press {string} on the list row {string} of {string}', async function (this: ThreadbearWorld, button: string, row: string, panel: string) {
+  await this.app.do({ cmd: 'row-action', panel, row, action: button }, 20);
+});
+
 Then('the image panel shows a picture', async function (this: ThreadbearWorld) {
   await this.until('a picture in the image panel', (d) => /^picture \d+x\d+/.test(pane(d)?.image ?? ''));
 });

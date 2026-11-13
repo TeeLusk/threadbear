@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
-import { applyLive, loadPatchSet, renderListPanel, runCommand } from '../../src/patches.ts';
+import { applyLive, loadPatchSet, panelCommand, renderListPanel, runCommand } from '../../src/patches.ts';
 import { folderKey, namedPaths, PatchTrust, patchHash, scanModule } from '../../src/patch-trust.ts';
 import { makeRecipeToShell, rcConfig, Reads, reachOf, reachOfCommand, setsMakeShell, yamlListItems } from '../../src/script-trust.ts';
 
@@ -508,6 +508,30 @@ test("F22: a trusted patch's badge and list panel run its sh commands from the f
   assert.equal(again.actions.find((a) => a.title === 'Other')?.badge, undefined);
   assert.equal(fs.existsSync(path.join(marks, 'other.ran')), false);
   assert.match(again.patches[0]?.liveError ?? '', /other\.sh, which patch trust didn't hash/);
+});
+
+test("F22: a trusted patch's row action runs from the folder holding .threadbear/ and only what the hash covered, checked again when it's pressed", async () => {
+  const { root, repo, thread, marks, trust, ctx } = await liveRepo({}, `export default {
+  panels: [{ title: 'List', items: () => [{ title: 'row', actions: [
+    { id: 'count', title: 'Count', run: './tools/count.sh' },
+    { id: 'other', title: 'Other', run: ['./tools', 'other.sh'].join('/') },
+  ] }] }],
+};\n`);
+  const base = await loadPatchSet(thread, root, new Map(), [], [], undefined, trust);
+  assert.equal(base.patches[0]?.error, undefined);
+  const panel = base.panels.find((p) => p.title === 'List')!;
+  const list = await renderListPanel(panel, base, ctx);
+  assert.deepEqual(list.items, [{ title: 'row', actions: [{ id: 'count', title: 'Count' }, { id: 'other', title: 'Other' }] }]);
+  const verify = (file: string, hash: string) => trust.verify(file, hash);
+  const count = list.commands?.get('count');
+  assert.equal(count?.command, './tools/count.sh');
+  assert.deepEqual(panelCommand(panel, base, thread, count!.command, verify), { dir: fs.realpathSync(repo) });
+  // A script added since, worked out in code: refused, never run.
+  write(repo, { 'tools/other.sh': `#!/bin/sh\ntouch ${JSON.stringify(path.join(marks, 'other.ran'))}\n` });
+  assert.match(panelCommand(panel, base, thread, list.commands!.get('other')!.command, verify).problem ?? '', /other\.sh, which patch trust didn't hash/);
+  // The script it runs changed after the draw: refused.
+  fs.writeFileSync(path.join(repo, 'tools/count.sh'), '#!/bin/sh\necho 7\n');
+  assert.match(panelCommand(panel, base, thread, count!.command, verify).problem ?? '', /changed since it was trusted/);
 });
 
 test("F22: a live command that runs a script patch trust can't follow (blocked), or one that changed since it was trusted, doesn't run", async () => {

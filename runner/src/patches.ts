@@ -54,7 +54,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { loginShell } from './system-tools.ts';
-import type { Action, Hook, ImageRef, Panel, PanelItem, PatchInfo } from './protocol.ts';
+import type { Action, Hook, ImageRef, Panel, PanelItem, PanelItemAction, PatchInfo } from './protocol.ts';
 import { LIMITS } from './protocol.ts';
 import { imageRefFor } from './media.ts';
 import { FolderCache } from './folder-cache.ts';
@@ -1033,29 +1033,52 @@ type LiveSh = { dir: string; key: string; run: (command: string) => Promise<Comm
 // and only while the function's call is still going; anything else is
 // refused as a failed command, never run. Others run in `cwd`, as written.
 function liveSh(file: string | undefined, cwd: string, ctx: LiveContext): LiveSh {
-  const bound = file ? liveBindings.get(file) : undefined;
   let closed = false;
   const refuse = (why: string): CommandOutcome => ({ ok: false, text: `Not run: ${why}`, truncated: false, durationMs: 0 });
   const close = () => {
     closed = true;
   };
-  if (!bound) return { dir: cwd, key: cwd, run: (command) => ctx.run(command, cwd), close };
-  const dir = bound.tool ? cwd : bound.folder;
+  if (!file || !liveBindings.has(file)) return { dir: cwd, key: cwd, run: (command) => ctx.run(command, cwd), close };
+  const { dir } = boundCommand(file, cwd, undefined, ctx.verify);
   return {
     dir,
     key: `${dir}\u0000${file}`,
     close,
     run: async (command) => {
       if (closed) return refuse('its function had already finished or timed out.');
-      if (!bound.hash || !(ctx.verify?.(file!, bound.hash) ?? false)) return refuse('its patch, or a file it runs, changed since it was trusted.');
-      // A tool patch runs in the folder it applies in, but its own repo's
-      // files are bound by the hash too: checked from both, so an absolute
-      // path to a script of the tool's that the hash didn't cover is refused.
-      const problem = liveCommandProblem(command, dir, bound.files, bound.blocked) ?? (bound.tool ? liveCommandProblem(command, bound.folder, bound.files, bound.blocked) : undefined);
+      const { problem } = boundCommand(file, cwd, command, ctx.verify);
       if (problem) return refuse(problem);
       return ctx.run(command, dir);
     },
   };
+}
+
+// Where a command a patch's code worked out runs, and why it mustn't, if
+// it mustn't: a trusted-by-hash patch's (liveBindings) from the folder
+// holding its `.threadbear/` (a tool patch's from `cwd`, the folder it
+// applies in), only while the patch still hashes to the trusted version,
+// read afresh now, and only what liveCommandProblem allows. Others run in
+// `cwd`, as written. `command` undefined: only where.
+function boundCommand(file: string | undefined, cwd: string, command: string | undefined, verify: LiveContext['verify']): { dir: string; problem?: string } {
+  const bound = file ? liveBindings.get(file) : undefined;
+  if (!bound) return { dir: cwd };
+  const dir = bound.tool ? cwd : bound.folder;
+  if (command === undefined) return { dir };
+  if (!bound.hash || !(verify?.(file!, bound.hash) ?? false)) return { dir, problem: 'its patch, or a file it runs, changed since it was trusted.' };
+  // A tool patch runs in the folder it applies in, but its own repo's
+  // files are bound by the hash too: checked from both, so an absolute
+  // path to a script of the tool's that the hash didn't cover is refused.
+  const problem = liveCommandProblem(command, dir, bound.files, bound.blocked) ?? (bound.tool ? liveCommandProblem(command, bound.folder, bound.files, bound.blocked) : undefined);
+  return problem ? { dir, problem } : { dir };
+}
+
+// Where a list panel's row action runs (panels.runItemAction), and why
+// it mustn't now. Its command was worked out by the patch's `items`, as an
+// `sh` command there is, so it's held as those are (boundCommand), from
+// the folder the panel was drawn in.
+export function panelCommand(panel: Panel, set: PatchSet, cwd: string, command: string, verify: LiveContext['verify']): { dir: string; problem?: string } {
+  const info = set.patches.find((p) => p.id === panel.patch);
+  return boundCommand(info?.file, info?.folder ?? cwd, command, verify);
 }
 
 // Calls a live function, closing its sh the moment it returns: at once
@@ -1097,6 +1120,14 @@ const listFunctions = new Map<string, ItemsFunction>();
 const listKey = (file: string, suffix: string) => `${file}\u0000${suffix}`;
 
 export const LIST_ITEMS_KEPT = 200;
+// Buttons on one row, at most.
+export const ROW_ACTIONS_KEPT = 4;
+
+// A row action's command, kept on the runner from the draw that gave it
+// (the app only gets its id), with what the transcript calls it.
+export type RowCommand = { command: string; title: string; row: string };
+// renderListPanel's answer: the draw, and its rows' commands by action id.
+export type ListRender = PanelRender & { commands?: Map<string, RowCommand> };
 export const LIST_TIMEOUT_MS = 20_000;
 
 // Fills a list panel by calling its patch's function. A throw, a timeout
@@ -1105,7 +1136,7 @@ export async function renderListPanel(
   panel: Panel,
   set: PatchSet,
   ctx: LiveContext,
-): Promise<PanelRender> {
+): Promise<ListRender> {
   const info = set.patches.find((p) => p.id === panel.patch);
   const fn = info?.file ? listFunctions.get(listKey(info.file, panel.id.slice(panel.patch.length))) : undefined;
   if (!fn) return { note: 'This panel has nothing to show.' };
@@ -1126,7 +1157,9 @@ export async function renderListPanel(
       }),
     ]);
     if (!Array.isArray(value)) return { note: "The panel's items function didn't return a list." };
-    return { items: value.slice(0, LIST_ITEMS_KEPT).map(panelItem).filter((x): x is PanelItem => x !== undefined) };
+    const commands = new Map<string, RowCommand>();
+    const items = value.slice(0, LIST_ITEMS_KEPT).map((raw) => panelItem(raw, commands)).filter((x): x is PanelItem => x !== undefined);
+    return commands.size ? { items, commands } : { items };
   } catch (e) {
     return { note: `Couldn't fill this panel: ${firstLine(e)}` };
   } finally {
@@ -1255,7 +1288,7 @@ function badgeCount(v: unknown): number | undefined {
   return Math.min(Math.floor(n), 9999);
 }
 
-function panelItem(raw: unknown): PanelItem | undefined {
+function panelItem(raw: unknown, commands: Map<string, RowCommand>): PanelItem | undefined {
   if (typeof raw === 'string') return raw.trim() ? { title: raw.trim().slice(0, 300) } : undefined;
   if (!raw || typeof raw !== 'object') return undefined;
   const r = raw as Record<string, unknown>;
@@ -1265,7 +1298,29 @@ function panelItem(raw: unknown): PanelItem | undefined {
   if (r.tone === 'attention' || r.tone === 'failed' || r.tone === 'done') item.tone = r.tone;
   if (typeof r.section === 'string' && r.section.trim()) item.section = r.section.trim().slice(0, 80);
   if (typeof r.trailing === 'string' && r.trailing.trim()) item.trailing = r.trailing.trim().slice(0, 24);
+  const actions = Array.isArray(r.actions) ? rowActions(r.actions, item.title, commands) : [];
+  if (actions.length) item.actions = actions;
   return item;
+}
+
+// A row's buttons: each needs a title and a command to `run`; its id, the
+// title's slug if it has none, must be new in this draw, so a press names
+// one command. The command goes in `commands`, never to the app.
+function rowActions(raw: unknown[], row: string, commands: Map<string, RowCommand>): PanelItemAction[] {
+  const out: PanelItemAction[] = [];
+  for (const a of raw) {
+    if (out.length >= ROW_ACTIONS_KEPT) break;
+    if (!a || typeof a !== 'object') continue;
+    const o = a as Record<string, unknown>;
+    const title = typeof o.title === 'string' ? o.title.trim().slice(0, 40) : '';
+    const run = typeof o.run === 'string' ? o.run.trim() : '';
+    if (!title || !run) continue;
+    const id = (typeof o.id === 'string' && o.id.trim() ? o.id.trim() : slug(title)).slice(0, 100);
+    if (!id || commands.has(id)) continue;
+    commands.set(id, { command: run, title, row });
+    out.push({ id, title, ...(typeof o.icon === 'string' && o.icon.trim() ? { icon: o.icon.trim().slice(0, 100) } : {}) });
+  }
+  return out;
 }
 
 // Takes a screenshot of the booted simulator into `file` (PNG). The real

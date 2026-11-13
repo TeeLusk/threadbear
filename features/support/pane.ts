@@ -2,7 +2,7 @@
 // shape on both apps), for the highlights, previews, patches and folder steps.
 import type { Dump } from './driver.ts';
 
-export type PaneRow = { title: string; lead?: string | null; trailing?: string | null; note?: string | null; detail?: string | null; symbol?: string | null; ticked?: boolean | null };
+export type PaneRow = { title: string; lead?: string | null; trailing?: string | null; note?: string | null; detail?: string | null; symbol?: string | null; ticked?: boolean | null; actions?: { id: string; title: string; running?: boolean }[] | null };
 export type PaneSection = { key: string; title: string; count: number; folded: boolean; rows: PaneRow[] };
 export type Pane = {
   section: string;

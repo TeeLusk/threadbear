@@ -1177,6 +1177,23 @@ async function dispatch(client, method, p) {
       await new Promise((r) => setTimeout(r, 300));
       return { image: { path: file, mediaType: 'image/png', ...imageSize(file) } };
     }
+    case 'panels.runItemAction': {
+      // A row's button: its output lands in the transcript, and a Stop takes
+      // its row out of the next draw, as stopping a real process would.
+      const t = need(p.threadId);
+      const panel = (t.summary.panels ?? []).find((x) => x.id === p.panelId && x.kind === 'list');
+      if (!panel) throw rpcError(-32602, `This thread has no list panel called ${p.panelId}`);
+      const item = (panel.mockItems ?? []).find((i) => (i.actions ?? []).some((a) => a.id === p.actionId));
+      if (!item) throw rpcError(-32602, `${panel.title} has no row action ${p.actionId} now: draw the panel again.`);
+      const action = item.actions.find((a) => a.id === p.actionId);
+      await new Promise((r) => setTimeout(r, 600));
+      if (action.title === 'Stop') panel.mockItems = panel.mockItems.filter((i) => i !== item);
+      const event = persist(t.summary.id, {
+        type: 'action.run', actionId: `${panel.id}/${action.id}`, patch: panel.patch, title: `${action.title}: ${item.title}`,
+        command: `kill ${action.id.replace(/^\D+/, '')}`, ok: true, exitCode: 0, text: `Stopped ${item.title}.\n`, truncated: false, durationMs: 600,
+      });
+      return { ok: true, exitCode: 0, durationMs: 600, seq: event.seq };
+    }
     case 'threads.hibernateWhen': {
       // Away at once, then a canned answer a moment later, as the real
       // runner does after Opus answers: "talk about X" is a topic, anything
@@ -3504,7 +3521,9 @@ The new hero is shorter, and every page now leads with what the app does.
         { title: 'Home', detail: 'Ready, with the new hero, the three plan cards and the footer links all pointing at the rebuilt pages', url: 'https://site-git-landing-rebuild.vercel.app', icon: 'globe', tone: 'done', section: 'This branch', trailing: '4m' },
         { title: 'Pricing', detail: 'Waiting on the plan prices', url: 'https://site-git-landing-rebuild.vercel.app/pricing', icon: 'globe', tone: 'attention', section: 'This branch', trailing: '12m' },
         { title: 'Docs', detail: 'Build failed: no image at /docs/hero.png', path: path.join(root, 'logs/docs-build.txt'), icon: 'globe', tone: 'failed', section: 'This branch', trailing: '20m' },
-        { title: 'Local', detail: 'astro dev on port 4321', url: 'http://localhost:4321/', icon: 'laptopcomputer', section: 'Elsewhere' },
+        // A button at the row's end (panels.runItemAction): Stop takes the row out.
+        { title: 'Local', detail: 'astro dev on port 4321', url: 'http://localhost:4321/', icon: 'laptopcomputer', section: 'Elsewhere',
+          actions: [{ id: 'stop-4321', title: 'Stop', icon: 'stop.fill' }] },
         { title: 'Production', detail: 'main, deployed 2 days ago', url: 'https://example.com', icon: 'globe', section: 'Elsewhere', trailing: '2d' },
       ],
     }];

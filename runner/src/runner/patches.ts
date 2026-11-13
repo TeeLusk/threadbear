@@ -17,7 +17,7 @@ import { CLAUDE_PATCH_ID, claudeCommands, claudeOptions, settingsCommands, setti
 import { canonicalPath, runsAsCodeByName, type CodeWrite } from '../code-writes.ts';
 import { patchCommands, sayValue } from '../patch-commands.ts';
 import type { PatchInfo } from '../protocol.ts';
-import { actionRunProblem, automaticTrust, isInside, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, projectRoots, hookApplies, loadPatchSet, applyLive, hasLive, projectPanels, renderListPanel, renderPanel, runCommand, type CommandOutcome, type PanelRender, type PatchSet, type ProjectFolder, projectPatchFiles } from '../patches.ts';
+import { actionRunProblem, automaticTrust, isInside, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, projectRoots, hookApplies, loadPatchSet, applyLive, hasLive, panelCommand, projectPanels, renderListPanel, renderPanel, runCommand, type CommandOutcome, type PanelRender, type PatchSet, type ProjectFolder, projectPatchFiles } from '../patches.ts';
 import { liveCommandEnv } from '../shell-allowlist.ts';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -734,13 +734,17 @@ export const patchesPart = {
     const panel = this.patchSet(st).panels.find((p) => p.id === panelId);
     if (!panel) throw new RpcError(ErrorCode.badParams, `This thread has no panel called ${panelId}`);
     if (panel.kind === 'list') {
-      return renderListPanel(panel, this.patchSet(st), {
+      const { commands, ...drawn } = await renderListPanel(panel, this.patchSet(st), {
         cwd: st.rec.cwd,
         threadId,
         projects: this.projects?.patchProjects(st.rec) ?? [],
         run: (command, cwd) => this.runPatchCommand(threadId, command, cwd),
         verify: (file, hash) => this.patchTrust.verify(file, hash),
       });
+      // Its rows' commands stay here, for panels.runItemAction. A draw that
+      // failed keeps the last one's, as the app still shows those rows.
+      if (drawn.items) (st.rt.panelRows ??= new Map()).set(panelId, commands ?? new Map());
+      return drawn;
     }
     return renderPanel(panel, paths.panels(this.cfg.home, threadId), this.screenshot);
   },
@@ -973,6 +977,56 @@ export const patchesPart = {
     } finally {
       running.delete(actionId);
       // An archive held for it (archiveWhenGone) goes ahead now.
+      if (running.size === 0) this.archiveWhenGone(st);
+    }
+  },
+
+  // Runs a button on a list panel's row for `panels.runItemAction`: the
+  // command the panel's last draw gave that action id, held as the patch's
+  // `sh` commands are (panelCommand), with its output in the transcript as
+  // an action.run. The app draws the panel again after.
+  async runPanelItemAction(this: Runner, threadId: string, panelId: string, actionId: string): Promise<{ ok: boolean; exitCode?: number; durationMs: number; seq?: number }> {
+    const st = this.mustGet(threadId);
+    const set = this.patchSet(st);
+    const panel = set.panels.find((p) => p.id === panelId);
+    if (!panel || panel.kind !== 'list') throw new RpcError(ErrorCode.badParams, `This thread has no list panel called ${panelId}`);
+    const row = st.rt.panelRows?.get(panelId)?.get(actionId);
+    if (!row) throw new RpcError(ErrorCode.badParams, `${panel.title} has no row action ${actionId} now: draw the panel again.`);
+    const key = `panel:${panelId}/${actionId}`;
+    const running = (st.rt.runningActions ??= new Set());
+    if (running.has(key)) throw new RpcError(ErrorCode.busy, `${row.title} is already running.`);
+    const { dir, problem } = panelCommand(panel, set, st.rec.cwd, row.command, (file, hash) => this.patchTrust.verify(file, hash));
+    if (problem) {
+      this.rereadAllPatches();
+      throw new RpcError(ErrorCode.other, `Didn't run ${row.title}: ${problem}`);
+    }
+    running.add(key);
+    try {
+      const outcome = await this.runPatchCommand(threadId, row.command, dir);
+      if (st.rt.deleted) return { ok: outcome.ok, exitCode: outcome.exitCode, durationMs: outcome.durationMs };
+      const body: EventBody = {
+        type: 'action.run',
+        actionId: `${panelId}/${actionId}`,
+        patch: panel.patch,
+        title: `${row.title}: ${row.row}`.slice(0, 300),
+        command: row.command,
+        ok: outcome.ok,
+        text: outcome.text,
+        truncated: outcome.truncated,
+        durationMs: outcome.durationMs,
+      };
+      if (outcome.exitCode !== undefined) body.exitCode = outcome.exitCode;
+      const event = this.emit(st, body, st.rt.turn?.turnId);
+      st.rec.lastActivityAt = this.isoNow();
+      this.markDirty(st);
+      // Badges and chips may count what it changed (a stray it stopped).
+      if (st.rt.patches) {
+        this.dropFinishedLiveRuns();
+        this.rereadPatches(st);
+      }
+      return { ok: outcome.ok, exitCode: outcome.exitCode, durationMs: outcome.durationMs, seq: event.seq };
+    } finally {
+      running.delete(key);
       if (running.size === 0) this.archiveWhenGone(st);
     }
   },

@@ -617,6 +617,15 @@ export type PanelItem = {
   section?: string;
   // Short, faint, at the end of the title's line: a date or a count.
   trailing?: string;
+  // Buttons at the end of the row (panels.runItemAction). The command each
+  // runs stays on the runner, kept from this draw.
+  actions?: PanelItemAction[];
+};
+
+export type PanelItemAction = {
+  id: string; // unique within the panel's draw: "stop-98517"
+  title: string;
+  icon?: string; // an SF Symbol name
 };
 
 export type BackgroundKind = 'agent' | 'shell' | 'monitor' | 'other';

@@ -1758,6 +1758,65 @@ test('patch files give a thread actions; a command action runs in the folder and
   await assert.rejects(h.runner.runAction(thread.id, 'tools.nope'), (e: RpcError) => e.code === -32602);
 });
 
+test("a list panel's row actions reach the app without their commands, and panels.runItemAction runs the one the last draw gave", async () => {
+  const root = tmpDir();
+  const project = path.join(root, 'app');
+  const marks = tmpDir();
+  fs.mkdirSync(path.join(project, '.threadbear/patches'), { recursive: true });
+  // Each draw lists the rows still in "alive"; Stop takes a row out.
+  fs.writeFileSync(path.join(marks, 'alive'), 'a\nb\n');
+  const alive = JSON.stringify(path.join(marks, 'alive'));
+  fs.writeFileSync(path.join(project, '.threadbear/patches/procs.ts'), `export default { panels: [{ title: "Procs", items: async ({ sh }) =>
+    (await sh("cat ${alive.slice(1, -1)}")).split("\\n").filter(Boolean).map((n) => ({
+      title: "proc " + n,
+      actions: [
+        { id: "stop-" + n, title: "Stop", icon: "stop.fill", run: "grep -v '^" + n + "$' ${alive.slice(1, -1)} > ${alive.slice(1, -1)}.new; mv ${alive.slice(1, -1)}.new ${alive.slice(1, -1)}; echo stopped " + n + " in $PWD for $THREADBEAR_THREAD_ID" },
+        { title: "No command" },
+        { id: "x", title: "", run: "true" },
+        { id: "fail-" + n, title: "Fail", run: "exit 3" },
+      ],
+    })) }] };`);
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const { thread } = create(h, { cwd: project });
+  await tick();
+  await h.runner.patchesIdle();
+  assert.equal(h.runner.get(thread.id).panels?.[0].id, 'procs.procs');
+  // Nothing drawn yet: no row's action can run.
+  await assert.rejects(h.runner.runPanelItemAction(thread.id, 'procs.procs', 'stop-a'), (e: RpcError) => e.code === -32602);
+
+  const drawn = await h.runner.renderPanel(thread.id, 'procs.procs');
+  assert.deepEqual(drawn, {
+    items: [
+      { title: 'proc a', actions: [{ id: 'stop-a', title: 'Stop', icon: 'stop.fill' }, { id: 'fail-a', title: 'Fail' }] },
+      { title: 'proc b', actions: [{ id: 'stop-b', title: 'Stop', icon: 'stop.fill' }, { id: 'fail-b', title: 'Fail' }] },
+    ],
+  });
+  // The command never goes to the app.
+  assert.ok(!JSON.stringify(drawn).includes('grep'));
+
+  const r = await h.runner.runPanelItemAction(thread.id, 'procs.procs', 'stop-a');
+  assert.equal(r.ok, true);
+  assert.equal(r.exitCode, 0);
+  const run = h.events(thread.id).filter((e) => e.type === 'action.run').at(-1);
+  assert.equal(run.seq, r.seq);
+  assert.equal(run.actionId, 'procs.procs/stop-a');
+  assert.equal(run.title, 'Stop: proc a');
+  assert.equal(run.patch, 'procs');
+  assert.match(run.command, /^grep -v '\^a\$'/);
+  assert.match(run.text, new RegExp(`stopped a in ${fs.realpathSync(project)} for ${thread.id}`));
+  assert.deepEqual(checkSequence(h.events(thread.id).filter((e) => !e.type.endsWith('.delta'))), []);
+  assert.equal(fs.readFileSync(path.join(marks, 'alive'), 'utf8'), 'b\n');
+
+  const failed = await h.runner.runPanelItemAction(thread.id, 'procs.procs', 'fail-b');
+  assert.equal(failed.ok, false);
+  assert.equal(failed.exitCode, 3);
+
+  // Drawn again, a's row and its actions are gone.
+  assert.deepEqual((await h.runner.renderPanel(thread.id, 'procs.procs')).items?.map((i) => i.title), ['proc b']);
+  await assert.rejects(h.runner.runPanelItemAction(thread.id, 'procs.procs', 'stop-a'), (e: RpcError) => e.code === -32602 && /draw/.test(e.message));
+  await assert.rejects(h.runner.runPanelItemAction(thread.id, 'procs.nope', 'stop-b'), (e: RpcError) => e.code === -32602);
+});
+
 test('a patch file written later is noticed within the TTL and said in the transcript; two runs of one action at once are refused', async () => {
   const root = tmpDir();
   const project = path.join(root, 'app');

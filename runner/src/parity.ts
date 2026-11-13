@@ -46,6 +46,7 @@ export const THREAD_REQUESTS: Record<string, Row> = {
   'threads.panelShown': { what: 'A panel being shown', relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
   'threads.showPanel': { what: 'Opening a panel', relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
   'panels.render': { what: 'Drawing a panel', relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
+  'panels.runItemAction': { what: "A button on a list panel's row", relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
   'panels.convexKey': { what: "The Convex panel's key", relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
   'panels.convexDeployments': { what: "The Convex panel's deployments", relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },
   'panels.convexLogin': { what: "The Convex panel's login", relay: { no: 'Patches run on that Mac.' }, phone: { no: 'No panels on the phone.' } },

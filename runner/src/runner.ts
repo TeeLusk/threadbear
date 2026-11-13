@@ -148,7 +148,7 @@ import { buttonsPart, MAX_BUTTONS, type ButtonsPart } from './runner/buttons.ts'
 import { clisPart, type ClisPart } from './runner/clis.ts';
 import { editingPart, type EditingPart } from './runner/editing.ts';
 import { patchesPart, type PatchesPart } from './runner/patches.ts';
-import { withThreadId } from './patches.ts';
+import { withThreadId, type RowCommand } from './patches.ts';
 import { highlightsPart, type HighlightsPart } from './runner/highlights.ts';
 import { titlesPart, type TitlesPart } from './runner/titles.ts';
 import { commandsPart, type CommandsPart } from './runner/commands.ts';
@@ -453,6 +453,9 @@ type Runtime = {
   // applied (applyLive), which is what the app sees. `live`: base has any.
   patches?: { cwd: string; key: string; at: number; base: PatchSet; set: PatchSet; refreshing: boolean; again?: boolean; loaded: boolean; live?: boolean };
   runningActions?: Set<string>;
+  // List panels' row actions from each panel's last draw, by panel id then
+  // action id (panels.runItemAction): the app only ever has their ids.
+  panelRows?: Map<string, Map<string, RowCommand>>;
   // Turns in a row that a hook's message started, per hook. A hook that
   // keeps failing stops being told to the agent after HOOK_TELL_LIMIT, so
   // two can't go round for ever; a message from anyone else resets it.

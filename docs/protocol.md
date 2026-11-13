@@ -494,6 +494,10 @@ type PanelItem = {
                         // section, drawn where it changes ("Waiting · 1"); at most 80 characters
   trailing?: string     // short and faint at the end of the title's line, like a date
                         // ("5d"); at most 24 characters
+  actions?: { id: string; title: string; icon?: string }[] // buttons at the end of
+                        // the row, at most 4, pressed with panels.runItemAction;
+                        // `id` is unique in the draw. The command each runs
+                        // stays on the runner, so a client never sends one
 }
 
 // A grouping above folders that carries goals, state and notes forward
@@ -1134,6 +1138,7 @@ the summary and then the reply.
 | `patches.trust` | `{ threadId, files: { file, hash }[] }` | `{ trusted: string[] }`. Trusts those versions of the thread's waiting patch files (each a `file` its `patches` lists with `untrusted`, and the `hash` given there), then every thread's patches are read again, so the answer comes once they have been. The `claude` entry's file trusts the folder's Claude Code settings the same way. `-32602` for a file the thread isn't waiting on, or one whose hash has moved on since (look again). See "Trusting a folder's patches" |
 | `actions.run` | `{ threadId, actionId }` | For a prompt action, `{ turnId }`: its prompt was sent as a message (as `threads.send`). For a url action (only an older client calls it for one), `{ ok: true, durationMs }` once the page is opened on the runner's Mac, with nothing in the transcript. For a command action, `{ ok, exitCode?, durationMs, seq }` once the command has finished, with its output in the transcript as the `action.run` event at `seq`. The command runs in the thread's folder through a login shell with the thread's variables (`THREADBEAR_THREAD_ID` and the rest) and is stopped after 10 minutes. `-32602` for an action the thread doesn't have, `-32020` while the same action is still running |
 | `panels.render` | `{ threadId, panelId }` | `{ image?: ImageRef, items?: PanelItem[], note?: string }` draws an `image` panel or fills a `list` panel now. For `xcode.simulator`, a screenshot of the booted simulator (`xcrun simctl io booted screenshot`), written to the same file each time under the thread's `panels/`; with no device booted (or another failure) there's only `note`. For a `list` panel, the rows its patch's `items` function returned (at most 200), or `note` with the error when it threw or took over 20 seconds. Slow: it waits for the screenshot or the function. `-32602` for a panel the thread doesn't have |
+| `panels.runItemAction` | `{ threadId, panelId, actionId }` | `{ ok, exitCode?, durationMs, seq }` once the command that `actionId` (a row action of the panel's last `panels.render`) ran has finished, with its output in the transcript as an `action.run` event at `seq` (`actionId` `"<panelId>/<id>"`, `title` `"<button>: <row>"`). It runs as the patch's `items` function's `sh` commands do (the folder the panel was drawn in, a login shell, the thread's variables, stopped after 10 minutes), and a trusted-by-hash patch's is held as those are ("Commands a patch writes"), checked again as it starts: one it can't vouch for answers `-32000` `Didn't run <title>: ...` and nothing runs. Draw the panel again after, as what it did may have changed the rows. `-32602` for a panel the thread doesn't have, or an id its last draw didn't give (draw it again), `-32020` while the same one is still running |
 | `panels.convexDeployments` | `{ threadId, panelId, refresh?: boolean }` | `{ deployments: { deployment, deploymentUrl, label }[], note?: string }`. The configured cloud deployment and the project's Development and Production deployments, resolved through the runner's own Convex CLI, run in the project's folder, with read-only queries of `process.env.CONVEX_CLOUD_URL`. Duplicate names are combined; `note` explains unavailable choices. Cached for one minute; `refresh` bypasses the cache. Makes no deploy keys and changes no project settings. `-32602` for a missing or non-cloud panel |
 | `panels.convexKey` | `{ threadId, panelId, deployment?: string, renew?: boolean }` | `{ deployment, deploymentUrl, adminKey }`, a deploy key for a panel with `convex`, for Convex's embedded dashboard. `deployment` defaults to the panel's configured deployment; any other name must be one returned by `panels.convexDeployments` for this panel's project. The runner makes it the first time (`convex deployment token create` in the project's folder, with the runner's own Convex CLI, so an older `convex` package in the project doesn't matter, on Mike's Convex CLI login) and keeps it in `secrets/convex-panels/<deployment>.json`; `renew` deletes that one from Convex and makes a fresh one. A kept key is first checked with the deployment's `/api/check_admin_key` (only at its own `<name>[.<region>].convex.cloud` address), and one Convex says no to (revoked) is replaced the same way; an unclear answer keeps it. Slow the first time. `-32602` for a panel the thread doesn't have or one without `convex`; `-32040` when the runner's Convex CLI isn't signed in (or its login expired), `-32041` when its login can't reach the deployment, otherwise `-32000` with the CLI's message, each in plain words |
 | `panels.convexLogin` | `{ threadId, panelId, check?: boolean, force?: boolean }` | `{ state: "idle" \| "waiting" \| "done" \| "failed", url?, code?, message? }`. Signs the runner's Convex CLI in (`convex login --no-open --login-flow poll`), for a panel that got `-32040` (or `-32041`, with `force`, to switch accounts). Answers once the CLI prints its device page: `url` to open in the browser on the Mac the person is at (any browser can approve it, so a remote runner's sign-in works from here), `code` what that page shows. A call while one is waiting joins it. `check` only reports: poll it until `done` (then the deployment list is fetched afresh) or `failed` (`message` says why, or that it wasn't approved within the code's five minutes) |
@@ -3607,7 +3612,12 @@ it's in none), so a patch in `~/.threadbear` can serve a thread filed
 under a project whose repo isn't the thread's own folder. It returns `PanelItem`s (or a promise of
 them). Give rows a `section` to group them under headings (rows of one
 section next to each other, in the order you want the groups), and a
-`trailing` for a date or count at the end of the line. A panel can have an `icon`, an SF Symbol name for its button on
+`trailing` for a date or count at the end of the line. A row can have
+buttons, `actions: [{ id, title, icon?, run }]` (at most 4): `run` is a
+command worked out like an `sh` one (`kill ${pid}`), kept on the runner
+from that draw and run by `panels.runItemAction` when the button's
+pressed, then the panel is drawn again; give each an `id` unique in the
+panel (`stop-${pid}`), or its title's slug stands in. A panel can have an `icon`, an SF Symbol name for its button on
 the rail. A hook is a command the runner runs by itself, so in a
 project's patch it's one script in the repo and plain words (see
 "Trusting a folder's patches"):
@@ -4080,7 +4090,11 @@ rejects, as for a failed command, with `Not run:` and why, so a `when`
 hides its item, a `badge` gives none, a list panel shows the note and
 the patch's `liveError` says so. They ran in the thread's folder, so a
 badge's `./tools/count.sh` in a thread in `web/` ran `web/tools/count.sh`,
-which nothing had hashed (Gautam's scan, 6 Nov).
+which nothing had hashed (Gautam's scan, 6 Nov). A list panel row's
+`run` (its button) is the `items` function's own work too, so it's held
+the same way, from the same folder, checked afresh when the button is
+pressed, short of the "function has returned" rule (it runs after);
+home's patches and Threadbear's own checkout run theirs as written.
 
 **The short list of shell.** A live function's command, and a folder's
 Claude Code hooks and settings commands, run by themselves, and the

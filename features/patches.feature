@@ -30,6 +30,15 @@ Feature: What a folder's patches give a thread
     And the list panel has the heading "Elsewhere" with the rows "Local | Production"
     And the list row "Pricing" says "12m" and "Waiting on the plan prices"
 
+  @panel.list
+  Scenario: A button on a list panel's row runs, and the list is drawn again
+    When I open the thread "Rebuild the three landing pages"
+    And I show the "deploys.previews" section of the pane
+    Then the list row "Local" has the button "Stop"
+    When I press "Stop" on the list row "Local" of "deploys.previews"
+    Then the transcript shows a line about "Stop: Local"
+    And the list panel has the heading "Elsewhere" with the rows "Production"
+
   @panel.image
   Scenario: An image panel draws its picture
     When I open the thread "Pick a colour for the new Share button"

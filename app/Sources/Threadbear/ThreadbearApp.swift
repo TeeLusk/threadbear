@@ -369,6 +369,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let threadId = urls.lazy.compactMap(ThreadLink.threadId(from:)).last else { return }
         if activate { NSApp.activate() }
         if AppModel.shared.threadsLoaded { show(threadId: threadId) } else { linkedThread = threadId }
+        // BrowserBear's Attach on an annotated page: into the message box.
+        // Only from macOS (here), not from a link in a transcript (OpenGate).
+        for url in urls {
+            if let session = ThreadLink.annotationId(from: url), let thread = ThreadLink.threadId(from: url) {
+                BrowserAnnotations.receive(session, for: thread, app: AppModel.shared)
+            }
+        }
     }
 
     @MainActor private func show(threadId: String) {

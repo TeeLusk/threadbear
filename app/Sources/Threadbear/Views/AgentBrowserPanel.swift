@@ -210,6 +210,13 @@ final class AgentBrowserModel: ObservableObject {
         action("panelShow", ["tab": tab.tabId, "profile": tab.profileId], thread: thread, key: Self.pendingKey("panelShow", tab))
     }
 
+    /// Annotate: BrowserBear puts its tools on the page in Chrome and brings
+    /// it forward; what's attached there comes back to this thread's message
+    /// box through a threadbear:// link (BrowserAnnotations.swift).
+    func annotate(_ tab: AgentTab, thread: String, title: String) {
+        action("panelAnnotate", ["tab": tab.tabId, "profile": tab.profileId, "title": title], thread: thread, key: Self.pendingKey("panelAnnotate", tab))
+    }
+
     /// A new page in the agents' browser, behind Mike's windows.
     func open(_ url: String, thread: String) {
         action("open", ["profile": "agent", "url": url], thread: thread, key: Self.openingKey)
@@ -305,6 +312,7 @@ struct AgentPageRow: View {
     let thread: String
     let browserName: String
     @ObservedObject private var model = AgentBrowserModel.shared
+    @Environment(AppModel.self) private var app
     @State private var still: AgentStill?
 
     private static let stillWidth: CGFloat = 104
@@ -339,6 +347,15 @@ struct AgentPageRow: View {
                     .fixedSize()
                     .busy(model.pending.contains(AgentBrowserModel.pendingKey("panelShow", tab)))
                     .tip("Bring this page's window to the front, in \(place)")
+                // Pages in Mike's own Chrome only: BrowserBear's extension
+                // draws the tools there, where he's looking.
+                if tab.bridge == true, !yours {
+                    Button("Annotate") { model.annotate(tab, thread: thread, title: app.threads[thread]?.title ?? "") }
+                        .controlSize(.small)
+                        .fixedSize()
+                        .busy(model.pending.contains(AgentBrowserModel.pendingKey("panelAnnotate", tab)))
+                        .tip("Mark what to change on this page in Chrome, then Attach puts it in this thread's message box with a screenshot")
+                }
                 if yours {
                     Button("Done") { model.done(tab) }
                         .controlSize(.small)

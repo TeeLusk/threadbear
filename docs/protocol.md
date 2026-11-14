@@ -4787,6 +4787,25 @@ profiles.
 - `{cmd:"panelShow",thread,args:{tab,profile}}` brings the page's real window
   to the front.
 - `markDone {tab}` is the Done button for a page waiting on `handoff --wait`.
+- `{cmd:"panelAnnotate",thread,args:{tab,profile,title}}` is Annotate, on a
+  page in one of the user's Chrome profiles (not the agents' browser):
+  BrowserBear's extension puts its annotation tools on the page, in the
+  extension's isolated world, and brings it to the front. It answers
+  `{sessionId,thread}` once the tools are up. `title` is the thread's, shown
+  on the tools. BrowserBear's toolbar popup starts the same thing for a
+  thread picked there.
+
+Attach in the annotation tools sends what was marked (the comment, up to 20
+elements with selector, tag, a little HTML and text, regions, drawn lines and
+the viewport) and a PNG of the visible page to BrowserBear, which writes
+`annotations/<sessionId>.json` (`{thread, annotation, screenshot}`) and
+`<sessionId>.png` in its folder (0600) and opens
+`threadbear://thread/<thread>?annotation=<sessionId>`. The Mac app (only
+from macOS's link hand-over, never a link in a transcript) checks the file
+names that thread and is a bounded annotation, imports the picture with
+`media.import`, adds the words and the picture after the thread's draft,
+focuses its message box and deletes both files. Nothing is sent until the
+user presses Send. Files never picked up are deleted after a day.
 
 BrowserBear checks that the thread owns the page in that exact profile (the agents'
 browser is `agent-chrome`), as the same tab number can be in two. Replies use

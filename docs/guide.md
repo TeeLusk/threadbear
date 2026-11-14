@@ -279,6 +279,19 @@ Normal browsing by the agent doesn't open the panel.
 To hand a thread one of your own tabs, type `@` in its message box and
 pick the tab (see "Giving a thread a Chrome tab with @").
 
+To show a thread what to change on a page, annotate it. Annotate on a Chrome
+page's row in the Browser panel, or in BrowserBear's toolbar popup (pick the
+thread, then Annotate), brings the page forward in Chrome with a small
+toolbar over it: Select picks elements (Shift-click for more), Region marks an
+area, Draw draws, Erase takes a mark away, and Esc or Cancel stops. Write what
+you want in the box at the bottom right and press Attach (or Return).
+Threadbear comes forward with that thread open, and its message box has your
+comment, a short list of what you marked (each element's selector and a
+little of its HTML, so the agent can find it in the code) and a screenshot of
+the page with your marks. Nothing is sent until you press Send, and anything
+already in the box stays. It works on pages in your own Chrome, not the
+agents' browser, and not on Chrome's own pages.
+
 An agent can also use a separate Chrome with `--profile agent`. Its pages show in
 the same panel, with its own sign-ins. When that Chrome asks for a passkey or a
 permission, its window comes to the middle of your screen and the panel says so,

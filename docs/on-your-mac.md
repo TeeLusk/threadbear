@@ -492,6 +492,12 @@ window to the front (`app/Sources/Threadbear/Views/AgentBrowserPanel.swift`).
 Threadbear does not read Chrome's cookie database or copy credentials, and
 stills stay on this Mac, in memory, not sent to Convex. BrowserBear stores
 thread/tab/profile associations in `panel-tabs.json` in its own folder (0600).
+Annotating a page (the Browser panel's Annotate, or BrowserBear's popup) leaves
+what you marked and a screenshot in `annotations/` in BrowserBear's folder
+until Threadbear opens the `threadbear://thread/<id>?annotation=<id>` link
+BrowserBear sends; the app reads both into that thread's message box and
+deletes them (`app/Sources/Threadbear/BrowserAnnotations.swift`). Nothing is
+sent anywhere until you press Send.
 
 The agents' own browser (`browserbear ... --profile agent`) is Helium where it's
 installed, else Google Chrome, with its own profile folder; the panel reads

@@ -20,6 +20,19 @@ public enum ThreadLink {
         return id
     }
 
+    /// `threadbear://thread/<id>?annotation=<session>`: BrowserBear's
+    /// Attach on an annotated Chrome page, whose words and screenshot wait in
+    /// its folder for that thread's message box (BrowserAnnotations.swift).
+    /// The session is a lowercase UUID, as it names a file there.
+    public static func annotationId(from url: URL) -> String? {
+        guard threadId(from: url) != nil,
+              let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "annotation" })?.value,
+              value.utf8.count == 36,
+              value.utf8.allSatisfy({ c in (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || c == 0x2D })
+        else { return nil }
+        return value
+    }
+
     /// Whether `id` is shaped like a thread id: 1 to 64 ASCII letters,
     /// digits, `-` and `_` (a runner's are UUIDs). Another runner's ids come
     /// through the backend, which took any string a runner wrote, and an id

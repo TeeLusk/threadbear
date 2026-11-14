@@ -151,12 +151,23 @@ pub enum ShortcutCommand {
     Forward,
     NextInboxThread,
     TopInboxThread,
+    /// ⌘K: the box for opening any thread, panel, project or page by name
+    /// (open_anything.rs). The GPUI app's own; the Swift app keeps the line
+    /// in the file without knowing it.
+    OpenAnything,
+    /// ⌘P, a second key for the same box, as code editors have it (Mike, 13
+    /// Nov: "⌘P to open it as well"). Threadbear has no Print to clash with.
+    OpenAnythingAlso,
     ShowInbox,
     ShowScheduled,
     ShowProjects,
     ShowLibrarian,
     ShowHibernating,
     ShowArchived,
+    /// ⇧⌘[ and ⇧⌘]: a project's page tabs (Decisions, Project), as Safari's
+    /// tabs go. Greyed out anywhere else.
+    PreviousTab,
+    NextTab,
     ZoomIn,
     ZoomOut,
     ActualSize,
@@ -169,8 +180,11 @@ pub enum ShortcutCommand {
     Settings,
 }
 
+/// Open Anything's experiment id (runner/src/experiments/openAnything.md).
+pub const OPEN_ANYTHING_EXPERIMENT: &str = "openAnything";
+
 impl ShortcutCommand {
-    pub const ALL: [ShortcutCommand; 24] = [
+    pub const ALL: [ShortcutCommand; 28] = [
         Self::NewThread,
         Self::Archive,
         Self::Hibernate,
@@ -180,12 +194,16 @@ impl ShortcutCommand {
         Self::Forward,
         Self::NextInboxThread,
         Self::TopInboxThread,
+        Self::OpenAnything,
+        Self::OpenAnythingAlso,
         Self::ShowInbox,
         Self::ShowScheduled,
         Self::ShowProjects,
         Self::ShowLibrarian,
         Self::ShowHibernating,
         Self::ShowArchived,
+        Self::PreviousTab,
+        Self::NextTab,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ActualSize,
@@ -208,12 +226,16 @@ impl ShortcutCommand {
             Self::Forward => "forward",
             Self::NextInboxThread => "nextInboxThread",
             Self::TopInboxThread => "topInboxThread",
+            Self::OpenAnything => "openAnything",
+            Self::OpenAnythingAlso => "openAnythingAlso",
             Self::ShowInbox => "showInbox",
             Self::ShowScheduled => "showScheduled",
             Self::ShowProjects => "showProjects",
             Self::ShowLibrarian => "showLibrarian",
             Self::ShowHibernating => "showHibernating",
             Self::ShowArchived => "showArchived",
+            Self::PreviousTab => "previousTab",
+            Self::NextTab => "nextTab",
             Self::ZoomIn => "zoomIn",
             Self::ZoomOut => "zoomOut",
             Self::ActualSize => "actualSize",
@@ -241,12 +263,16 @@ impl ShortcutCommand {
             Self::Forward => "Forward",
             Self::NextInboxThread => "Next Inbox Thread",
             Self::TopInboxThread => "Top Inbox Thread",
+            Self::OpenAnything => "Open Anything",
+            Self::OpenAnythingAlso => "Open Anything (second key)",
             Self::ShowInbox => "Show Inbox",
             Self::ShowScheduled => "Show Scheduled",
             Self::ShowProjects => "Show Projects",
             Self::ShowLibrarian => "Show Librarian",
             Self::ShowHibernating => "Show Hibernating",
             Self::ShowArchived => "Show Archived",
+            Self::PreviousTab => "Show Previous Tab",
+            Self::NextTab => "Show Next Tab",
             Self::ZoomIn => "Zoom In",
             Self::ZoomOut => "Zoom Out",
             Self::ActualSize => "Actual Size",
@@ -259,6 +285,16 @@ impl ShortcutCommand {
         }
     }
 
+    /// The experiment a command belongs to (runner/src/experiments): while
+    /// it's off the command has no key, no menu item and no line in
+    /// Settings. Open Anything's two keys are `openAnything`'s.
+    pub fn experiment(self) -> Option<&'static str> {
+        match self {
+            Self::OpenAnything | Self::OpenAnythingAlso => Some(OPEN_ANYTHING_EXPERIMENT),
+            _ => None,
+        }
+    }
+
     pub fn default_key(self) -> Option<ShortcutKey> {
         match self {
             Self::NewThread => Some(ShortcutKey::new("n")),
@@ -268,9 +304,13 @@ impl ShortcutCommand {
             Self::CopyTranscript => Some(ShortcutKey::with("c", false, false, true)),
             Self::Back => Some(ShortcutKey::new("[")),
             Self::Forward => Some(ShortcutKey::new("]")),
+            Self::PreviousTab => Some(ShortcutKey::with("[", false, false, true)),
+            Self::NextTab => Some(ShortcutKey::with("]", false, false, true)),
             Self::NextInboxThread => Some(ShortcutKey::with("down", true, false, false)),
             // I for Inbox.
             Self::TopInboxThread => Some(ShortcutKey::new("i")),
+            Self::OpenAnything => Some(ShortcutKey::new("k")),
+            Self::OpenAnythingAlso => Some(ShortcutKey::new("p")),
             Self::ShowInbox => Some(ShortcutKey::new("1")),
             Self::ShowScheduled => Some(ShortcutKey::new("2")),
             Self::ShowProjects => Some(ShortcutKey::new("3")),
@@ -432,11 +472,19 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_are_the_twenty_four_in_the_menus() {
+    fn the_defaults_are_the_twenty_eight_in_the_menus() {
         let keys: Vec<ShortcutKey> = ShortcutCommand::ALL.iter().filter_map(|c| c.default_key()).collect();
         let unique: std::collections::HashSet<&ShortcutKey> = keys.iter().collect();
         assert_eq!(keys.len(), unique.len(), "two commands can't start on one key");
-        assert_eq!(ShortcutCommand::ALL.len(), 24);
+        assert_eq!(ShortcutCommand::ALL.len(), 28);
+        // The Swift app's names and keys, as both apps read shortcuts.json.
+        assert_eq!(ShortcutCommand::from_name("previousTab"), Some(ShortcutCommand::PreviousTab));
+        assert_eq!(ShortcutCommand::PreviousTab.default_key(), Some(key("cmd+shift+[")));
+        assert_eq!(ShortcutCommand::NextTab.default_key(), Some(key("cmd+shift+]")));
+        assert_eq!(ShortcutCommand::NextTab.default_key().unwrap().display(), "⇧⌘]");
+        assert_eq!(ShortcutCommand::NextTab.default_key().unwrap().chord(true), "shift-cmd-]");
+        assert_eq!(ShortcutCommand::OpenAnything.default_key(), Some(key("cmd+k")));
+        assert_eq!(ShortcutCommand::OpenAnythingAlso.default_key(), Some(key("cmd+p")));
         assert_eq!(ShortcutCommand::CollapseThreads.default_key(), Some(key("cmd+/")));
     }
 

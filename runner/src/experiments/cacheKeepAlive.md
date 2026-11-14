@@ -4,7 +4,7 @@ name: Cache pings
 title: Cache pings: keep a big waiting thread's prompt cache warm while you're likely to answer
 added: 2026-11-13
 on: false
-reminder: 00000000
+reminder: e87d6543
 ---
 
 ## What it does

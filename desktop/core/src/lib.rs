@@ -47,6 +47,7 @@ pub mod panel_requests;
 pub mod private_file;
 pub mod pools;
 pub mod projects;
+pub mod pull_requests;
 pub mod remote;
 pub mod reply_buttons;
 pub mod reply_links;

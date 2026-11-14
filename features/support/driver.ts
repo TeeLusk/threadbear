@@ -41,6 +41,8 @@ export type Thread = {
   trailing?: string;
   tile?: string;
   origin?: string | null;
+  /** The pull request badge on its title line: the worst PR's tone, how many, and its tooltip (GPUI only). */
+  prs?: { tone: string; count: number; tip: string } | null;
   hovered?: boolean;
   hoverButtons?: string[] | null;
   background?: string | null;

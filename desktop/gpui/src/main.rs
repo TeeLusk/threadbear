@@ -79,6 +79,7 @@ mod prefs;
 mod project_decisions;
 mod project_page;
 mod projects;
+mod pull_requests;
 mod projects_list;
 mod projects_page;
 mod push_button;

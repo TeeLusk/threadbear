@@ -90,3 +90,11 @@ Feature: What a thread's row says in the sidebar
   @sidebar.row.status
   Scenario: Other rows say how long ago they were last active
     Then the row "Rename the Settings tabs" shows when it was last active
+
+  # The Swift app draws the badge but its dump doesn't say so.
+  @sidebar.row.prs @swift-pending
+  Scenario: A row shows the pull request that most needs looking at, and how many there are
+    Then the row "Ship the beta to TestFlight" has a "failing" pull request badge counting 3
+    And the row "Ship the beta to TestFlight" says "3 pull requests: #691 checks failing, #688 merged, #684 changes requested" over its badge
+    And the row "Add dark mode to the dashboard" has a "merged" pull request badge
+    And the row "Morning brief" has no pull request badge

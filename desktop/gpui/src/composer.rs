@@ -578,7 +578,7 @@ impl Composer {
         self.clear_picks(cx);
         let composer = cx.entity().downgrade();
         let restore = RestoreDraft { text: draft_text, images, card: picks, as_sent: None };
-        pane.update(cx, |p, cx| p.send_message(text, images_to_send, answers, Some(restore), composer, cx));
+        pane.update(cx, |p, cx| p.send_message(text, images_to_send, answers, Some(restore), composer, None, cx));
         cx.notify();
     }
 

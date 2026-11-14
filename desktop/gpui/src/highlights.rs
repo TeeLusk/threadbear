@@ -204,6 +204,8 @@ pub(crate) enum MenuAction {
     Reveal { path: String },
     Copy { text: String },
     Remove { id: String, title: String },
+    /// A Pull requests card's Fix failing checks (pull_requests.rs).
+    FixChecks { url: String },
     /// A picture's right-click, the file's own bytes (`copyImage`).
     CopyPicture,
     MentionCard { task: threadbear_core::projects::Task, thread_id: String },
@@ -279,6 +281,8 @@ pub(crate) struct SidePane {
     pub(crate) explain: crate::explain_pane::ExplainState,
     /// The Browser pane's address bar (agent_browser.rs).
     pub(crate) browser: crate::agent_browser::BrowserPaneState,
+    /// The Pull requests cards' check lists and state (pull_requests.rs).
+    pub(crate) prs: crate::pull_requests::PrsState,
     _subs: Vec<Subscription>,
 }
 
@@ -316,6 +320,7 @@ impl SidePane {
             drawn: HashMap::new(),
             explain: Default::default(),
             browser: Default::default(),
+            prs: Default::default(),
             _subs: vec![],
         };
         pane.chosen = pane.places.iter().filter_map(|(id, p)| Some((id.clone(), p.section.clone()?))).collect();
@@ -799,6 +804,7 @@ impl SidePane {
             MenuAction::MentionCard { task, thread_id } => self.mention_board_card(&task, &thread_id, window, cx),
             MenuAction::Copy { text } => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             MenuAction::Remove { id, title } => self.remove_highlight(id, title, thread.id.clone(), cx),
+            MenuAction::FixChecks { url } => self.fix_checks(url, thread, cx),
             MenuAction::EditSchedule { id } => self.edit_schedule(&id, window, cx),
             MenuAction::ShowSchedules => {
                 if let Some(app) = self.app.upgrade() {
@@ -1321,7 +1327,9 @@ impl SidePane {
             return crate::files::pane_note("This runner doesn't keep highlights yet.", p).into_any_element();
         }
         // The first fetch is quick; a spinner would only flash.
-        let Some(sections) = self.highlights.get(&thread.id).map(HighlightSections::build) else { return div().size_full().into_any_element() };
+        // Tracked PRs are in Pull requests, so they leave Links (`withoutTracked`).
+        let pr_list = thread.prs();
+        let Some(sections) = self.highlights.get(&thread.id).map(|h| HighlightSections::build(&threadbear_core::pull_requests::without_tracked(h, &pr_list))) else { return div().size_full().into_any_element() };
         let projects = core::project_rows(thread, |id| self.projects.get(id).cloned());
         let scheduled = self.schedule_rows(thread, cx);
         let clock = side::local_now();
@@ -1334,7 +1342,7 @@ impl SidePane {
         let asks = thread.asks.clone().unwrap_or_default();
         let tools: HashSet<String> = thread.patches().into_iter().filter(|p| !p.matched.clone().unwrap_or_default().is_empty()).map(|p| p.id).collect();
         let tool_panels: Vec<Panel> = thread.panels().into_iter().filter(|panel| tools.contains(&panel.patch)).collect();
-        if sections.is_empty() && asks.is_empty() && projects.is_empty() && tool_panels.is_empty() && scheduled.is_empty() && subagents.is_empty() && started.is_empty() {
+        if sections.is_empty() && pr_list.is_empty() && asks.is_empty() && projects.is_empty() && tool_panels.is_empty() && scheduled.is_empty() && subagents.is_empty() && started.is_empty() {
             return crate::files::pane_note("Nothing here yet. Files, links and commits from this thread show up here as it works.", p).into_any_element();
         }
         let flags = self.flags.get(&thread.id).copied().unwrap_or_default();
@@ -1370,6 +1378,10 @@ impl SidePane {
                     list = list.child(self.ask_row(ask, index, seq, thread.id.clone(), p, cx));
                 }
             }
+        }
+        // Its pull requests, just after Needs you (`PullRequestsSection`).
+        if let Some(prs) = self.pr_section(thread, p, cx) {
+            list = list.child(prs);
         }
         // The thread's projects, each under its own icon with why it's there
         // behind an ⓘ, then the places Mike keeps going back to for it.
@@ -1901,7 +1913,8 @@ impl SidePane {
             return;
         }
         let Some(fetched) = self.highlights.get(&thread.id) else { return };
-        let sections = HighlightSections::build(fetched);
+        let pr_list = thread.prs();
+        let sections = HighlightSections::build(&threadbear_core::pull_requests::without_tracked(fetched, &pr_list));
         let projects = core::project_rows(thread, |id| self.projects.get(id).cloned());
         let scheduled = self.schedule_rows(thread, cx);
         let (clock, now) = (side::local_now(), now_ms());
@@ -1914,7 +1927,7 @@ impl SidePane {
         let asks = thread.asks.clone().unwrap_or_default();
         let tools: HashSet<String> = thread.patches().into_iter().filter(|p| !p.matched.clone().unwrap_or_default().is_empty()).map(|p| p.id).collect();
         let tool_panels: Vec<Panel> = thread.panels().into_iter().filter(|panel| tools.contains(&panel.patch)).collect();
-        if sections.is_empty() && asks.is_empty() && projects.is_empty() && tool_panels.is_empty() && scheduled.is_empty() && subagents.is_empty() && started.is_empty() {
+        if sections.is_empty() && pr_list.is_empty() && asks.is_empty() && projects.is_empty() && tool_panels.is_empty() && scheduled.is_empty() && subagents.is_empty() && started.is_empty() {
             pane.insert("empty".into(), json!("Nothing here yet. Files, links and commits from this thread show up here as it works."));
             return;
         }
@@ -1933,6 +1946,9 @@ impl SidePane {
         if !asks.is_empty() {
             let rows = asks.iter().map(|a| json!({ "title": crate::files::plain_markdown(&a.action), "detail": a.where_text(), "symbol": if a.ticked == Some(true) { "checkmark.square.fill" } else { "square" }, "ticked": a.ticked == Some(true) })).collect();
             add(fold::NEEDS_YOU, "Needs you", asks.iter().filter(|a| a.ticked != Some(true)).count(), rows, &mut out);
+        }
+        if !pr_list.is_empty() {
+            add(crate::pull_requests::PULL_REQUESTS, "Pull requests", pr_list.len(), self.pr_dump_rows(thread), &mut out);
         }
         for row in &projects {
             let rows = row.project.links.iter().map(|l| {
@@ -2108,6 +2124,18 @@ fn highlight_command(side: &Entity<SidePane>, thread: &ThreadSummary, cmd: &Valu
         }
         side.update(cx, |pane, cx| pane.edit_schedule(&row.id, window, cx));
         return Ok(json!("ok"));
+    }
+    // A Pull requests card, by its title: "prMenu" lists its ••• menu,
+    // "prChoose" with "row" picks from it.
+    if let Some(title) = cmd["prMenu"].as_str().or_else(|| cmd["prChoose"].as_str().and(cmd["row"].as_str())) {
+        let pr = thread.prs().into_iter().find(|p| p.title == title).ok_or_else(|| format!("no pull request {title}"))?;
+        let items = side.read(cx).pr_menu(&pr);
+        if let Some(chosen) = cmd["prChoose"].as_str() {
+            let action = items.into_iter().find(|i| i.title == chosen).and_then(|i| i.action).ok_or_else(|| format!("no menu item {chosen}"))?;
+            side.update(cx, |pane, cx| pane.run_menu_action(action, thread, window, cx));
+            return Ok(json!("ok"));
+        }
+        return Ok(json!(format!("ok {}", items.iter().map(|i| i.title.clone()).collect::<Vec<_>>().join(" | "))));
     }
     let pane = side.read(cx);
     let fetched = pane.highlights.get(&thread.id).ok_or("highlights not fetched")?.clone();

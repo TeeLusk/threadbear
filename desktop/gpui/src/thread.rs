@@ -18,6 +18,9 @@ use threadbear_client::runner::{Client, Progress, ProgressFn, Resend, RpcError};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::reducer::{BackgroundTask, Event, EventsPage, FeedAction, ImageRef, PendingMessage, Row, RowContent, ThreadFeed, TranscriptChange, TranscriptModel};
 
+/// What a send does if the runner turns the message away (`send_message`).
+pub(crate) type SendFailed = Box<dyn FnOnce(&mut AsyncApp)>;
+
 /// Events asked for when a thread opens, as ThreadSession.eventsPage.
 const EVENTS_PAGE: u64 = 500;
 /// Streamed text arrives faster than it's worth drawing: flushed at most this
@@ -896,7 +899,7 @@ impl ThreadPane {
     }
 
     pub(crate) fn send(&mut self, text: String, answers: Option<Value>, cx: &mut Context<Self>) {
-        self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), None, WeakEntity::new_invalid(), cx);
+        self.send_message(text, Vec::new(), answers.unwrap_or(Value::Null), None, WeakEntity::new_invalid(), None, cx);
     }
 
     /// What the model shows as on its way, kept in the outbox, so it
@@ -932,7 +935,9 @@ impl ThreadPane {
     /// doesn't take it, with the error bar saying so. Sent while the runner
     /// restarts, it waits in the transcript for the new one ("Runner
     /// restarting. Sends when it's back."). `draft` is what to give back.
-    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, cx: &mut Context<Self>) {
+    /// `failed` runs if the runner turns it away, after the error bar says so
+    /// (a Highlights card's Fix failing checks goes back to its button).
+    pub(crate) fn send_message(&mut self, text: String, images: Vec<ImageRef>, answers: Value, draft: Option<crate::composer::RestoreDraft>, composer: WeakEntity<Composer>, failed: Option<SendFailed>, cx: &mut Context<Self>) {
         // By count, never its words (activity.rs).
         crate::activity::sent(Some(&self.summary.id), images.len(), answers.as_object().map(|a| a.len()).or_else(|| answers.as_array().map(Vec::len)).unwrap_or(0), false);
         let thread_id = self.summary.id.clone();
@@ -1039,6 +1044,9 @@ impl ThreadPane {
                 }
                 let held = holding;
                 app.update(cx, |app, cx| app.show_send_failed(&e, &title, held, cx)).ok();
+                if let Some(failed) = failed {
+                    failed(cx);
+                }
                 return;
             }
             // Taken but not shown: it's queued behind the running turn. Its

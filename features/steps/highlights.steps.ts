@@ -142,3 +142,48 @@ When('I click the Scheduled highlight {string}', async function (this: Threadbea
   await this.until(`a Scheduled highlight called "${title}"`, (d) => sections(d).some((s) => s.rows.some((r) => r.title === title)));
   await this.app.do({ cmd: 'highlight', schedule: title });
 });
+
+// A pull request's card (`PullRequestCard`): its lines under the title as
+// `lines`, the last one when the runner last asked GitHub.
+const prLines = (d: Parameters<typeof row>[0], title: string) => row(d, 'Pull requests', title)?.lines ?? undefined;
+
+Then('the pull request {string} reads {string}', async function (this: ThreadbearWorld, title: string, list: string) {
+  const expected = wanted(list);
+  await this.until(`"${title}" reading ${list}`, (d) => {
+    const lines = prLines(d, title)?.filter((l) => !l.startsWith('Checked ') && l !== 'Not checked yet');
+    return lines && lines.length === expected.length && expected.every((l, i) => lines[i] === l);
+  });
+});
+
+Then('the pull request {string} says when GitHub was last asked', async function (this: ThreadbearWorld, title: string) {
+  await this.until(`"${title}" saying when it was checked`, (d) => /^Checked (just now|\d+s ago|\S+ ago|\S+)$/.test(prLines(d, title)?.at(-1) ?? ''));
+});
+
+When('I open the menu of the pull request {string}', async function (this: ThreadbearWorld, title: string) {
+  await this.until(`the pull request "${title}"`, (d) => row(d, 'Pull requests', title));
+  const out = await this.app.do({ cmd: 'highlight', prMenu: title });
+  this.menuTitles = out.replace(/^(\w+ )?ok /, '').split(' | ');
+});
+
+Then('its menu doesn\'t offer {string}', function (this: ThreadbearWorld, item: string) {
+  const items = this.menuTitles ?? [];
+  assert.ok(!items.includes(item), `"${item}" is in: ${items.join(' | ')}`);
+});
+
+When('I choose {string} from the menu of the pull request {string}', async function (this: ThreadbearWorld, item: string, title: string) {
+  await this.until(`the pull request "${title}"`, (d) => row(d, 'Pull requests', title));
+  await this.app.do({ cmd: 'highlight', prChoose: item, row: title });
+});
+
+Then('the menu of the pull request {string} offers {string}', async function (this: ThreadbearWorld, title: string, list: string) {
+  // The menu's items follow the card's state, which can take a moment to
+  // come back from the send.
+  let items: string[] = [];
+  for (let tries = 0; tries < 30; tries++) {
+    const out = await this.app.do({ cmd: 'highlight', prMenu: title });
+    items = out.replace(/^(\w+ )?ok /, '').split(' | ');
+    if (wanted(list).every((w) => items.includes(w))) return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  assert.fail(`the menu of "${title}" offers ${items.join(' | ')}, not ${list}`);
+});

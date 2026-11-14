@@ -916,7 +916,7 @@ From the top, and only when there's something to show:
 - **Links**: web pages and pull requests it opened or mentioned (one
   with a card under Pull requests isn't listed again).
 - **Runs**: with the GitHub Actions runs experiment on (see
-  [Experiments](experiments.md)), the workflow runs its pushes, dispatches and re-runs set off,
+  [Experiments](#experiments)), the workflow runs its pushes, dispatches and re-runs set off,
   each queued, running, passed or failed. Click one to open it on GitHub.
 - **Changes**: its commits, and a line such as "4 files edited" that
   opens to the code it changed.
@@ -1404,7 +1404,7 @@ call, and coming back to a big thread after that reads it all in again at
 full price. The Cache pings experiment (Settings > General > Experiments,
 off by default) sends a big thread that's waiting on you a tiny ping
 before the hour is up, a few times at most and only in working hours;
-[experiments.md](experiments.md) says exactly when. The limits are
+[Experiments](#experiments) says exactly when. The limits are
 `"cacheKeepAlive": { "minContextTokens": 50000, "intervalMinutes": 55,
 "maxPings": 3, "timeZone": "Europe/London", "weekdays": [7, 15],
 "weekends": [7, 20] }` in `runner.json` (the zone is your Mac's unless you

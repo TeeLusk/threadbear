@@ -295,7 +295,8 @@ pub fn read_line(line: &[u8]) -> Option<Line> {
         Err(message["error"].as_str().unwrap_or("BrowserBear couldn't open this page.").to_owned())
     } else {
         Ok(match &message["result"] {
-            Value::Object(_) => message["result"].clone(),
+            // A list too: `tabList` answers with one (the @ tab picker).
+            Value::Object(_) | Value::Array(_) => message["result"].clone(),
             _ => json!({}),
         })
     };
@@ -476,6 +477,7 @@ mod tests {
         assert_eq!(read_line(br#"{"id":7,"ok":true,"result":{"tabs":[]}}"#), Some(Line::Reply { id: 7, answer: Ok(json!({ "tabs": [] })) }));
         assert_eq!(read_line(br#"{"id":8,"ok":false,"error":"no such tab"}"#), Some(Line::Reply { id: 8, answer: Err("no such tab".into()) }));
         assert_eq!(read_line(br#"{"id":9,"ok":true}"#), Some(Line::Reply { id: 9, answer: Ok(json!({})) }));
+        assert_eq!(read_line(br#"{"id":10,"ok":true,"result":[{"tabId":1}]}"#), Some(Line::Reply { id: 10, answer: Ok(json!([{ "tabId": 1 }])) }));
         assert!(matches!(read_line(br#"{"method":"frame"}"#), Some(Line::Event(_))));
         assert_eq!(read_line(b"garbage"), None);
     }

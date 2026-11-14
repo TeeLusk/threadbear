@@ -264,6 +264,8 @@ pub struct Threadbear {
     pub(crate) connectors_panel: crate::connectors_panel::ConnectorsPanelState,
     /// Each thread's slash commands, for the composer's palette.
     pub(crate) slash: crate::slash_palette::SlashState,
+    /// The @ tab picker's tabs, lends and favicons (tab_palette.rs).
+    pub(crate) tab_picker: crate::tab_palette::TabPickerState,
     /// The Move sheet, while it's up (move_sheet.rs).
     pub(crate) move_sheet: Option<Entity<crate::move_sheet::MoveSheet>>,
     /// The pane beside the thread: Highlights, previews, Patches, Files (highlights.rs).
@@ -576,6 +578,7 @@ impl Threadbear {
             updates_panel: Default::default(),
             connectors_panel: Default::default(),
             slash: Default::default(),
+            tab_picker: Default::default(),
             move_sheet: None,
             side,
             side_views: HashMap::new(),
@@ -1560,6 +1563,8 @@ impl Threadbear {
         dump["importNote"] = json!(self.import_note);
         // Panels pinned to their threads (pinned_panels.rs).
         dump["pinnedPanels"] = self.pinned_panels_dump(cx);
+        // The @ tab picker over the box, while it's open (tab_palette.rs).
+        dump["tabPalette"] = self.composer(cx).map_or(Value::Null, |c| c.read(cx).tab_palette_dump(cx));
         // The tour or a page's intro on show, and Finish setting up (tour.rs, setup_panel.rs).
         dump["tour"] = self.tour_dump(cx);
         dump["setup"] = self.setup_dump(cx);

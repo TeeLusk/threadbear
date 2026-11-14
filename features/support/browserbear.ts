@@ -20,6 +20,18 @@ export type Tab = {
   openedAt?: number;
 };
 
+/** One of Mike's own Chrome tabs, for the @ tab picker (tab-picker.feature). */
+export type ChromeTab = {
+  tabId: number;
+  title: string;
+  url: string;
+  profile?: string;
+  whose?: 'user' | 'handed' | 'agent';
+  lentTo?: string | null;
+  allowed?: boolean;
+  favIconUrl?: string;
+};
+
 export type Heard = { cmd: string; args: Record<string, unknown>; thread?: string };
 
 // A 1×1 grey JPEG, for panelStill.
@@ -29,6 +41,7 @@ export class StandInBrowserBear {
   readonly home: string;
   readonly heard: Heard[] = [];
   private tabs: Tab[] = [];
+  private chromeTabs: ChromeTab[] = [];
   private server: net.Server;
   private sockets = new Set<net.Socket>();
 
@@ -63,6 +76,11 @@ export class StandInBrowserBear {
     tab.finish = true;
     tab.handoffs = (tab.handoffs ?? 0) + 1;
     this.write();
+  }
+
+  /** A tab open in one of Mike's Chrome profiles, as `tabList` lists it. */
+  openInChrome(tab: ChromeTab): void {
+    this.chromeTabs = this.chromeTabs.filter((t) => t.tabId !== tab.tabId).concat({ whose: 'user', lentTo: null, allowed: true, profile: 'Personal', ...tab });
   }
 
   async stop(): Promise<void> {
@@ -110,6 +128,17 @@ export class StandInBrowserBear {
         tab.finish = false;
         this.write();
         return { ok: true, result: {} };
+      }
+      // The @ tab picker: Mike's Chrome tabs, and lending one to a thread.
+      case 'tabList':
+        return { ok: true, result: this.chromeTabs.map((t) => ({ ...t, allowed: t.allowed || (args.for !== undefined && t.lentTo === args.for) })) };
+      case 'status':
+        return { ok: true, result: { profiles: this.chromeTabs.length ? [{ id: 'personal' }] : [] } };
+      case 'lendTo': {
+        const tab = this.chromeTabs.find((t) => t.tabId === args.tab);
+        if (!tab) return { ok: false, error: 'no such tab' };
+        tab.lentTo = String(args.to);
+        return { ok: true, result: { tabId: tab.tabId, title: tab.title, url: tab.url, words: `Tab ${tab.tabId} is lent to you: start with browserbear snap ${tab.tabId}.` } };
       }
       case 'handoff': {
         // A link Mike clicked: handed over only when an agent's tab is on it.

@@ -197,6 +197,9 @@ impl Threadbear {
         }
         let id = thread.id.clone();
         self.threads.insert(id.clone(), std::sync::Arc::new(thread));
+        // Tabs picked with @ in the box: lent now its first turn has started,
+        // before the agent's first reply can use them (tab_palette.rs).
+        self.lend_new_thread_tabs(&id, cx);
         // The box drops from where it was on the page to its place under
         // the new thread (open_motion.rs).
         if let Some(box_top) = self.opening.box_top.get() {

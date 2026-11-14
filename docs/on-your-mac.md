@@ -605,8 +605,8 @@ to the thread: that thread may then use that one tab until it's released or
 closed, and BrowserBear's list of allowed sites doesn't change. Each row's
 icon is loaded from that tab's site (its `/favicon.ico`, or Chrome's favicon
 address when BrowserBear gives one), a plain request without your Chrome
-sign-ins. Only the thread's
-id and the tab's number go there.
+sign-ins (`desktop/gpui/src/tab_palette.rs` in the new app). Only the
+thread's id and the tab's number go there.
 
 When Google Chrome is your default browser and is running, a web link's
 right-click menu reads Chrome's `Local State`

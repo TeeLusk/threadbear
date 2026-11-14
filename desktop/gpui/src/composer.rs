@@ -94,6 +94,12 @@ pub struct Composer {
     pub(crate) palette_asked: Option<String>,
     /// The palette's list, kept so the arrows can scroll the pick into sight.
     pub(crate) palette_scroll: ScrollHandle,
+    /// The @ tab picker's own state (tab_palette.rs): the tab the arrows are
+    /// on and the text Esc closed it at; whether this opening of it has
+    /// asked BrowserBear for the tabs; and its list, for the arrows to scroll.
+    pub(crate) tab_picker: threadbear_core::tab_mentions::PickerState,
+    pub(crate) tab_asked: bool,
+    pub(crate) tab_scroll: ScrollHandle,
     /// The box's width at the last paint, for the palette's columns.
     pub(crate) card_width: Rc<Cell<f32>>,
     /// The chip row's right edge and the send button's, at the last paint:
@@ -190,6 +196,7 @@ impl Composer {
             // what's in the box.
             InputEvent::Change => {
                 this.palette_text_changed(cx);
+                this.tab_text_changed(cx);
                 // Marks, and a correction as a word ends (composer_spelling.rs).
                 this.spelling_after_edit(window, cx);
                 // Kept across a quit (drafts.rs).
@@ -232,6 +239,9 @@ impl Composer {
             palette: PaletteState::default(),
             palette_asked: None,
             palette_scroll: ScrollHandle::new(),
+            tab_picker: Default::default(),
+            tab_asked: false,
+            tab_scroll: ScrollHandle::new(),
             card_width: Rc::new(Cell::new(style::MAX_CONTENT_WIDTH)),
             controls_fit: Rc::new(Cell::new((0., 0.))),
             box_top: Rc::new(Cell::new(f32::MAX)),
@@ -552,6 +562,8 @@ impl Composer {
         // say, then the box's own chips, whose markers go after them.
         let boxes = self.note_images_len(cx);
         let words = composer::sent_text(&draft_text, boxes + 1).trim().to_string();
+        // Tabs picked with @ get BrowserBear's words on how to use them.
+        let words = self.with_tab_words(words, cx);
         let (text, images_to_send, answers) = match self.card_message(&words, cx) {
             Some((message, mut note_images, answers)) => {
                 note_images.extend(images.clone());
@@ -590,6 +602,9 @@ impl Composer {
         if text.is_empty() && images.is_empty() {
             return;
         }
+        // Tabs picked with @: their words, when it starts on this Mac, where
+        // they're lent once the thread is made.
+        let text = self.with_tab_words(text, cx);
         let stored = self.input.read(cx).value().to_string();
         if let Some(app) = self.app.upgrade() {
             app.update(cx, |app, cx| app.send_new_thread(text, images, stored, window, cx));
@@ -1640,7 +1655,11 @@ impl Render for Composer {
         // don't go with no sign of them (composer_answers.rs).
         let answer_chips = self.render_answer_chips(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
-        let palette = self.render_palette(window, cx);
+        // The slash palette, or else the @ tab picker (tab_palette.rs).
+        let palette = match self.render_palette(window, cx) {
+            Some(palette) => Some(palette),
+            None => self.render_tab_palette(window, cx),
+        };
         let width = self.card_width.clone();
         let top = self.box_top.clone();
         // The folder's actions, on shelves on the box's top edge, in from its

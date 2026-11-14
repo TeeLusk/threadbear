@@ -569,6 +569,15 @@ impl AgentBrowser {
         true
     }
 
+    /// A request for someone else (the composer's @ tab picker, tab_palette.rs),
+    /// on the same connection and with no `thread` field, as Mike's own
+    /// asks have none. `done` has the answer once this model is free again,
+    /// so it can ask again or update whatever it likes. False with no
+    /// BrowserBear to ask.
+    pub(crate) fn ask(&mut self, cmd: &str, args: Value, cx: &mut Context<Self>, done: impl FnOnce(Answer, &mut App) + 'static) -> bool {
+        self.send(cmd, args, None, cx, move |_, got, cx| cx.defer(move |cx| done(got, cx)))
+    }
+
     fn poll_profiles(&mut self, cx: &mut Context<Self>) {
         if self.polling {
             return;

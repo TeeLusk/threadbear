@@ -196,7 +196,8 @@ impl Composer {
     pub(crate) fn palette_key(&mut self, key: PaletteKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let text = self.input.read(cx).value().to_string();
         // Partway through a message, a closed palette leaves the keys alone.
-        let Some(view) = self.palette_open(&text, cx) else { return false };
+        // With no slash palette open, the @ tab picker may want it (tab_palette.rs).
+        let Some(view) = self.palette_open(&text, cx) else { return self.tab_palette_key(key, window, cx) };
         let matches = slash::matches(&view.all, &view.query, self.palette.category, &view.recent);
         // Return with nothing to pick sends what's typed, as words.
         if key == PaletteKey::Enter && matches.is_empty() {

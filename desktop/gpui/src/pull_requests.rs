@@ -151,6 +151,7 @@ pub(crate) fn badge(t: &ThreadSummary, faint: Hsla, cx: &App) -> Option<AnyEleme
             .ml(px(6.))
             .tip(tip.clone())
             .test_support()
+            .role(Role::Image)
             .aria_label(SharedString::from(tip))
             .child(icon(tone_icon(tone), side, tone_color(tone, cx)))
             .when(list.len() >= 2, |s| s.child(div().text_size(px(style::size::SIDEBAR_META)).text_color(faint).child(list.len().to_string())))

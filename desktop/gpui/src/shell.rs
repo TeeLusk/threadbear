@@ -1019,7 +1019,7 @@ impl Threadbear {
     /// wherever you are; with an empty Inbox, a note.
     pub(crate) fn top_inbox_thread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = crate::now_ms();
-        let top = self.shown_sections(cx, now).into_iter().find(|s| s.key == "inbox").and_then(|s| s.rows.into_iter().next()).map(|t| t.id);
+        let top = self.shown_sections(cx, now).iter().find(|s| s.key == "inbox").and_then(|s| s.rows.first()).map(|t| t.id.clone());
         let Some(top) = top else {
             self.archived_note = None;
             self.show_inbox_end(true, cx);

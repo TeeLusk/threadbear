@@ -592,6 +592,7 @@ pub fn panel_symbol(panel: &Panel) -> &str {
     match panel.kind.as_str() {
         "image" => "photo",
         "list" => "list.bullet",
+        "html" => "doc.richtext",
         _ => "globe",
     }
 }
@@ -1059,7 +1060,7 @@ impl Panel {
     /// url, the one thing every panel can be.
     pub fn from_value(v: &Value) -> Option<Panel> {
         let mut panel: Panel = crate::wire::read(v.clone())?;
-        if panel.kind != "url" && panel.kind != "image" && panel.kind != "list" {
+        if !matches!(panel.kind.as_str(), "url" | "image" | "list" | "html") {
             panel.kind = "url".into();
         }
         Some(panel)
@@ -1233,6 +1234,8 @@ impl PanelItem {
 pub struct PanelRender {
     pub image: Option<crate::reducer::ImageRef>,
     pub items: Option<Vec<PanelItem>>,
+    /// An html panel's page, as its patch wrote it; None from the others.
+    pub html: Option<String>,
     pub note: Option<String>,
 }
 
@@ -1241,6 +1244,7 @@ impl PanelRender {
         PanelRender {
             image: v.get("image").and_then(crate::reducer::ImageRef::decode),
             items: v.get("items").and_then(Value::as_array).map(|a| a.iter().filter_map(|i| crate::wire::read(i.clone())).collect()),
+            html: v.get("html").and_then(Value::as_str).map(str::to_owned),
             note: v.get("note").and_then(Value::as_str).map(str::to_owned),
         }
     }
@@ -1603,6 +1607,17 @@ mod tests {
             PanelItemAction { id: "open".into(), title: "Open".into(), icon: None },
         ]);
         assert!(items[1].actions.is_empty());
+    }
+
+    #[test]
+    fn an_html_panel_keeps_its_kind_and_its_page() {
+        let panel = Panel::from_value(&json!({"id": "deploys.pipeline", "title": "Pipeline", "kind": "html", "patch": "deploys"})).unwrap();
+        assert_eq!(panel.kind, "html");
+        assert_eq!(panel_symbol(&panel), "doc.richtext");
+        let render = PanelRender::decode(&json!({"html": "<p>Deployed</p>", "note": "landing-rebuild"}));
+        assert_eq!(render.html.as_deref(), Some("<p>Deployed</p>"));
+        assert_eq!(render.note.as_deref(), Some("landing-rebuild"));
+        assert!(PanelRender::decode(&json!({"html": 3})).html.is_none(), "a page that isn't text is no page");
     }
 
     #[test]

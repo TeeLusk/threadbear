@@ -24,7 +24,7 @@
 //   logs to its console stays out of Chromium's log.
 // - The app hears when it can go back, and when it's loading.
 use super::host::{tb_view_has_keyboard, tb_view_input_count, tb_view_note_input, tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent, tb_view_watch_input};
-use crate::panel_rules::{browse, popup, site, Browse, Event, Kind, LeaveGate, Popup};
+use crate::panel_rules::{browse, html_browse, html_popup, popup, site, Browse, Event, Kind, LeaveGate, Popup};
 use cef::*;
 use futures::channel::{mpsc, oneshot};
 use serde_json::{json, Value as Json};
@@ -49,6 +49,11 @@ pub(crate) struct Shared {
     /// counts for the gate.
     view: AtomicUsize,
     convex: bool,
+    /// An html panel's page: sealed, it never navigates (panel_rules::html_browse).
+    html: bool,
+    /// Where to scroll an html panel's page once its new copy has loaded,
+    /// so a refresh keeps the place Mike was reading.
+    scroll_to: Mutex<Option<f64>>,
     can_go_back: AtomicBool,
     loading: AtomicBool,
     /// Main-frame loads started, so a dump can tell a page kept between
@@ -155,6 +160,8 @@ impl PanelPage {
             gate: Mutex::new(LeaveGate::default()),
             view: AtomicUsize::new(0),
             convex: matches!(kind, Kind::Convex { .. }),
+            html: matches!(kind, Kind::Html),
+            scroll_to: Mutex::new(None),
             can_go_back: AtomicBool::new(false),
             loading: AtomicBool::new(true),
             loads: AtomicU32::new(0),
@@ -193,6 +200,29 @@ impl PanelPage {
                 );
                 (settings, client)
             }
+            // An html panel's page: the sealed rules, as a reply's ```html
+            // box (sealed.rs), its scripts off, its links to the app.
+            Kind::Html => {
+                let settings = BrowserSettings {
+                    javascript: State::DISABLED,
+                    javascript_access_clipboard: State::DISABLED,
+                    javascript_dom_paste: State::DISABLED,
+                    javascript_close_windows: State::DISABLED,
+                    local_storage: State::DISABLED,
+                    databases_deprecated: State::DISABLED,
+                    webgl: State::DISABLED,
+                    ..Default::default()
+                };
+                let client = PanelClient::new(
+                    PanelRequests::new(shared.clone()),
+                    PanelLife::new(shared.clone()),
+                    PanelLoads::new(shared.clone()),
+                    PanelDisplay::new(shared.clone()),
+                    super::sealed::NoMenu::new(),
+                    super::sealed::NoDownloads::new(),
+                );
+                (settings, client)
+            }
             _ => {
                 // A page reads the clipboard only when Mike pastes, as in a browser.
                 let settings = BrowserSettings { javascript_access_clipboard: State::DISABLED, ..Default::default() };
@@ -211,16 +241,16 @@ impl PanelPage {
         // place before its page's first script runs; so does a local page
         // whose scripts run, so its guards are in before them.
         let first = match &kind {
-            Kind::Patch => url.to_owned(),
+            Kind::Patch | Kind::Html => url.to_owned(),
             Kind::Preview(preview) if !preview.scripts => preview.page_url(),
             Kind::Convex { .. } | Kind::Preview(_) => "about:blank".to_owned(),
         };
         let mut context = match &kind {
             Kind::Patch => request_context_get_global_context(),
             Kind::Convex { .. } => convex_context(),
-            Kind::Preview(_) => super::sealed::context(),
+            Kind::Preview(_) | Kind::Html => super::sealed::context(),
         };
-        if context.is_none() && matches!(kind, Kind::Preview(_)) {
+        if context.is_none() && matches!(kind, Kind::Preview(_) | Kind::Html) {
             return Err("the sealed pages' context isn't there".into());
         }
         if matches!(&kind, Kind::Preview(p) if p.scripts) && !super::sealed::all_rules() {
@@ -320,6 +350,16 @@ impl PanelPage {
         if let Some(frame) = self.browser.main_frame() {
             frame.load_url(Some(&CefString::from(url)));
         }
+    }
+
+    /// An html panel's new page in place of the one showing, scrolled to
+    /// `y` (CSS pixels) once it has loaded. Its scripts are off, so the app
+    /// reads and puts back the place through DevTools, not the page.
+    pub fn replace(&self, url: &str, y: f64) {
+        if let Ok(mut scroll) = self.shared.scroll_to.lock() {
+            *scroll = (y > 0.).then_some(y);
+        }
+        self.load(url);
     }
 
     /// Reload: back to the panel's own page, as the Swift bar's Reload does,
@@ -568,11 +608,19 @@ wrap_request_handler! {
         // The panel's own frame: panel_rules::browse says what happens (an
         // iframe's are Chromium's to rule on).
         fn on_before_browse(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, user_gesture: c_int, is_redirect: c_int) -> c_int {
-            if !frame.is_some_and(|f| f.is_main() == 1) {
-                return 0;
-            }
+            let main = frame.is_some_and(|f| f.is_main() == 1);
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
-            match browse(&url, &self.shared.home(), &self.shared.own(), self.shared.convex, user_gesture == 1, is_redirect == 1) {
+            if !main {
+                // An html page's frames carry only what's written in it
+                // (its policy has frame-src 'none' anyway).
+                return if self.shared.html && !super::sealed::may_load(&url) { 1 } else { 0 };
+            }
+            let verdict = if self.shared.html {
+                html_browse(&url, &self.shared.own(), user_gesture == 1 && is_redirect == 0)
+            } else {
+                browse(&url, &self.shared.home(), &self.shared.own(), self.shared.convex, user_gesture == 1, is_redirect == 1)
+            };
+            match verdict {
                 Browse::Stay => 0,
                 Browse::Leave => {
                     self.shared.leave(url);
@@ -610,7 +658,8 @@ wrap_life_span_handler! {
             _no_javascript_access: Option<&mut c_int>,
         ) -> c_int {
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
-            match popup(&url, &self.shared.home(), self.shared.convex, user_gesture == 1) {
+            let verdict = if self.shared.html { html_popup(&url, user_gesture == 1) } else { popup(&url, &self.shared.home(), self.shared.convex, user_gesture == 1) };
+            match verdict {
                 Popup::Leave => self.shared.leave(url),
                 Popup::LoadHere => {
                     if let Some(frame) = browser.and_then(|b| b.main_frame()) {
@@ -642,8 +691,17 @@ wrap_load_handler! {
     }
 
     impl LoadHandler {
-        fn on_loading_state_change(&self, _browser: Option<&mut Browser>, is_loading: c_int, can_go_back: c_int, _can_go_forward: c_int) {
+        fn on_loading_state_change(&self, browser: Option<&mut Browser>, is_loading: c_int, can_go_back: c_int, _can_go_forward: c_int) {
             self.shared.loading.store(is_loading == 1, Ordering::Release);
+            // An html panel's new page, back where the last one was read to:
+            // a wheel turn through DevTools, as its own scripts are off.
+            if is_loading == 0 {
+                let y = self.shared.scroll_to.lock().ok().and_then(|mut s| s.take());
+                if let (Some(y), Some(host)) = (y, browser.and_then(|b| b.host())) {
+                    let message = json!({ "id": 0, "method": "Input.dispatchMouseEvent", "params": { "type": "mouseWheel", "x": 4, "y": 4, "deltaX": 0, "deltaY": y } }).to_string();
+                    host.send_dev_tools_message(Some(message.as_bytes()));
+                }
+            }
             self.shared.can_go_back.store(can_go_back == 1, Ordering::Release);
             self.shared.send(Event::Changed);
         }

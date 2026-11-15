@@ -103,6 +103,9 @@ pub(crate) struct WebPanels {
     left: Vec<String>,
     /// Whether something could be over the pages in the last frame.
     covered: bool,
+    /// The address each html panel's page was last given, by its key, so a
+    /// page is only loaded again when its patch wrote a different one.
+    html_shown: HashMap<String, String>,
 }
 
 struct Shared(Entity<WebPanels>);
@@ -110,7 +113,7 @@ impl Global for Shared {}
 
 pub(crate) fn init(cx: &mut App) {
     let selections = load_selections();
-    let entity = cx.new(|_| WebPanels { pages: Vec::new(), failed: HashMap::new(), making: HashSet::new(), convex: HashMap::new(), selections, renewing: HashSet::new(), client: None, left: Vec::new(), covered: false });
+    let entity = cx.new(|_| WebPanels { pages: Vec::new(), failed: HashMap::new(), making: HashSet::new(), convex: HashMap::new(), selections, renewing: HashSet::new(), client: None, left: Vec::new(), covered: false, html_shown: HashMap::new() });
     cx.set_global(Shared(entity.clone()));
     // The app draws the panels, so it's told when a page, a Convex panel or
     // the runtime changes.
@@ -384,7 +387,14 @@ impl WebPanels {
                 if self.left.len() > 20 {
                     self.left.remove(0);
                 }
-                crate::open_gate::open_web(&url, cx);
+                // Mail from an html panel's page asks first, as any link
+                // that starts another app does.
+                let from_html = key.starts_with(HTML_KEY) || key.starts_with(&pinned_key(HTML_KEY));
+                if from_html && threadbear_web::site(&url).is_none() {
+                    crate::open_gate::open_link(&url, crate::open_gate::Origin::OtherMac, "", cx);
+                } else {
+                    crate::open_gate::open_web(&url, cx);
+                }
             }
             PanelEvent::Changed => {}
         }
@@ -522,15 +532,75 @@ struct Opener {
 /// `pinned`: drawn in a pinned copy of the panel (pinned_panels.rs), with a
 /// page of its own.
 pub(crate) fn section(app: &Threadbear, thread: &ThreadSummary, panel_id: &str, pinned: bool, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-    let panel = thread.panels().into_iter().find(|p| p.id == panel_id && p.kind == "url")?;
+    let panel = thread.panels().into_iter().find(|p| p.id == panel_id && (p.kind == "url" || p.kind == "html"))?;
     let panels = panels(cx)?;
     let main = window.window_handle() == app.main_window;
+    if panel.kind == "html" {
+        let body = html_view(app, &panels, thread, &panel, main, pinned, window, cx);
+        let id = if pinned { format!("html-panel-pin-{}-{panel_id}", thread.id) } else { format!("html-panel-{panel_id}") };
+        return Some(div().id(SharedString::from(id)).size_full().child(body).into_any_element());
+    }
     let body = match &panel.convex {
         Some(configured) => convex_view(&panels, thread, &panel, configured, main, pinned, window, cx),
         None => page_view(&panels, &panel, main, pinned, window, cx),
     };
     let id = if pinned { format!("web-panel-pin-{}-{panel_id}", thread.id) } else { format!("web-panel-{panel_id}") };
     Some(div().id(SharedString::from(id)).size_full().child(body).into_any_element())
+}
+
+/// Where an html panel's page is kept in the pool: its own for each
+/// thread, as each thread's page is written for it.
+const HTML_KEY: &str = "html:";
+
+/// An html panel (docs/protocol.md, "Patches"): the page its patch writes
+/// for this thread, asked for when it shows and every 15 seconds while it
+/// does (patches.rs), in a sealed page with its scripts off that never
+/// navigates; a click on a link opens it as a highlight's does. A new page
+/// replaces the one showing only when it's different, scrolled to where
+/// that one was, so a refresh doesn't flash or lose the place.
+#[allow(clippy::too_many_arguments)]
+fn html_view(app: &Threadbear, panels: &Entity<WebPanels>, thread: &ThreadSummary, panel: &Panel, main: bool, pinned: bool, window: &mut Window, cx: &mut App) -> AnyElement {
+    let side = app.side.clone();
+    if !side.read(cx).panel_polling(&thread.id, &panel.id) {
+        let (thread_id, panel_id) = (thread.id.clone(), panel.id.clone());
+        // After this frame, as the side pane may be drawing too.
+        cx.defer(move |cx| side.update(cx, |s, cx| s.keep_panel_fresh(&thread_id, &panel_id, cx)));
+    }
+    let render = app.side.read(cx).panels.renders.get(&crate::patches::panel_key(&thread.id, &panel.id)).cloned();
+    let Some(render) = render else { return note("Loading…", cx) };
+    let Some(html) = render.html else {
+        return note(render.note.as_deref().unwrap_or("Nothing to show."), cx);
+    };
+    let parent = match running(&format!("html-panel-{}", panel.id), "this panel's page", main, None, window, cx) {
+        Ok(parent) => parent,
+        Err(instead) => return instead,
+    };
+    let url = threadbear_web::data_url(&threadbear_core::rich_block::html_page(&html));
+    let key = page_key(format!("{HTML_KEY}{}/{}", thread.id, panel.id), pinned);
+    let showing = panels.read(cx).page(&key).cloned();
+    match showing {
+        Some(page) if panels.read(cx).html_shown.get(&key) != Some(&url) => {
+            panels.update(cx, |p, _| p.html_shown.insert(key.clone(), url.clone()));
+            // Where it's read to, then the new page put back there. A
+            // DevTools answer that doesn't come in time loads it at the top.
+            let metrics = page.devtools("Page.getLayoutMetrics", json!({}));
+            let wanted = url.clone();
+            cx.spawn(async move |cx| {
+                let timer = cx.background_executor().timer(Duration::from_millis(500));
+                let y = match futures::future::select(metrics, Box::pin(timer)).await {
+                    futures::future::Either::Left((Ok(Ok(m)), _)) => m["cssLayoutViewport"]["pageY"].as_f64().unwrap_or(0.),
+                    _ => 0.,
+                };
+                page.replace(&wanted, y);
+            })
+            .detach();
+        }
+        Some(_) => {}
+        None => {
+            panels.update(cx, |p, _| p.html_shown.insert(key.clone(), url.clone()));
+        }
+    }
+    slot(panels, &key, &url, || PanelKind::Html, parent, None, cx)
 }
 
 /// What a patch's url panel can be: a web page, or one of the app's own

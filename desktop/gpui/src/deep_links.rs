@@ -4,8 +4,10 @@
 // `application(_:open:)`). The bundle claims the scheme in its Info.plist
 // (desktop/scripts/install-app.sh, which also says which of the two apps gets
 // the links while both are installed). A link is input from outside the app,
-// so all it can do is name a thread to show (threadbear_core::thread_link);
-// anything else under the scheme is left alone.
+// so all it can do is name a thread to show (threadbear_core::thread_link),
+// and with `?annotation=` the page annotated in Chrome that BrowserBear left
+// for that thread's message box (browser_annotations.rs); anything else under
+// the scheme is left alone. Only from here, never a link in a transcript.
 use crate::app::Threadbear;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use futures::StreamExt as _;
@@ -30,10 +32,23 @@ pub(crate) fn listen(mut links: UnboundedReceiver<Vec<String>>, app: WeakEntity<
         while let Some(urls) = links.next().await {
             let Some(id) = thread_link::last_thread(urls.iter().map(String::as_str)) else { continue };
             let app = app.clone();
-            cx.update(|cx| show(&app, window, id, true, cx));
+            cx.update(|cx| {
+                show(&app, window, id, true, cx);
+                annotations(&app, &urls, cx);
+            });
         }
     })
     .detach();
+}
+
+/// BrowserBear's Attach on an annotated page: its words and screenshot into
+/// the message box of the thread each link names.
+fn annotations(app: &WeakEntity<Threadbear>, urls: &[String], cx: &mut App) {
+    for url in urls {
+        if let (Some(session), Some(thread)) = (thread_link::annotation_id(url), thread_link::thread_id(url)) {
+            app.update(cx, |this, cx| this.receive_annotation(session, thread, cx)).ok();
+        }
+    }
 }
 
 /// The thread a link names, in front: the app and its window come forward
@@ -130,7 +145,11 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &serde_json::Value, wind
         Some(id) => {
             // After this command's own update of the window is over.
             let weak = app.downgrade();
-            cx.defer(move |cx| show(&weak, window, id, false, cx));
+            let urls = vec![url.to_owned()];
+            cx.defer(move |cx| {
+                show(&weak, window, id, false, cx);
+                annotations(&weak, &urls, cx);
+            });
             Ok(serde_json::json!("ok"))
         }
         None => Ok(serde_json::json!("ok not a thread link")),

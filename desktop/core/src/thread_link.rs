@@ -38,6 +38,18 @@ pub fn thread_id(url: &str) -> Option<String> {
     Some(id)
 }
 
+/// `threadbear://thread/<id>?annotation=<session>`: BrowserBear's Attach on
+/// an annotated Chrome page, whose words and screenshot wait in its folder
+/// for that thread's message box (browser_annotation.rs). The session is a
+/// lowercase UUID, as it names a file there (`ThreadLink.annotationId`).
+pub fn annotation_id(url: &str) -> Option<String> {
+    thread_id(url)?;
+    let query = url.split_once('?')?.1;
+    let query = &query[..query.find('#').unwrap_or(query.len())];
+    let value = query.split('&').find_map(|pair| pair.strip_prefix("annotation="))?;
+    (value.len() == 36 && value.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c) || c == b'-')).then(|| value.to_owned())
+}
+
 /// Whether `id` is shaped like a thread id: 1 to 64 letters, digits, `-`
 /// and `_` (a runner's are UUIDs; the mock's and fixtures' are words). The
 /// same rule as the backend's `isThreadId` (convex/runnerAccess.ts) and the
@@ -107,6 +119,24 @@ mod tests {
     fn nothing_that_could_be_a_path_or_more_gets_through() {
         for link in ["threadbear://thread/..", "threadbear://thread/a%2Fb", "threadbear://thread/a%20b", "threadbear://thread/a.b", "threadbear://thread/%2e%2e", "threadbear://thread/a;rm"] {
             assert_eq!(thread_id(link), None, "{link}");
+        }
+    }
+
+    #[test]
+    fn reads_an_annotation_from_browserbear() {
+        let session = "0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        let link = format!("threadbear://thread/6309da76-d0c5-49a1-bddf-9820bf6124dc?annotation={session}");
+        assert_eq!(thread_id(&link).as_deref(), Some("6309da76-d0c5-49a1-bddf-9820bf6124dc"));
+        assert_eq!(annotation_id(&link).as_deref(), Some(session));
+        assert_eq!(annotation_id(&format!("threadbear://thread/abc?from=pill&annotation={session}#x")).as_deref(), Some(session));
+        for link in [
+            "threadbear://thread/abc".to_owned(),
+            "threadbear://thread/abc?annotation=../../x".to_owned(),
+            "threadbear://thread/abc?annotation=0F8E2C1A-3B4D-4E5F-8A9B-0C1D2E3F4A5B".to_owned(),
+            format!("threadbear://pair?annotation={session}"),
+            format!("threadbear://thread/abc?xannotation={session}"),
+        ] {
+            assert_eq!(annotation_id(&link), None, "{link}");
         }
     }
 

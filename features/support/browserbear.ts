@@ -37,11 +37,16 @@ export type Heard = { cmd: string; args: Record<string, unknown>; thread?: strin
 // A 1×1 grey JPEG, for panelStill.
 const STILL = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
 
+// A 1×1 PNG, for an annotation's screenshot.
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
 export class StandInBrowserBear {
   readonly home: string;
   readonly heard: Heard[] = [];
   private tabs: Tab[] = [];
   private chromeTabs: ChromeTab[] = [];
+  /** Pages in Mike's own Chrome that a thread has, as `panelState` lists them. */
+  private profileTabs: Tab[] = [];
   private server: net.Server;
   private sockets = new Set<net.Socket>();
 
@@ -76,6 +81,26 @@ export class StandInBrowserBear {
     tab.finish = true;
     tab.handoffs = (tab.handoffs ?? 0) + 1;
     this.write();
+  }
+
+  /** A page in one of Mike's own Chrome profiles that a thread has
+   * (browser-annotations.feature), as `panelState` lists it. */
+  openInProfile(tab: Tab): void {
+    this.profileTabs = this.profileTabs.filter((t) => t.tabId !== tab.tabId).concat(tab);
+  }
+
+  /** Attach in the annotation tools: what was marked, and a screenshot,
+   * left in `annotations/` as BrowserBear leaves them (docs/protocol.md). */
+  leaveAnnotation(session: string, thread: string, annotation: unknown, screenshot: boolean): void {
+    const folder = path.join(this.home, 'annotations');
+    fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(folder, `${session}.json`), JSON.stringify({ thread, annotation, screenshot }), { mode: 0o600 });
+    if (screenshot) fs.writeFileSync(path.join(folder, `${session}.png`), Buffer.from(PNG, 'base64'), { mode: 0o600 });
+  }
+
+  /** Whether the annotation's files are still there. */
+  hasAnnotation(session: string): boolean {
+    return fs.existsSync(path.join(this.home, 'annotations', `${session}.json`)) || fs.existsSync(path.join(this.home, 'annotations', `${session}.png`));
   }
 
   /** A tab open in one of Mike's Chrome profiles, as `tabList` lists it. */
@@ -116,11 +141,13 @@ export class StandInBrowserBear {
     if (cmd !== 'panelState' && cmd !== 'panelStill') this.heard.push({ cmd, args, ...(thread ? { thread } : {}) });
     switch (cmd) {
       case 'panelState':
-        return { ok: true, result: { profiles: [], tabs: [] } };
+        return { ok: true, result: { profiles: [], tabs: this.profileTabs.map((t) => ({ ...t, bridge: true, profile: 'personal', profileName: 'Personal' })) } };
       case 'panelStill':
         return { ok: true, result: { data: STILL, at: Date.now() } };
       case 'panelShow':
         return { ok: true, result: {} };
+      case 'panelAnnotate':
+        return { ok: true, result: { sessionId: '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', thread } };
       case 'markDone': {
         const tab = this.tabs.find((t) => t.tabId === args.tab);
         if (!tab) return { ok: false, error: 'no such tab' };

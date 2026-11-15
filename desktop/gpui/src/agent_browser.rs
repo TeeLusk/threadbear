@@ -56,6 +56,12 @@ fn scripted() -> bool {
     std::env::var_os("THREADBEAR_AUTOMATION").is_some()
 }
 
+/// BrowserBear's folder, for what Annotate leaves in it
+/// (browser_annotations.rs).
+pub(crate) fn home() -> Option<PathBuf> {
+    HOME.clone()
+}
+
 /// BrowserBear's socket, when it's there.
 fn socket() -> Option<PathBuf> {
     HOME.as_deref().map(bear::socket).filter(|s| s.exists())
@@ -644,6 +650,14 @@ impl AgentBrowser {
         self.action("panelShow", json!({ "tab": tab.tab_id, "profile": tab.profile_id() }), Some(thread), pending_key("panelShow", tab), cx);
     }
 
+    /// Annotate: BrowserBear puts its tools on the page in Chrome and brings
+    /// it forward; what's attached there comes back to this thread's message
+    /// box through a threadbear:// link (browser_annotations.rs). `title` is
+    /// the thread's, shown on the tools.
+    pub(crate) fn annotate(&mut self, tab: &AgentTab, thread: &str, title: &str, cx: &mut Context<Self>) {
+        self.action("panelAnnotate", json!({ "tab": tab.tab_id, "profile": tab.profile_id(), "title": title }), Some(thread), pending_key("panelAnnotate", tab), cx);
+    }
+
     /// A new page in the agents' browser, behind Mike's windows.
     pub(crate) fn open(&mut self, url: &str, thread: &str, cx: &mut Context<Self>) {
         self.action("open", json!({ "profile": "agent", "url": url }), Some(thread), OPENING_KEY.to_owned(), cx);
@@ -765,6 +779,18 @@ impl SidePane {
             .busy(b.pending.contains(&pending_key("panelShow", tab)))
             .render(cx, move |_, _, cx| show_model.update(cx, |b, cx| b.show(&show_tab, &show_thread, cx)));
         let mut buttons = h_flex().gap(px(6.)).child(show);
+        // Pages in Tyler's own Chrome only: BrowserBear's extension draws
+        // the tools there, where he's looking.
+        if annotatable(tab) {
+            let (a_tab, a_thread, a_model) = (tab.clone(), thread.to_owned(), model.clone());
+            let title = self.app.upgrade().and_then(|a| a.read(cx).threads.get(thread).map(|t| t.title.clone())).unwrap_or_default();
+            buttons = buttons.child(
+                PushButton::new(SharedString::from(format!("browser-annotate-{}", tab.id())), "Annotate", "Mark what to change on this page in Chrome, then Attach puts it in this thread's message box with a screenshot")
+                    .small()
+                    .busy(b.pending.contains(&pending_key("panelAnnotate", tab)))
+                    .render(cx, move |_, _, cx| a_model.update(cx, |b, cx| b.annotate(&a_tab, &a_thread, &title, cx))),
+            );
+        }
         if yours {
             let (done_tab, done_model) = (tab.clone(), model.clone());
             buttons = buttons.child(
@@ -800,6 +826,9 @@ impl SidePane {
             .iter()
             .map(|t| {
                 let mut buttons = vec!["Show window"];
+                if annotatable(t) {
+                    buttons.push("Annotate");
+                }
                 if t.yours() {
                     buttons.push("Done");
                 }
@@ -866,4 +895,11 @@ impl crate::app::Threadbear {
             self.show_pane(BROWSER, cx);
         }
     }
+}
+
+/// Annotate is for a page in one of Tyler's own Chrome profiles that isn't
+/// waiting on him for an agent: not the agents' browser, whose pages he
+/// isn't looking at.
+fn annotatable(tab: &AgentTab) -> bool {
+    tab.bridge == Some(true) && !tab.yours()
 }

@@ -119,6 +119,9 @@ pub struct Composer {
     pub(crate) spell: crate::composer_spelling::SpellState,
     /// Board clicks wait for the box's own window and any saved draft restore.
     pending_mentions: Vec<threadbear_core::board::PendingMention>,
+    /// A page annotated in Chrome, to go after what's in the box at the next
+    /// render: its words, and its screenshot (browser_annotations.rs).
+    pending_annotations: Vec<(String, Option<PathBuf>)>,
     _subs: Vec<Subscription>,
 }
 
@@ -236,6 +239,7 @@ impl Composer {
             editing: None,
             pending_box: None,
             pending_mentions: vec![],
+            pending_annotations: vec![],
             palette: PaletteState::default(),
             palette_asked: None,
             palette_scroll: ScrollHandle::new(),
@@ -430,6 +434,7 @@ impl Composer {
         }
         let (mut text, images) = all.for_saving();
         for mention in &self.pending_mentions { text = threadbear_core::board::adding(&mention.reference, &text); }
+        for (words, _) in &self.pending_annotations { text = threadbear_core::browser_annotation::after_draft(&text, words); }
         (text, images)
     }
 
@@ -669,6 +674,31 @@ impl Composer {
         let mention = threadbear_core::board::PendingMention { reference: task.reference(), edit: self.editing.as_ref().map(|e| e.seq) };
         if !self.pending_mentions.contains(&mention) { self.pending_mentions.push(mention); }
         cx.notify();
+    }
+
+    /// A page annotated in Chrome: its words after what's in the box, and
+    /// its screenshot after them, from the next frame (`take_annotations`).
+    pub(crate) fn add_annotation(&mut self, words: String, picture: Option<PathBuf>, cx: &mut Context<Self>) {
+        self.pending_annotations.push((words, picture));
+        cx.notify();
+    }
+
+    fn take_annotations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (words, picture) in std::mem::take(&mut self.pending_annotations) {
+            let text = self.input.read(cx).value().to_string();
+            let added = threadbear_core::browser_annotation::after_draft(&text, &words);
+            let end = text.len();
+            self.input.update(cx, |s, cx| {
+                s.set_selected_range(end..end, cx);
+                s.insert(added[end..].to_owned(), window, cx);
+            });
+            if let Some(picture) = picture {
+                let target = self.input.clone();
+                self.insert_pictures_in(&target, vec![picture], window, cx);
+            }
+        }
+        self.focus(window, cx);
+        crate::web_panels::keyboard_to_app(window);
     }
 
     fn append_card_reference(&mut self, reference: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -1604,6 +1634,10 @@ impl Render for Composer {
             if let Some(restore) = self.restore.take() {
                 self.apply_restore(restore, window, cx);
             }
+        }
+        // As with what's given back, an annotation waits for an edit to end.
+        if !self.pending_annotations.is_empty() && self.editing.is_none() && self.restore.is_none() {
+            self.take_annotations(window, cx);
         }
         let mentions = threadbear_core::board::take_mentions(&mut self.pending_mentions, self.editing.as_ref().map(|e| e.seq), self.restore.is_some());
         if !mentions.is_empty() {

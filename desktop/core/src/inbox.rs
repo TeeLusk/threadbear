@@ -69,6 +69,16 @@ pub struct ThreadSummary {
     pub context_tokens: Option<i64>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub context_window: Option<i64>,
+    /// Long threads (protocol): "gentle" or "firm" once the context passes
+    /// runner.json's contextNudge levels (long_thread.rs).
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub context_long: Option<String>,
+    /// The handoff for Continue in a new thread is being written.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub continuing: bool,
+    /// The thread it carried on in, after Continue in a new thread.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub continued_in: Option<crate::long_thread::ContinuedIn>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub cost_usd: Option<f64>,
     #[serde(default, deserialize_with = "crate::wire::field")]

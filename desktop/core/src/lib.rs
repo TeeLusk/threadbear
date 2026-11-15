@@ -32,6 +32,7 @@ pub mod investigate;
 pub mod juice;
 pub mod keyboard;
 pub mod librarian;
+pub mod long_thread;
 pub mod html_tags;
 pub mod local_preview;
 pub mod login_picker;

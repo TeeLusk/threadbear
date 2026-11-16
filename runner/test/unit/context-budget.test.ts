@@ -70,7 +70,7 @@ export function measure() {
   const claudeTools = toolBytes(tools('claude', true));
   const codexDefs = tools('codex', true);
   const codexTools = toolBytes(codexDefs);
-  const claudeInstructions = bytes(serverInstructions(SELF, { one: true, bulletReplies: true, pocket: true, projects: true }));
+  const claudeInstructions = bytes(serverInstructions(SELF, { one: true, bulletReplies: true, pocket: true, projects: true, browserbear: false }));
   // The namespace's own description goes with the tools (dynamicToolSpecs).
   const codexInstructions = bytes(toolGuidance(codexDefs)) + bytes(NAMESPACE_DESCRIPTION);
   const worktree = bytes(worktreeInstructions({ repo: 'repo', path: '/repo-threads/slot-1', branch: 'thread/00000000', mainCheckout: '/repo', base: '0000000' }));

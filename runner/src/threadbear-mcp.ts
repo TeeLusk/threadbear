@@ -2178,6 +2178,17 @@ export const SHOWING_THE_USER =
 export const RICH_BLOCKS_LINE =
   'Threadbear draws a ```mermaid block in your reply as a diagram, and a ```html block as a small static page (no scripts or network: inline CSS, SVG and data: images only), each with a switch to its source. Use one when a picture explains better than words.';
 
+// Only when BrowserBear is installed on this runner. Nothing told agents it
+// was there, so a Claude thread reached for Claude in Chrome and a Codex one
+// for "attach Chrome" on a USPS tracking page (16 Nov).
+export const BROWSERBEAR_LINE =
+  "For any web page, use BrowserBear (`browserbear --help`), not Claude in Chrome, Playwright or computer use: `browserbear open '<url>' --profile agent --id`, then read or snap it, and close it when done. " +
+  'If it refuses a site, ask the user to run `browserbear allow add <site>` or lend you a tab with @; don\'t work around it. Before asking them to do something in a tab (sign in, approve), run `browserbear handoff <tab>`.';
+
+export function hasBrowserBear(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = fs.existsSync): boolean {
+  return (env.PATH ?? '').split(path.delimiter).some((dir) => dir && exists(path.join(dir, 'browserbear')));
+}
+
 // Only for a thread that has the pocket tool: the Pocket lives in the Convex
 // backend, so with phone sync off there's no tool to tell it about.
 export const POCKET_LINE =
@@ -2235,7 +2246,7 @@ export function patchesLine(guide = guidePath(), exists: (p: string) => boolean 
 // What a Claude session's threadbear server tells it, standing in every
 // turn's context. Measured by the context budget test with the tools
 // (test/unit/context-budget.test.ts), so growth is a choice.
-export function serverInstructions(selfId: string, o: { one: boolean; bulletReplies: boolean; pocket: boolean; projects: boolean }): string {
+export function serverInstructions(selfId: string, o: { one: boolean; bulletReplies: boolean; pocket: boolean; projects: boolean; browserbear?: boolean }): string {
   const guide = guideLine();
   const patches = patchesLine();
   return (
@@ -2247,6 +2258,7 @@ export function serverInstructions(selfId: string, o: { one: boolean; bulletRepl
     'Use move_thread when the work belongs in another folder (for example a repo), so this thread runs there from the next turn. ' +
     `${SHOWING_THE_USER} ` +
     `${RICH_BLOCKS_LINE} ` +
+    ((o.browserbear ?? hasBrowserBear()) ? `${BROWSERBEAR_LINE} ` : '') +
     (o.pocket ? `${POCKET_LINE} ` : '') +
     (o.projects ? `${FILING_PROJECTS} ` : '') +
     (o.one

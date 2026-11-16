@@ -88,7 +88,7 @@ import { machineIcon } from './machine.ts';
 import { filesMethods } from './files.ts';
 import { devicesMethods } from './devices.ts';
 import { flushSentry, reportException, reportLoggedError, reportLoggedWarning, startSentry } from './sentry.ts';
-import { ALWAYS_ASK_TOOLS, NEVER_ASK_TOOLS, RICH_BLOCKS_LINE, SERVER_NAME, buildThreadbearTools, threadbearMcpServer, type RemoteControl } from './threadbear-mcp.ts';
+import { ALWAYS_ASK_TOOLS, BROWSERBEAR_LINE, NEVER_ASK_TOOLS, RICH_BLOCKS_LINE, hasBrowserBear, SERVER_NAME, buildThreadbearTools, threadbearMcpServer, type RemoteControl } from './threadbear-mcp.ts';
 import { CrossRunner } from './cross-runner.ts';
 import { FAILED_SHOWN_MS, Moves, moveInfoFrom, previewInfo, stillRunner, type ThreadMoving } from './moves.ts';
 import type { RemoteThreads } from './thread-index.ts';
@@ -285,7 +285,7 @@ async function main(): Promise<void> {
     log,
     toolsFor: codexStyleTools,
     onNotice: (text) => runner.notice('warning', text),
-    extraGuidance: () => RICH_BLOCKS_LINE,
+    extraGuidance: () => (hasBrowserBear() ? `${RICH_BLOCKS_LINE}\n\n${BROWSERBEAR_LINE}` : RICH_BLOCKS_LINE),
   });
   // One process per live thread on an agent that speaks ACP, off unless the
   // experiment is on (they find no account, and refuse to start without it).
@@ -298,7 +298,7 @@ async function main(): Promise<void> {
         registry,
         log,
         toolsFor: codexStyleTools,
-        extraGuidance: () => RICH_BLOCKS_LINE,
+        extraGuidance: () => (hasBrowserBear() ? `${RICH_BLOCKS_LINE}\n\n${BROWSERBEAR_LINE}` : RICH_BLOCKS_LINE),
         dataDir: cfg.home,
       }),
     ]),

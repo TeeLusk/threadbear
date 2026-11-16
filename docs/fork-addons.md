@@ -20,6 +20,7 @@ Last checked: 15 Nov 2026, after bringing in Mike's release 2026-11-16.
 | Patches see the thread's projects | Patch functions get the projects a thread is in | runner (36ff7d4d) |
 | Staged app build hard to miss | Makes it obvious when a new app build is waiting | Swift app (e2de1ad7) |
 | No local checks in auto-update | The runner's follow-main update skips running checks on this Mac | runner (8cf6ed00) |
+| Build-only bring-ins | Landing one of Mike's releases only typechecks and builds, no tests | `check.sh --build`, on by itself for a "Bring in Mike's release" merge |
 | Cache pings as an experiment | Keeps waiting threads' prompt cache warm, off by default, only in the Mac's hours | experiment `cacheKeepAlive` (826a62b3) |
 | GPUI ports of the add-ons below | Pull request badge and card, html panels, long thread card, green and yellow rows | GPUI app (ed92cbb4, 3f65a764, 498919f8, e6e72fc0) |
 

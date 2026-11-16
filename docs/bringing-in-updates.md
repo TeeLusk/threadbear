@@ -108,9 +108,12 @@ settings (`runner.json`) aren't part of the merge. Check they still work
 against Mike's changes (docs/protocol.md, "Patches", says what a patch can
 use), and fix them if not.
 
-Then `./check.sh --all` runs every check (several minutes; up to ten for
-the app in a folder that has never built it). All of it must pass before
-you land.
+In Tyler's copy, don't run `./check.sh --all`: a release only has to
+build here (Mike's CI tests it). `tb land`'s `./check.sh --quick` sees the
+"Bring in Mike's release" merge and only typechecks and builds, and that
+must pass before it lands. Elsewhere, `./check.sh --all` runs every check
+(several minutes; up to ten for the app in a folder that has never built
+it), and all of it must pass before you land.
 
 ## 5. Land
 

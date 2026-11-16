@@ -34,6 +34,11 @@
 #   --app         the Swift app's swift build and swift test only, changed
 #                 or not
 #   --all         don't skip the Swift app, dock and deploy tests (below)
+#   --build       with --quick: typechecks and builds only, no tests. On by
+#                 itself for a branch that brings in one of Mike's releases
+#                 (a merge titled "Bring in Mike's release"): those are
+#                 tested in Mike's CI, and here only have to build (Tyler,
+#                 16 Nov 2026)
 #
 # When up to 8 of the runner's unit test files fail, those run again on
 # their own, one at a time, and a pass then counts: the step's line lists
@@ -79,6 +84,7 @@ QUICK=0
 RUNNER_ONLY=0
 APP_ONLY=0
 ALL=0
+BUILD=0
 E2E=0
 SHOTS=""
 LOCAL=0
@@ -90,6 +96,7 @@ while [ $# -gt 0 ]; do
     --runner) QUICK=1; RUNNER_ONLY=1 ;;
     --app) APP_ONLY=1 ;;
     --all) ALL=1 ;;
+    --build) BUILD=1 ;;
     --e2e) E2E=1 ;;
     --local) LOCAL=1 ;;
     --shots)
@@ -101,6 +108,15 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# A landing of one of Mike's releases only has to build (--build, above).
+# Worked out here, on the Mac with the .git, and passed on to a check host.
+if [ "$QUICK" = 1 ] && [ "$BUILD" = 0 ] && [ -z "${THREADBEAR_CHECK_CHANGED_FILE:-}" ] \
+  && git -C "$ROOT" log --merges --format=%s main..HEAD 2>/dev/null | grep -q "^Bring in Mike's release"; then
+  BUILD=1
+  ARGS+=(--build)
+  echo "This brings in one of Mike's releases: typechecks and builds only, no tests."
+fi
 
 if [ "$QUICK" = 1 ] && [ "$APP_ONLY" = 1 ]; then
   echo "--quick is the runner's checks and --app the app's; pick one (or neither for both)." >&2
@@ -345,7 +361,7 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
   fi
   step "convex typecheck" "$ROOT" npm run convex:typecheck
   step "web typecheck" "$ROOT" npm run web:typecheck
-  step "web tests" "$ROOT" npm run web:test
+  if [ "$BUILD" = 1 ]; then skip "web tests" "build only"; else step "web tests" "$ROOT" npm run web:test; fi
   # The public site (site/) makes its docs pages from docs/guide.md (and the
   # experiments list from docs/experiments.md), and its build refuses some
   # guide content: a section with no icon in site/docs-icons.json, a link
@@ -368,7 +384,9 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
     skip "feature pairing" "no spec, step file or features.md changed"
   fi
 fi
-if [ "$APP_ONLY" = 0 ]; then
+if [ "$APP_ONLY" = 0 ] && [ "$BUILD" = 1 ]; then
+  skip "runner unit tests" "build only"
+elif [ "$APP_ONLY" = 0 ]; then
   runner_unit_tests
   if [ "$QUICK" = 0 ]; then
     if needed '^runner/(scripts/|launch\.mjs$|launcher/|test/deploy/)'; then
@@ -468,7 +486,11 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
     if [ -n "$CARGO" ] && [ ! -d "$ROOT/app/Tools/mock-runner/node_modules" ]; then
       step "mock runner packages" "$ROOT/app/Tools/mock-runner" npm ci --no-audit --no-fund
     fi
-    cargo_step "desktop core tests" test --locked --no-fail-fast -p threadbear-core -p threadbear-client
+    if [ "$BUILD" = 1 ]; then
+      skip "desktop core tests" "build only"
+    else
+      cargo_step "desktop core tests" test --locked --no-fail-fast -p threadbear-core -p threadbear-client
+    fi
     # The GPUI app itself, which the core tests never build: main's app
     # stopped compiling twice in the week to 13 Nov (tour.rs's
     # panel_available, fixed in 92c48ee73) with every landing's --quick

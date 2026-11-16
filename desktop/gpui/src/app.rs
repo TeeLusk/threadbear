@@ -1466,7 +1466,6 @@ impl Threadbear {
         }
     }
 
-    #[cfg(feature = "automation")]
     pub(crate) fn composer(&self, cx: &App) -> Option<Entity<Composer>> {
         // The open thread's box, or the new-thread page's.
         self.pane.as_ref().map(|p| p.read(cx).composer.clone()).or_else(|| self.new_thread.composer.clone())

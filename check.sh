@@ -478,6 +478,11 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
     # imports can't break it.
     if [ "$QUICK" = 1 ] && needed '^desktop/|^app/Sources/Threadbear/Resources/(Art|Rich)/|^features/support/sample\.png$'; then
       cargo_step "desktop app check" check --locked -p threadbear-gpui --features automation --all-targets
+      # And as installed (stage-update.sh, install-app.sh): without automation,
+      # so code that slips out of its cfg fails here. The automation check
+      # alone missed tab_palette.rs's use of composer(), and the app's
+      # self-update was stuck from 14 to 16 Nov.
+      cargo_step "desktop app check (as installed)" check --locked -p threadbear-gpui --features frame-stats
     fi
     [ "$QUICK" = 1 ] || cargo_step "desktop build" check --locked --workspace --all-targets
   fi

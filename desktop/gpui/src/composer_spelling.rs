@@ -38,6 +38,29 @@ actions!(
     ]
 );
 
+/// Every item the right-click menu can dispatch, each through `$each`.
+macro_rules! menu_actions {
+    ($target:expr, $cx:expr, $each:ident) => {{
+        let t = $target;
+        let t = $each::<UseGuess>(t, $cx);
+        let t = $each::<IgnoreSpelling>(t, $cx);
+        let t = $each::<LearnSpelling>(t, $cx);
+        let t = $each::<CheckDocumentNow>(t, $cx);
+        let t = $each::<ToggleSpellingWhileTyping>(t, $cx);
+        let t = $each::<ToggleGrammar>(t, $cx);
+        let t = $each::<ToggleCorrectSpelling>(t, $cx);
+        let t = $each::<ToggleSmartQuotes>(t, $cx);
+        let t = $each::<ToggleSmartDashes>(t, $cx);
+        let t = $each::<ToggleTextReplacement>(t, $cx);
+        let t = $each::<MakeUpperCase>(t, $cx);
+        let t = $each::<MakeLowerCase>(t, $cx);
+        let t = $each::<Capitalize>(t, $cx);
+        let t = $each::<StartSpeaking>(t, $cx);
+        $each::<StopSpeaking>(t, $cx)
+    }};
+}
+use menu_actions;
+
 /// One of the spell checker's guesses, chosen from the right-click menu: put
 /// `word` where `was` is, at `start..end`, if it's still there.
 #[derive(Clone, PartialEq, Debug, Action)]
@@ -206,63 +229,113 @@ impl Composer {
     }
 
     /// The text field's handlers for the right-click menu's items and the
-    /// Edit menu's Paste and Match Style.
+    /// Edit menu's Paste and Match Style. The menu's items also reach the box
+    /// when the keyboard isn't in it (`install`).
     pub(crate) fn spelling_actions(&self, field: Div, cx: &mut Context<Self>) -> Div {
-        field
-            .on_action(cx.listener(|this, guess: &UseGuess, window, cx| {
-                let input = this.input.clone();
-                let (text, _) = Self::text_and_selection(&input, cx);
-                if text.get(guess.start..guess.end) != Some(guess.was.as_str()) {
-                    return;
-                }
-                input.update(cx, |s, cx| {
-                    s.set_selected_range(guess.start..guess.end, cx);
-                    s.replace(guess.word.clone(), window, cx);
-                });
-                this.refresh_spelling_marks(false, false, cx);
-            }))
-            .on_action(cx.listener(|this, _: &IgnoreSpelling, _, cx| {
-                if let Some((_, word)) = this.misspelled_here(cx) {
-                    text_services::ignore(&word);
-                    this.refresh_spelling_marks(false, false, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &LearnSpelling, _, cx| {
-                if let Some((_, word)) = this.misspelled_here(cx) {
-                    text_services::learn(&word);
-                    this.refresh_spelling_marks(false, false, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &CheckDocumentNow, _, cx| this.refresh_spelling_marks(true, false, cx)))
-            .on_action(cx.listener(|this, _: &ToggleSpellingWhileTyping, _, cx| this.change_checks(|c| c.spelling = !c.spelling, cx)))
-            .on_action(cx.listener(|this, _: &ToggleGrammar, _, cx| this.change_checks(|c| c.grammar = !c.grammar, cx)))
-            .on_action(cx.listener(|this, _: &ToggleCorrectSpelling, _, cx| this.change_checks(|c| c.correct = Some(!c.correct()), cx)))
-            .on_action(cx.listener(|this, _: &ToggleSmartQuotes, _, cx| this.change_checks(|c| c.quotes = !c.quotes, cx)))
-            .on_action(cx.listener(|this, _: &ToggleSmartDashes, _, cx| this.change_checks(|c| c.dashes = !c.dashes, cx)))
-            .on_action(cx.listener(|this, _: &ToggleTextReplacement, _, cx| this.change_checks(|c| c.replace = Some(!c.replace()), cx)))
-            .on_action(cx.listener(|this, _: &MakeUpperCase, window, cx| this.transform(Transform::Upper, window, cx)))
-            .on_action(cx.listener(|this, _: &MakeLowerCase, window, cx| this.transform(Transform::Lower, window, cx)))
-            .on_action(cx.listener(|this, _: &Capitalize, window, cx| this.transform(Transform::Capitalize, window, cx)))
-            // NSTextView reads the selection, or everything with none.
-            .on_action(cx.listener(|this, _: &StartSpeaking, _, cx| {
-                let (text, selection) = Self::text_and_selection(&this.input, cx);
-                let words = if selection.is_empty() { text.as_str() } else { text.get(selection).unwrap_or_default() };
-                text_services::speak(words);
-            }))
-            .on_action(cx.listener(|_, _: &StopSpeaking, _, _| text_services::stop_speaking()))
+        let field = field
             // Words only: a copied picture or file stays out (the Swift box is
             // plain text, so its Paste and Match Style was the same).
             .on_action(cx.listener(|this, _: &PasteAndMatchStyle, window, cx| {
                 let Some(words) = cx.read_from_clipboard().and_then(|item| item.text()) else { return };
                 this.input.update(cx, |s, cx| s.replace(words.to_string(), window, cx));
-            }))
+            }));
+        menu_actions!(field, cx, route)
     }
+
+    /// One of the right-click menu's items, chosen.
+    fn menu_item(&mut self, action: &dyn Action, window: &mut Window, cx: &mut Context<Self>) {
+        let any = action.as_any();
+        if let Some(guess) = any.downcast_ref::<UseGuess>() {
+            let input = self.input.clone();
+            let (text, _) = Self::text_and_selection(&input, cx);
+            if text.get(guess.start..guess.end) != Some(guess.was.as_str()) {
+                return;
+            }
+            input.update(cx, |s, cx| {
+                s.set_selected_range(guess.start..guess.end, cx);
+                s.replace(guess.word.clone(), window, cx);
+            });
+            self.refresh_spelling_marks(false, false, cx);
+        } else if any.is::<IgnoreSpelling>() || any.is::<LearnSpelling>() {
+            if let Some((_, word)) = self.misspelled_here(cx) {
+                if any.is::<LearnSpelling>() {
+                    text_services::learn(&word);
+                } else {
+                    text_services::ignore(&word);
+                }
+                self.refresh_spelling_marks(false, false, cx);
+            }
+        } else if any.is::<CheckDocumentNow>() {
+            self.refresh_spelling_marks(true, false, cx);
+        } else if any.is::<ToggleSpellingWhileTyping>() {
+            self.change_checks(|c| c.spelling = !c.spelling, cx);
+        } else if any.is::<ToggleGrammar>() {
+            self.change_checks(|c| c.grammar = !c.grammar, cx);
+        } else if any.is::<ToggleCorrectSpelling>() {
+            self.change_checks(|c| c.correct = Some(!c.correct()), cx);
+        } else if any.is::<ToggleSmartQuotes>() {
+            self.change_checks(|c| c.quotes = !c.quotes, cx);
+        } else if any.is::<ToggleSmartDashes>() {
+            self.change_checks(|c| c.dashes = !c.dashes, cx);
+        } else if any.is::<ToggleTextReplacement>() {
+            self.change_checks(|c| c.replace = Some(!c.replace()), cx);
+        } else if any.is::<MakeUpperCase>() {
+            self.transform(Transform::Upper, window, cx);
+        } else if any.is::<MakeLowerCase>() {
+            self.transform(Transform::Lower, window, cx);
+        } else if any.is::<Capitalize>() {
+            self.transform(Transform::Capitalize, window, cx);
+        } else if any.is::<StartSpeaking>() {
+            // NSTextView reads the selection, or everything with none.
+            let (text, selection) = Self::text_and_selection(&self.input, cx);
+            let words = if selection.is_empty() { text.as_str() } else { text.get(selection).unwrap_or_default() };
+            text_services::speak(words);
+        } else if any.is::<StopSpeaking>() {
+            text_services::stop_speaking();
+        }
+    }
+}
+
+/// An item's handler on the text field, for when the keyboard's in the box.
+fn route<A: Action>(field: Div, cx: &mut Context<Composer>) -> Div {
+    field.on_action(cx.listener(|this, action: &A, window, cx| this.menu_item(action, window, cx)))
+}
+
+thread_local! {
+    /// The box whose right-click menu opened last, and its window.
+    static MENU_OWNER: std::cell::RefCell<Option<(WeakEntity<Composer>, AnyWindowHandle)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The menu's items for when the keyboard isn't in the box that opened it.
+/// A native menu's choice goes to whatever has the keyboard once it closes
+/// (`Window::dispatch_action`), and that isn't always the box, so its
+/// Spelling and Substitutions switches did nothing. These catch an item
+/// nothing else took and hand it to the box that opened the menu. At start
+/// (main.rs).
+pub(crate) fn install(cx: &mut App) {
+    menu_actions!((), cx, fallback);
+}
+
+fn fallback<A: Action>(_: (), cx: &mut App) {
+    cx.on_action(|action: &A, cx| {
+        let Some((owner, handle)) = MENU_OWNER.with(|o| o.borrow_mut().take()) else { return };
+        let action = action.boxed_clone();
+        // Its window is mid-dispatch; it's free again after.
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                if let Some(composer) = owner.upgrade() {
+                    composer.update(cx, |c, cx| c.menu_item(action.as_ref(), window, cx));
+                }
+            });
+        });
+    });
 }
 
 /// The box's right-click menu, NSTextView's: the guesses for a misspelled
 /// word, then Cut, Copy and Paste, then the four submenus.
 pub(crate) fn context_menu(composer: &WeakEntity<Composer>, input: &Entity<TextareaState>, window: &mut Window, cx: &mut App) -> NativeMenu {
     let mut menu = NativeMenu::new();
+    MENU_OWNER.with(|o| *o.borrow_mut() = Some((composer.clone(), Window::window_handle(window))));
     let composer = composer.upgrade();
     // Checked now, the word clicked in included: the marks may be waiting for
     // typing to pause, and the click put the caret in the word.

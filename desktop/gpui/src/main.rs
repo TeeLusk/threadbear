@@ -278,6 +278,8 @@ fn main() {
         // Videos and PDFs in the system's views: their calls back (a PDF's
         // links, to the open gate) and the menus they hide under.
         media_view::init(cx);
+        // The message box's right-click menu, wherever the keyboard is.
+        composer_spelling::install(cx);
         let mut settings = Settings::load();
         // The Swift app's settings and drafts, brought across once, before
         // anything reads them (swift_import.rs).

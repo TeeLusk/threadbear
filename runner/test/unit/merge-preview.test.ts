@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
-import { needsGit } from '../helpers/git-version.ts';
 
 // Security review finding 3 (a), 9 Nov 2026, and Codex's review of it: the
 // bring-in thread works a release's merge out with scripts/merge-preview.sh
@@ -19,7 +18,7 @@ const git = (cwd: string, ...args: string[]) => {
   return r.stdout.trim();
 };
 
-test('the merge preview shows clashes and changes, and runs no merge driver from any config or attributes', { skip: needsGit(2, 40, 'merge-tree --write-tree and --attr-source') }, () => {
+test('the merge preview shows clashes and changes, and runs no merge driver from any config or attributes', () => {
   const root = tmpDir('tb-preview-');
   const repo = path.join(root, 'r');
   fs.mkdirSync(repo);

@@ -316,7 +316,6 @@ public enum PanelIcon {
         case .url: return "globe"
         case .image: return "photo"
         case .list: return "list.bullet"
-        case .html: return "doc.richtext"
         }
     }
 }

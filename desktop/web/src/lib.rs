@@ -124,12 +124,6 @@ mod elsewhere {
 
     pub fn reset_rich() {}
 
-    /// No page is made here to load it, so the address only has to differ
-    /// when the html does.
-    pub fn data_url(html: &str) -> String {
-        format!("data:text/html;charset=utf-8,{}", html.len())
-    }
-
     /// One item of a native menu (mac/host.rs has the real one).
     #[derive(Clone, Debug, Default)]
     pub struct MenuItem {
@@ -168,7 +162,6 @@ mod elsewhere {
             rx
         }
         pub fn load(&self, _url: &str) {}
-        pub fn replace(&self, _url: &str, _y: f64) {}
         pub fn reload(&self) {}
         pub fn can_go_back(&self) -> bool {
             false

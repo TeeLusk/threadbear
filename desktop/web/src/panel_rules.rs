@@ -25,11 +25,6 @@ pub enum Kind {
     /// A local page previewed in the app (preview_rules.rs): its own page
     /// only, in the sealed context, answered from its site.
     Preview(crate::preview_rules::PreviewSite),
-    /// An html panel's page, the one its patch writes for the thread
-    /// (docs/protocol.md, "Patches"): a `data:` page in the sealed context
-    /// with its scripts off, that never navigates. A click on a web or mail
-    /// link goes to the app instead (`html_browse`).
-    Html,
 }
 
 /// `https://a.b:8443/x` → `https://a.b:8443`: what counts as the same site
@@ -105,37 +100,6 @@ pub fn browse(url: &str, home: &str, own: &str, convex: bool, gesture: bool, red
         (true, _) => Browse::Leave,
         (false, true) => Browse::Drop,
         (false, false) => Browse::Stay,
-    }
-}
-
-/// The links a click in an html panel's page sends to the app, as a
-/// highlight's link would go: web pages and mail.
-pub fn html_link_leaves(url: &str) -> bool {
-    site(url).is_some() || url.trim_start().get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:"))
-}
-
-/// A navigation of an html panel's main frame to `url`, where `own` is the
-/// page the app loaded. Only that page (or a blank one) loads; a person's
-/// click on a web or mail link leaves; anything else is dropped. Unlike a
-/// url panel's, nothing ever loads in its place, as the page has no site
-/// of its own to stay on.
-pub fn html_browse(url: &str, own: &str, gesture: bool) -> Browse {
-    if url == own || url == "about:blank" {
-        Browse::Stay
-    } else if gesture && html_link_leaves(url) {
-        Browse::Leave
-    } else {
-        Browse::Drop
-    }
-}
-
-/// A new window from an html panel's page (a link with a target): a click
-/// on a web or mail link leaves, as in the page itself; nothing loads here.
-pub fn html_popup(url: &str, gesture: bool) -> Popup {
-    if gesture && html_link_leaves(url) {
-        Popup::Leave
-    } else {
-        Popup::Drop
     }
 }
 
@@ -259,22 +223,6 @@ mod tests {
         let own = "data:text/html,<title>stand-in</title>";
         assert_eq!(browse(own, "", own, false, false, false), Browse::Stay);
         assert_eq!(browse("about:blank", &home, "http://localhost:3000/", true, false, false), Browse::Stay);
-    }
-
-    #[test]
-    fn an_html_panels_page_never_navigates() {
-        let own = "data:text/html;base64,PHA+aGk8L3A+";
-        assert_eq!(html_browse(own, own, false), Browse::Stay, "the page the app loaded");
-        assert_eq!(html_browse("about:blank", own, false), Browse::Stay);
-        assert_eq!(html_browse("https://example.com/", own, true), Browse::Leave, "a click on a link");
-        assert_eq!(html_browse("MAILTO:a@b.c", own, true), Browse::Leave, "mail too");
-        assert_eq!(html_browse("https://example.com/", own, false), Browse::Drop, "not without a click");
-        for url in ["file:///etc/hosts", "data:text/html,<p>other</p>", "javascript:alert(1)", "slack://open", "chrome://version"] {
-            assert_eq!(html_browse(url, own, true), Browse::Drop, "{url}");
-            assert_eq!(html_popup(url, true), Popup::Drop, "{url} in a new window");
-        }
-        assert_eq!(html_popup("https://example.com/", true), Popup::Leave);
-        assert_eq!(html_popup("https://example.com/", false), Popup::Drop);
     }
 
     #[test]

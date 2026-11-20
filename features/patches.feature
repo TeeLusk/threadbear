@@ -46,12 +46,6 @@ Feature: What a folder's patches give a thread
     Then the transcript shows a line about "Stop: Local"
     And the list panel has the heading "Elsewhere" with the rows "Production"
 
-  @panel.html
-  Scenario: An html panel shows the page its patch writes
-    When I open the thread "Rebuild the three landing pages"
-    And I show the "deploys.pipeline" section of the pane
-    Then the html panel shows its page
-
   @panel.image
   Scenario: An image panel draws its picture
     When I open the thread "Pick a colour for the new Share button"

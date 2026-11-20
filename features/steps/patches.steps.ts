@@ -78,12 +78,6 @@ Then('the image panel shows a picture', async function (this: ThreadbearWorld) {
   await this.until('a picture in the image panel', (d) => /^picture \d+x\d+/.test(pane(d)?.image ?? ''));
 });
 
-// Both apps say an html panel's page by its size (it's in a web view the
-// dump can't read), or the note that's there instead.
-Then('the html panel shows its page', async function (this: ThreadbearWorld) {
-  await this.until('a page in the html panel', (d) => /^html \d+ bytes$/.test(pane(d)?.empty ?? ''));
-});
-
 Then('the chip {string} is offered', async function (this: ThreadbearWorld, id: string) {
   await this.until(`the chip ${id}`, (d) => (d as WithActions).actions?.some((a) => a.id === id));
 });

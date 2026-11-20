@@ -40,7 +40,7 @@ pub(crate) struct PanelsState {
 
 use std::sync::Arc;
 
-pub(crate) fn panel_key(thread_id: &str, panel_id: &str) -> String {
+fn panel_key(thread_id: &str, panel_id: &str) -> String {
     format!("{thread_id}/{panel_id}")
 }
 
@@ -115,8 +115,7 @@ impl SidePane {
             if !showing {
                 return;
             }
-            // As ImagePanel's loop: 3 s with a picture, 5 without; a list or
-            // an html page 15.
+            // As ImagePanel's loop: 3 s with a picture, 5 without; a list 15.
             let kind_is_list = this.update(cx, |t, cx| t.panel_is_list(&thread, &panel, cx)).unwrap_or(false);
             let delay = if kind_is_list { LIST_REFRESH } else if has_image { Duration::from_secs(3) } else { Duration::from_secs(5) };
             cx.background_executor().timer(delay).await;
@@ -143,7 +142,7 @@ impl SidePane {
 
     fn panel_is_list(&self, thread_id: &str, panel_id: &str, cx: &App) -> bool {
         let Some(app) = self.app.upgrade() else { return false };
-        app.read(cx).threads.get(thread_id).is_some_and(|t| t.panels().iter().any(|p| p.id == panel_id && (p.kind == "list" || p.kind == "html")))
+        app.read(cx).threads.get(thread_id).is_some_and(|t| t.panels().iter().any(|p| p.id == panel_id && p.kind == "list"))
     }
 
     /// A pinned copy of the thread's panel is showing (pinned_panels.rs).
@@ -179,10 +178,6 @@ impl SidePane {
                         t.panels.pictures.remove(&key);
                     }
                     None => {}
-                }
-                // A failed refresh keeps the html page that's showing.
-                if render.html.is_none() && t.panels.renders.get(&key).is_some_and(|old| old.html.is_some()) {
-                    return;
                 }
                 t.panels.renders.insert(key, render);
                 cx.notify();
@@ -237,15 +232,6 @@ impl SidePane {
                         crate::files::pane_note(&note, p).into_any_element()
                     }
                 }
-            }
-            // web_panels.rs draws an html panel's page (shell.rs hands the
-            // section to it); this is only what shows while it can't.
-            "html" => {
-                if self.panels.renders.get(&key).is_none() {
-                    self.refresh_panel(&thread.id, id, cx);
-                }
-                let note = self.panels.renders.get(&key).map(|r| r.note.clone().unwrap_or_else(|| "Nothing to show.".to_owned())).unwrap_or_else(|| "Loading…".to_owned());
-                crate::files::pane_note(&note, p).into_any_element()
             }
             // A web panel: web_panels.rs draws its page (shell.rs hands the
             // section to it), so this is only a fallback.
@@ -828,13 +814,6 @@ impl SidePane {
                 });
                 let note = self.panels.renders.get(&key).and_then(|r| r.note.clone());
                 pane.insert("image".into(), json!(shown.or(note).unwrap_or_else(|| "Taking a screenshot…".to_owned())));
-            }
-            // Its page, or why there isn't one, in `empty`, as the Swift app's.
-            "html" => {
-                let render = self.panels.renders.get(&key);
-                let shown = render.and_then(|r| r.html.as_ref()).map(|h| format!("html {} bytes", h.len()));
-                let note = render.map(|r| r.note.clone().unwrap_or_else(|| "Nothing to show.".to_owned()));
-                pane.insert("empty".into(), json!(shown.or(note).unwrap_or_else(|| "Loading…".to_owned())));
             }
             _ => {}
         }

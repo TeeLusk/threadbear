@@ -1,23 +1,23 @@
 {
   "claude": {
-    "instructions": 2984,
-    "tools": 39571,
-    "total": 42555
+    "instructions": 3100,
+    "tools": 40737,
+    "total": 43837
   },
   "codex": {
-    "instructions": 2153,
-    "tools": 39670,
-    "total": 41823
+    "instructions": 2269,
+    "tools": 40836,
+    "total": 43105
   },
-  "worktreeInstructions": 608,
+  "worktreeInstructions": 591,
   "perTool": {
-    "add_button": 1659,
-    "ask_secret": 1241,
+    "add_button": 1947,
+    "ask_secret": 1320,
     "create_project": 1433,
     "create_thread": 2574,
     "delete_schedule": 267,
     "delete_thread": 445,
-    "end_turn": 8927,
+    "end_turn": 9148,
     "interrupt_thread": 335,
     "join_project": 524,
     "leave_project": 460,
@@ -32,12 +32,12 @@
     "read_thread": 520,
     "schedule_message": 3313,
     "send_message": 562,
-    "show_options": 2143,
+    "show_options": 2304,
     "show_panel": 1400,
     "unpin": 300,
-    "update_project": 2937,
+    "update_project": 3239,
     "update_schedule": 1705,
     "update_thread": 1720,
-    "wait_for_app_restart": 649
+    "wait_for_app_restart": 764
   }
 }

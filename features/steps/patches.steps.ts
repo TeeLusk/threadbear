@@ -74,6 +74,36 @@ When('I press {string} on the list row {string} of {string}', async function (th
   await this.app.do({ cmd: 'row-action', panel, row, action: button }, 20);
 });
 
+Then('the list rows {string} have the marks {string}', async function (this: ThreadbearWorld, titles: string, marks: string) {
+  const want = titles.split(' | ').map((t, i) => [t, marks.split(' | ')[i]]);
+  await this.until(`${titles} marked ${marks}`, (d) => {
+    const rows = pane(d)?.list?.flatMap((s) => s.rows) ?? [];
+    return want.every(([title, mark]) => rows.find((r) => r.title === title)?.mark === mark);
+  });
+});
+
+Then('the list row {string} has its globe and the mark {string} beside its title', async function (this: ThreadbearWorld, title: string, mark: string) {
+  await this.until(`"${title}" with a globe and ${mark}`, (d) => {
+    const row = pane(d)?.list?.flatMap((s) => s.rows).find((r) => r.title === title);
+    return row?.mark === 'globe' && row.toneMark === mark;
+  });
+});
+
+const listRow = (d: Dump, title: string) => pane(d)?.list?.flatMap((s) => s.rows).find((r) => r.title === title);
+
+When('I press the switch on the list row {string}', async function (this: ThreadbearWorld, title: string) {
+  await this.until(`"${title}" with a switch`, (d) => Boolean(listRow(d, title)?.switch));
+  await this.app.do({ cmd: 'switch', row: title });
+});
+
+Then('the switch on the list row {string} is on, waiting for the runner', async function (this: ThreadbearWorld, title: string) {
+  await this.until(`"${title}"'s switch on and waiting`, (d) => listRow(d, title)?.switch?.on === true && listRow(d, title)?.switch?.pending === true);
+});
+
+Then('the switch on the list row {string} is {word}', async function (this: ThreadbearWorld, title: string, state: string) {
+  await this.until(`"${title}"'s switch ${state}`, (d) => listRow(d, title)?.switch?.on === (state === 'on') && listRow(d, title)?.switch?.pending === false);
+});
+
 Then('the image panel shows a picture', async function (this: ThreadbearWorld) {
   await this.until('a picture in the image panel', (d) => /^picture \d+x\d+/.test(pane(d)?.image ?? ''));
 });

@@ -9,7 +9,7 @@ Keep it short: each add-on is a clash to settle on every release. On
 doing the same thing (see "Taken out" below). Before adding one, check
 whether Mike's release already does it.
 
-Last checked: 20 Nov 2026, before bringing in Mike's release 2026-11-20.
+Last checked: 20 Nov 2026, bringing in Mike's release 2026-11-20.
 
 ## Kept
 

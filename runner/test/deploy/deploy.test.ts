@@ -274,7 +274,10 @@ test('install-runner.sh builds the first release and starts it through launch.mj
   // its child, so privacy prompts are attributed to the app.
   const launcherPid = Number(fs.readFileSync(path.join(launchd, 'child.pid'), 'utf8'));
   assert.equal(spawnSync('ps', ['-o', 'comm=', '-p', String(launcherPid)], { encoding: 'utf8' }).stdout.trim(), path.join(app, 'Contents', 'MacOS', 'Threadbear Runner'));
-  const supervisorPid = Number(spawnSync('pgrep', ['-P', String(launcherPid)], { encoding: 'utf8' }).stdout.trim());
+  // Its child by ps, not pgrep -P, which Homebrew's proctools takes as every
+  // process (scripts/hangup-guard.sh).
+  const kids = spawnSync('ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { encoding: 'utf8' }).stdout.trim().split('\n').map((l) => l.trim().split(/\s+/).map(Number));
+  const supervisorPid = kids.find(([, ppid]) => ppid === launcherPid)?.[0] ?? NaN;
   assert.equal(spawnSync('ps', ['-o', 'command=', '-p', String(supervisorPid)], { encoding: 'utf8' }).stdout.trim(), `${NODE} ${path.join(home, 'runner', 'launch.mjs')}`);
   assert.equal(plist.WorkingDirectory, path.join(home, 'runner'));
   assert.equal(plist.EnvironmentVariables.THREADBEAR_HOME, home);
@@ -1069,7 +1072,7 @@ test('install-runner.sh pins a Homebrew Cellar Node as its opt/ link, which outl
     const newer = path.join(brew, 'Cellar', 'node', '27.0.0', 'bin');
     fs.mkdirSync(newer, { recursive: true });
     fs.symlinkSync(process.execPath, path.join(newer, 'node'));
-    fs.rmSync(path.join(brew, 'opt', 'node'));
+    fs.unlinkSync(path.join(brew, 'opt', 'node'));
     fs.symlinkSync(path.join('..', 'Cellar', 'node', '27.0.0'), path.join(brew, 'opt', 'node'));
     const other = sh('install-runner.sh', ['--home', home, '--label', LABEL, '--port', '0', '--path', '/usr/bin:/bin', '--print'], { THREADBEAR_NODE: path.join(cellarBin, 'node') });
     assert.equal(other.status, 0, out(other));

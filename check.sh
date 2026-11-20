@@ -139,8 +139,10 @@ done
 
 # A landing of one of Mike's releases only has to build (--build, above).
 # Worked out here, on the Mac with the .git, and passed on to a check host.
+# grep to /dev/null, not -q: -q closes the pipe early, git log dies of
+# SIGPIPE, and pipefail made a bring-in look like any landing (20 Nov).
 if [ "$QUICK" = 1 ] && [ "$BUILD" = 0 ] && [ -z "${THREADBEAR_CHECK_CHANGED_FILE:-}" ] \
-  && git -C "$ROOT" log --merges --format=%s main..HEAD 2>/dev/null | grep -q "^Bring in Mike's release"; then
+  && git -C "$ROOT" log --merges --format=%s main..HEAD 2>/dev/null | grep "^Bring in Mike's release" >/dev/null; then
   BUILD=1
   ARGS+=(--build)
   echo "This brings in one of Mike's releases: typechecks and builds only, no tests."

@@ -1827,9 +1827,7 @@ window goes for a moment and comes back.
 The Updates icon on the left-hand rail shows what's on its way for the app,
 the runner and the Claude Code and Codex tools. A grey dot means something
 is in progress and will sort itself out, and a coloured dot means it needs
-you, such as a new version of the app waiting for a restart. When one is
-ready, a note also comes up once at the top of the thread with Restart Now.
-Right-click the icon for a quick Restart to Update.
+you. Right-click it for a quick Restart to Update.
 
 ### Mike's updates
 

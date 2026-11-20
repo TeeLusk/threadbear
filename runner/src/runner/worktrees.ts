@@ -82,7 +82,7 @@ export const worktreesPart = {
     rec.updatedAt = this.isoNow();
     this.markDirty(st);
     this.log.info('made a worktree', { threadId: rec.id, path: made.worktree.path, branch: made.worktree.branch });
-    this.emit(st, { type: 'system.note', text: `Working in a worktree of its own at ${made.worktree.path}, on the branch ${made.worktree.branch}. tb land puts it on main.${made.note ? ` ${made.note}` : ''}` }, turnId);
+    this.emit(st, { type: 'system.note', text: `Working in a worktree of its own at ${made.worktree.path}, on the branch ${made.worktree.branch}. tb land puts it on main.` }, turnId);
     // Archived while it was being made: the archive didn't know of it, so
     // its cleanup is owed (archiveWhenGone runs it once this is done), and
     // there's no point setting it up.

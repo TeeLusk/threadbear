@@ -121,29 +121,3 @@ Feature: Highlights, what a thread has made and shared
     And the "Runs" highlight "TestFlight upload" says "Running"
     And the "Runs" highlight "Lint" says "Queued"
     And the "Runs" highlight "CI" says "Failed"
-
-  # The Swift app draws these cards but its dump doesn't list them.
-  @highlights.prs @swift-pending
-  Scenario: A thread's pull requests are cards just after Needs you, each with its checks, review and when it was looked at
-    When I open the thread "Ship the beta to TestFlight"
-    Then Highlights has the headings "Needs you | Pull requests | Links | Changes"
-    And the "Pull requests" highlight "Bump the build number on each upload" comes first
-    And the "Pull requests" highlight "Bump the build number on each upload" sits in "app #691 · Open"
-    And the pull request "Bump the build number on each upload" reads "Checks · 10 of 12 passed | Waiting for review from @sam | Merge conflicts with main"
-    And the pull request "Bump the build number on each upload" says when GitHub was last asked
-    And the "Links" highlight "acme/app#650" is listed
-    And Highlights doesn't list "acme/app#691"
-    And the pull request "Sign the beta with the new profile" reads "Checks · 7 of 12 passed | Changes requested by @jo"
-
-  @highlights.prs @swift-pending
-  Scenario: A pull request's menu offers Fix failing checks only while it's open, and it sends the thread the fix
-    When I open the thread "Add dark mode to the dashboard"
-    And I open the menu of the pull request "Add dark mode to the dashboard"
-    Then its menu offers "Open on GitHub | Copy link"
-    And its menu doesn't offer "Fix failing checks"
-    When I open the thread "Ship the beta to TestFlight"
-    And I open the menu of the pull request "Bump the build number on each upload"
-    Then its menu offers "Open on GitHub | Copy link | Fix failing checks"
-    When I choose "Fix failing checks" from the menu of the pull request "Bump the build number on each upload"
-    Then the transcript shows my message "This pull request's checks are failing: https://github.com/acme/app/pull/691."
-    And the menu of the pull request "Bump the build number on each upload" offers "Asked the thread to fix them"

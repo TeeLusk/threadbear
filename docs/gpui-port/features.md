@@ -102,7 +102,6 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `sidebar.row.origin` | Origin mark | Tool, clock, pawprint or books before the project, hover says why | Icon with `Tooltip`. | build | S | `SidebarView` |
 | `sidebar.row.status` | Row right status | Working plus timer, Failed, Waiting for connection, Stopped, Waiting for room, Woke up, sub-agent spinner, time | Drawn, with the shared spinner and a ticking timer. | build | M | `SidebarView` |
 | `sidebar.row.lasthover` | Last-message hover | Hover the project line for what you last said | `Tooltip`. | kit | S | `SidebarView` |
-| `sidebar.row.prs` | PR badge | The worst PR's icon in Primer's colour and how many, on the title line, hidden under the hover buttons | Drawn SVG icon with `Tooltip`. | build | S | `PRBadgeView`, `PRIcon`, `PRBadge` |
 | `sidebar.row.remote` | Other-Mac icon | Machine icon on remote rows | Drawn. | build | S | `SidebarView`, `RemoteRunners` |
 | `sidebar.row.hoverbuttons` | Hover buttons | Star, Hibernate, Archive or Unarchive, Trash | Drawn on hover, with the busy pattern. | build | S | `SidebarView` |
 | `sidebar.row.menu` | Row context menu | Star, Hibernate, Archive, Move to, Projects, Rename, Open in New Panel, Copy thread id, Ask the librarian to look, Delete… | gpui-kit menu with submenus, in-window. | kit | M | `SidebarView` |
@@ -285,7 +284,6 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `highlights.subagents` | Sub-agents list | Status, click to read | Drawn. | build | S | `HighlightsView` |
 | `highlights.started` | Threads it started | Ordered by state | Drawn. | build | S | `HighlightsView`, `StartedThreadRows` |
 | `highlights.pinned` | Pinned, Files, Links | Rows with a note, open in pane | Drawn rows with decoded thumbnails. | build | M | `HighlightsView` (`PaneRow`) |
-| `highlights.prs` | Pull requests | A card per PR after Needs you: state, checks (failed first), review, conflicts, last checked, ••• menu with Open on GitHub, Copy link, Fix failing checks; tracked PRs leave Links | Drawn cards, with the kit's menu and the composer's send. | build | M | `PullRequestsSection`, `PRBadge` |
 | `highlights.runs` | Runs | GitHub Actions runs with status, click opens the run (experiment ciRuns) | Drawn rows. | build | S | `HighlightsView` (`runRow`), `CiRunText` |
 | `highlights.changes` | Changes | Commits, N files edited opens code | Drawn. | build | S | `HighlightsView` |
 | `highlights.rowmenus` | Row menus | File and link menus, Reveal, Copy, Remove, Copy sha | gpui-kit menu, with Reveal going through the open gate. | kit | S | `HighlightsView` (`FileMenu`, `LinkMenu`) |

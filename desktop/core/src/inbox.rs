@@ -187,10 +187,6 @@ pub struct ThreadSummary {
     /// thread (panel_requests.rs).
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub panel_request: Option<crate::panel_requests::PanelRequest>,
-    /// The GitHub pull requests it made or pushed to, as they came, read
-    /// leniently with `prs()` (pull_requests.rs).
-    #[serde(default, deserialize_with = "crate::wire::optional_list")]
-    pub prs: Option<Vec<Value>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -390,10 +386,6 @@ impl ThreadSummary {
     /// The thread's panels (a page, a picture or a list), read leniently.
     pub fn panels(&self) -> Vec<crate::highlights::Panel> {
         self.panels.iter().flatten().filter_map(crate::highlights::Panel::from_value).collect()
-    }
-    /// Its pull requests, leaving out any it can't read.
-    pub fn prs(&self) -> Vec<crate::pull_requests::ThreadPr> {
-        crate::pull_requests::ThreadPr::list(self.prs.as_deref())
     }
     /// Its action chips, read leniently.
     pub fn actions(&self) -> Vec<crate::highlights::Action> {

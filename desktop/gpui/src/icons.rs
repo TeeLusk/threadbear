@@ -75,10 +75,6 @@ pub fn symbol(name: &str) -> Icon {
 
 /// The bundled icon for an SF Symbol name, if there is one yet.
 pub fn try_symbol(name: &str) -> Option<Icon> {
-    // Pull request and check marks (pull_requests.rs).
-    if let Some(data) = crate::pull_requests::icon_data(name) {
-        return Some(Icon::default().data(data));
-    }
     let lucide = match name {
         "star" => IconName::Star,
         "star.fill" => return Some(Icon::default().data(STAR_FILLED)),

@@ -1790,8 +1790,6 @@ impl Threadbear {
             .when(!show_buttons, |s| s.child(render_trailing(&trailing, id.clone(), p, cx.reduce_motion())));
 
         let actions = mode.actions();
-        // Its pull requests on the title line, hidden under the hover buttons (`PRBadgeView`).
-        let pr_badge = crate::pull_requests::badge(t, p.faint, cx);
         let is_sample = t.sample == Some(true);
         let buttons = if show_buttons {
             // A sample's, measured for the tour's "Star or put away".
@@ -1849,7 +1847,7 @@ impl Threadbear {
                 this.open_row_menu(menu_id.clone(), ev.position, window, cx)
             }))
             .child(tile)
-            .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().items_center().child(title_el).when(!show_buttons, |s| s.children(pr_badge)).when(show_buttons, |s| s.child(div().flex_none().w(px(actions_room)).h(px(1.))))).child(second_line))
+            .child(v_flex().flex_1().min_w_0().gap(px(3.)).child(h_flex().child(title_el).when(show_buttons, |s| s.child(div().flex_none().w(px(actions_room)).h(px(1.))))).child(second_line))
             .when_some(buttons, |s, b| s.child(h_flex().absolute().right(px(TRAILING - 5.)).top_0().bottom_0().items_center().gap(px(2.)).child(b)))
             // A tour sample's row, for the tour to light it (tour.rs).
             .when(is_sample, |s| s.children(crate::tour::mark(threadbear_core::tour::Target::SampleRow(t.title.clone()))))
@@ -2016,7 +2014,6 @@ impl Threadbear {
                 "waiting": t.waiting_for_room_until_ms().map(|u| rows::waiting_line(u, &clock)).or_else(|| t.waiting_for_network.as_ref().map(|_| "Waiting for connection".to_string())),
                 "subagents": subagents,
                 "origin": rows::byline(t).map(|b| b.symbol),
-                "prs": crate::pull_requests::badge_dump(t),
                 "place": t.place(),
                 "bold": plain.emphasised,
                 "mark": mark,

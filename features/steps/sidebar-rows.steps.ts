@@ -103,26 +103,3 @@ When('I hibernate the thread {string} for {int} second(s)', async function (this
 When('I hibernate the thread {string} for {int} hour(s)', async function (this: ThreadbearWorld, title: string, hours: number) {
   await hibernate(this, title, hours * 3600);
 });
-
-// The pull request badge on a row's title line (`PRBadgeView`).
-Then('the row {string} has a {string} pull request badge counting {int}', async function (this: ThreadbearWorld, title: string, tone: string, count: number) {
-  await this.until(`"${title}" with a ${tone} badge of ${count}`, (d) => {
-    const prs = this.thread(d, title)?.prs;
-    return prs && prs.tone === tone && prs.count === count;
-  });
-});
-
-Then('the row {string} has a {string} pull request badge', async function (this: ThreadbearWorld, title: string, tone: string) {
-  await this.until(`"${title}" with a ${tone} badge`, (d) => this.thread(d, title)?.prs?.tone === tone);
-});
-
-Then('the row {string} says {string} over its badge', async function (this: ThreadbearWorld, title: string, tip: string) {
-  await this.until(`"${title}" badge saying "${tip}"`, (d) => this.thread(d, title)?.prs?.tip === tip);
-});
-
-Then('the row {string} has no pull request badge', async function (this: ThreadbearWorld, title: string) {
-  await this.until(`"${title}" with no badge`, (d) => {
-    const t = this.thread(d, title);
-    return t && !t.prs;
-  });
-});

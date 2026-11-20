@@ -76,7 +76,6 @@ export const THREAD_METHODS = new Set([
   'buttons.list',
   'buttons.press',
   'threads.send',
-  'threads.continueFresh',
   'threads.edit',
   'threads.interrupt',
   'threads.queued',
@@ -702,8 +701,6 @@ export class RpcServer {
         return r.listButtons(reqString(p, 'threadId'));
       case 'buttons.press':
         return r.pressButton(reqString(p, 'threadId'), reqString(p, 'buttonId'));
-      case 'threads.continueFresh':
-        return r.continueFresh(reqString(p, 'threadId'));
       case 'threads.send':
         return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p) });
       case 'threads.edit':

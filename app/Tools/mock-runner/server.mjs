@@ -825,26 +825,6 @@ async function dispatch(client, method, p) {
       setTimeout(() => fakeTurn(t.summary.id, p.text ?? '', p.images ?? [], turnId, p.origin === 'phone' ? 'phone' : undefined, extra), 10 + slow.queueMs);
       return { turnId };
     }
-    // Continue in a new thread (protocol "Long threads"): a handoff turn,
-    // then a thread "<title> (continued)" started with it, as the runner's
-    // long-threads.ts does.
-    case 'threads.continueFresh': {
-      const t = need(p.threadId);
-      if (['running', 'starting', 'waiting'].includes(t.summary.status)) throw rpcError(-32020, 'The thread is working. Continue in a new thread once its turn is over.');
-      if (t.summary.continuing) throw rpcError(-32020, 'The handoff is already being written.');
-      const turnId = 'turn_' + crypto.randomBytes(4).toString('hex');
-      t.summary.continuing = true;
-      broadcastSummary(t.summary.id);
-      setTimeout(async () => {
-        await fakeTurn(t.summary.id, 'Write a short handoff for a new thread to carry on this work.', [], turnId);
-        const made = await dispatch(client, 'threads.create', { text: `Carrying on from "${t.summary.title}".`, title: `${t.summary.title} (continued)`, cwd: t.summary.cwd });
-        delete t.summary.continuing;
-        t.summary.continuedIn = { threadId: made.thread.id, title: made.thread.title };
-        persist(t.summary.id, { type: 'system.note', text: `Continued in a new thread, "${made.thread.title}".` });
-        broadcastSummary(t.summary.id);
-      }, 10);
-      return { turnId };
-    }
     case 'threads.edit': {
       // Editing a message (docs/protocol.md, "Editing a message"): stop
       // the turn, cut back to the message with a thread.rewound, then the
@@ -2198,11 +2178,6 @@ async function fakeTurn(threadId, text, images, turnId = 'turn_' + crypto.random
     : /decisions/i.test(text) ? { needs: 'you', asks: DEMO_ASKS }
     : /one decision/i.test(text) ? { needs: 'you', asks: [{ action: 'Say go for Short 2 (Thomas on AI being dumb), or name another' }] }
     : undefined;
-  // "mock long thread" (or "very long"): the context past the runner's
-  // contextNudge levels (Long threads); /compact brings it back down.
-  if (/mock very long thread/i.test(text)) Object.assign(t.summary, { contextTokens: 262_000, contextWindow: 1_000_000, contextLong: 'firm' });
-  else if (/mock long thread/i.test(text)) Object.assign(t.summary, { contextTokens: 162_000, contextWindow: 1_000_000, contextLong: 'gentle' });
-  else if (text.trim() === '/compact') { t.summary.contextTokens = 20_000; delete t.summary.contextLong; }
   finishTurn(threadId, turnId, started, interrupted ? 'interrupted' : 'completed', said);
 }
 

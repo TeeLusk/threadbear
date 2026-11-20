@@ -65,7 +65,6 @@ mod icons;
 mod installed;
 mod key_hints;
 mod librarian;
-mod long_thread;
 mod mac_switch;
 mod media_view;
 mod move_sheet;

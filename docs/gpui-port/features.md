@@ -138,7 +138,6 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `banner.limit` | Limit banner | Out of room, carry on with another login | Drawn. | build | S | `DetailView` |
 | `banner.signin` | Sign-in banner | Sign in… opens Terminal, Send again | Open a terminal per OS: Terminal.app on macOS, and the user's terminal on Windows and Linux. | shim | S | `DetailView`, `Usage` (`SignIn`) |
 | `banner.refusal` | Refusal offer | Continue with Codex Sol after a safeguards refusal | Drawn. | build | S | `RefusalOffer`, `RefusalRecovery` |
-| `composer.longthread` | Long thread card | Past the runner's contextNudge levels, Compact, Continue in a new thread or Not now above the box; the handoff being written, then Open where it carried on | Drawn. | build | S | `LongThreadOffer`, `LongThread` |
 | `header.subagent` | Sub-agent header | Way back, status, no composer | Drawn. | build | S | `SubagentViews` |
 | `toast.archived` | Archived toast | Undo, click to open, stays under the pointer | `Toast` with an Undo action (unverified that it can stay under the pointer). | kit | S | `DetailView` |
 | `toast.inboxend` | Inbox end toast | Caught up after Next Inbox Thread | `Toast`. | kit | S | `DetailView` |

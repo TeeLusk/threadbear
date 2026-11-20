@@ -1710,12 +1710,6 @@ impl Render for Composer {
             (Some(id), Some(app)) => crate::app::Threadbear::refusal_offer(&app, id, cx),
             _ => None,
         };
-        // A long conversation: Compact, Continue in a new thread or Not now,
-        // in the same place (LongThreadOffer).
-        let long_thread = match (&self.thread_id, self.app.upgrade()) {
-            (Some(id), Some(app)) => crate::app::Threadbear::long_thread_offer(&app, id, self.card_width.get(), cx),
-            _ => None,
-        };
         let body = v_flex().w_full().gap(px(style::COMPOSER_GAP)).p(px(style::COMPOSER_PADDING)).children(editing_banner).children(answer_chips).when_some(strip, |s, strip| s.child(strip)).child(self.render_text_field(locked, cx)).child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.
@@ -1735,7 +1729,6 @@ impl Render for Composer {
                     .w_full()
                     .max_w(px(style::MAX_CONTENT_WIDTH))
                     .children(refusal)
-                    .children(long_thread)
                     // Overlapping the box's border, so the two read as one piece.
                     // The chips themselves measured for the tour's Patches step.
                     .when_some(shelves, |s, shelves| s.child(div().px(px(style::COMPOSER_RADIUS)).mb(gpui_kit::px(-0.5)).child(h_flex().child(div().relative().flex_none().child(shelves).children(crate::tour::mark(threadbear_core::tour::Target::ActionChips))))))

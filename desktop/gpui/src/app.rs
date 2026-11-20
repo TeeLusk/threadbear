@@ -1687,8 +1687,6 @@ impl Threadbear {
             // button reads.
             let refused = composer.thread_id.is_some() && self.open_thread().and_then(|t| self.refusal_target(t, cx)).is_some();
             out["offerAbove"] = json!(refused.then_some(if self.continuing_refusal.is_some() { "Continuing…" } else { "Continue with Codex Sol" }));
-            // The long thread card over the box (long_thread.rs).
-            out["longThread"] = json!(composer.thread_id.as_deref().and_then(|id| self.long_thread_dump(id)));
             // Whether the chips and the send button fit inside the box.
             let (row, send) = composer.controls_fit.get();
             out["chipsFit"] = json!(send <= row + 0.5);

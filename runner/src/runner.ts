@@ -162,8 +162,6 @@ import { contextUsagePart, type ContextUsageAnswer, type ContextUsagePart } from
 import type { SlashCommand } from './slash-commands.ts';
 import { hibernationPart, leastAuthority, type HibernationPart } from './runner/hibernation.ts';
 import { newThreadsPart, type NewThreadsPart } from './runner/new-threads.ts';
-import { longThreadsPart, type LongThreadsPart } from './runner/long-threads.ts';
-import { contextLong } from './context-nudge.ts';
 import { LAB_REVIEW_ROUNDS, applyAnswers, fixedSinceLastRound, labReviewPart, ledgerCard, openFindings, parseVerdict, type LabReviewPart } from './runner/lab-review.ts';
 import { looseEndsPart, type LooseEndsPart } from './runner/loose-ends.ts';
 import { quietInboxPart, type QuietInboxPart } from './runner/quiet-inbox.ts';
@@ -707,7 +705,7 @@ export const UNTIL_RESTART = '9999-12-31T00:00:00.000Z';
 export const NO_WAKE_TIME = UNTIL_RESTART;
 
 // Parts of the Runner that live in runner/ (see each file's top).
-export interface Runner extends LooseEndsPart, QuietInboxPart, NestedPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, CiRunsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart, LongThreadsPart, KeepWarmPart {}
+export interface Runner extends LooseEndsPart, QuietInboxPart, NestedPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, CiRunsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart, KeepWarmPart {}
 export class Runner {
   // While main.ts is still starting up: waking a thread for its waits
   // (reconcileWaits) would start a CLI whose tools aren't ready, so they
@@ -1978,7 +1976,6 @@ export class Runner {
     if (command && rt.turn) {
       rt.turn.command = true;
       if (/^\/(compact|review|clear)\b/i.test(msg.text.trim())) rt.turn.noSteer = true;
-      if (/^\/compact\b/i.test(msg.text.trim())) this.noteCompact(st, rt.turn.turnId);
     }
     const input = command ? { id: msg.turnId, text: msg.text, images: msg.images } : this.withInterruptedMessages(st, msg, this.forAgent(msg));
     let text = input.text;
@@ -2791,8 +2788,6 @@ export class Runner {
     }
     if (waitFor && !rt.turn && !rec.archivedAt && !this.stopping) this.waitOn(st, waitFor, snooze, turn.endTurnBy);
     else if (snooze && !rt.turn && !rec.archivedAt && !this.stopping) this.snoozeAfterTurn(st, snooze);
-    // Long threads: a /compact's old count, Continue in a new thread's handoff.
-    this.afterLongTurn(st, turn.turnId, outcome, turn.lastText);
     // An invalid wait may leave the thread awake; do not strand its queue.
     if (holdQueue && !rt.turn && this.bucket(rec) === 'inbox') this.afterTurn(st);
   }
@@ -4058,10 +4053,6 @@ export class Runner {
     if (rec.contextTokens !== undefined) s.contextTokens = rec.contextTokens;
     if (rec.sample) s.sample = true;
     if (rec.contextWindow !== undefined) s.contextWindow = rec.contextWindow;
-    const long = contextLong(rec.contextTokens, this.cfg.contextNudge);
-    if (long) s.contextLong = long;
-    if (this.isContinuing(st)) s.continuing = true;
-    if (rec.continuedIn) s.continuedIn = rec.continuedIn;
     if (rec.costUsd !== undefined) s.costUsd = rec.costUsd;
     const set = this.patchSet(st);
     const actions = this.actionsOf(st, set);
@@ -4412,7 +4403,7 @@ export class Runner {
 
 // The Runner's other methods live in parts under runner/, one area each;
 // they go onto its prototype here, as the class's own methods would be.
-for (const part of [looseEndsPart, quietInboxPart, nestedPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, ciRunsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart, longThreadsPart, keepWarmPart]) {
+for (const part of [looseEndsPart, quietInboxPart, nestedPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, ciRunsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart, keepWarmPart]) {
   for (const [key, d] of Object.entries(Object.getOwnPropertyDescriptors(part))) {
     Object.defineProperty(Runner.prototype, key, { ...d, enumerable: false });
   }

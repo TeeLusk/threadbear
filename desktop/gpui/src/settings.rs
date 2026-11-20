@@ -115,9 +115,6 @@ pub struct Saved {
     /// 13 Nov). A panel with its title hidden moves from its background
     /// either way. The GPUI app's own.
     pub panel_background_drag: Option<bool>,
-    /// `longThreadDismissals`: Not now on the long thread card, per thread
-    /// (long_thread.rs), at most 500.
-    pub long_thread_dismissals: Option<std::collections::BTreeMap<String, threadbear_core::long_thread::Dismissal>>,
 }
 
 /// The settings file: where it is and what's in it. Reading is at launch only;

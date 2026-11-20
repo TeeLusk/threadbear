@@ -10,8 +10,6 @@ public enum BackgroundWork {
     public static func short(_ tasks: [BackgroundTask]) -> String {
         let running = tasks.filter { !$0.finished }
         guard !running.isEmpty else { return "Finishing" }
-        // All of it waiting its turn: not running yet.
-        if running.allSatisfy({ $0.queuedBehind != nil }) { return "Queued" }
         let kinds = Set(running.map(\.kind))
         if kinds.count == 1, let kind = kinds.first { return count(running.count, kind) }
         return count(running.count, .shell)
@@ -29,25 +27,13 @@ public enum BackgroundWork {
             let what = kinds.count == 1 ? count(finished, kinds.first!) : count(finished, .shell)
             return "\(what) just finished, about to read \(finished == 1 ? "its result" : "their results")"
         }
-        // Jobs waiting their turn on a lock say so (protocol "Queued jobs"),
-        // first, as that's why nothing seems to happen.
-        let queued = running.filter { $0.queuedBehind != nil }
-        let going = running.filter { $0.queuedBehind == nil }
-        var lines: [String] = []
-        if !queued.isEmpty {
-            let behind = Set(queued.compactMap { $0.queuedBehind.flatMap { $0.isEmpty ? nil : $0 } })
-            lines.append("\(count(queued.count, .shell)) queued" + (behind.count == 1 ? " behind \(behind.first!)" : ""))
+        let order: [BackgroundTask.Kind] = [.agent, .shell, .monitor, .other]
+        let parts = order.compactMap { kind -> String? in
+            let n = running.filter { $0.kind == kind }.count
+            return n == 0 ? nil : count(n, kind)
         }
-        if !going.isEmpty {
-            let order: [BackgroundTask.Kind] = [.agent, .shell, .monitor, .other]
-            let parts = order.compactMap { kind -> String? in
-                let n = going.filter { $0.kind == kind }.count
-                return n == 0 ? nil : count(n, kind)
-            }
-            let verb = parts.count == 1 && going[0].kind == .agent ? "working" : "running"
-            lines.append(queued.isEmpty ? "\(join(parts)) \(verb) in the background" : "\(join(parts)) \(verb)")
-        }
-        var text = lines.joined(separator: ", ")
+        let verb = parts.count == 1 && running[0].kind == .agent ? "working" : "running"
+        var text = "\(join(parts)) \(verb) in the background"
         if finished > 0 { text += ", \(finished) just finished" }
         return text
     }
@@ -57,9 +43,7 @@ public enum BackgroundWork {
     public static func detail(_ tasks: [BackgroundTask]) -> String {
         tasks.map { task in
             let name = task.description.isEmpty ? count(1, task.kind) : task.description
-            if task.finished { return "\(name) (finished)" }
-            if let behind = task.queuedBehind { return behind.isEmpty ? "\(name) (queued)" : "\(name) (queued behind \(behind))" }
-            return name
+            return task.finished ? "\(name) (finished)" : name
         }.joined(separator: "\n")
     }
 
@@ -74,20 +58,6 @@ public enum BackgroundWork {
             return task.finished ? "\(cut) (finished)" : cut
         }
         return names.isEmpty ? line(tasks) : "\(line(tasks)) · \(names.joined(separator: ", "))"
-    }
-
-    /// The background list with its shell jobs marked queued, one per job
-    /// that said it's waiting (protocol "Queued jobs"). The CLI doesn't say
-    /// which job is which, so it's the newest still running, as a job
-    /// queues as it starts; a queued job run in the foreground marks none.
-    public static func marking(_ tasks: [BackgroundTask], queued: [QueuedJob]) -> [BackgroundTask] {
-        guard !queued.isEmpty else { return tasks }
-        var out = tasks
-        var left = queued
-        for i in out.indices.reversed() where !left.isEmpty && out[i].kind == .shell && !out[i].finished {
-            out[i].queuedBehind = left.removeLast().behind ?? ""
-        }
-        return out
     }
 
     private static func count(_ n: Int, _ kind: BackgroundTask.Kind) -> String {

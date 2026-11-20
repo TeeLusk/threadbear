@@ -340,9 +340,6 @@ export type LandOptions = {
   // from the same place are checked together, so the check read on the
   // stack is the one each of them asks for.
   checkFrom?: string;
-  // Told when it starts waiting for another landing (true) and once it has
-  // the lock (false), for the thread's Queued (docs/protocol.md, "Queued jobs").
-  queued?: (waiting: boolean) => Promise<void>;
   // The check hosts this landing asks for: THREADBEAR_CHECK_HOST if left out.
   checkHost?: string;
 };
@@ -444,7 +441,7 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
     }
     let release: () => Promise<void>;
     try {
-      release = await lockLanding(path.join(common, 'threadbear-land.lock'), out, () => waitingLine(common, timesFile, entry), opts.queued);
+      release = await lockLanding(path.join(common, 'threadbear-land.lock'), out, () => waitingLine(common, timesFile, entry));
     } catch (e) {
       err(`Couldn't lock the repo for landing: ${(e as Error).message}`);
       return 1;
@@ -709,7 +706,7 @@ async function holdLock(file: string, wait: boolean): Promise<(() => Promise<voi
   };
 }
 
-async function lockLanding(file: string, out: (line: string) => void, where: () => string, queued?: (waiting: boolean) => Promise<void>): Promise<() => Promise<void>> {
+async function lockLanding(file: string, out: (line: string) => void, where: () => string): Promise<() => Promise<void>> {
   const take = (wait: boolean) => holdLock(file, wait);
   const release = await take(false);
   if (release) return release;
@@ -723,13 +720,11 @@ async function lockLanding(file: string, out: (line: string) => void, where: () 
     out(`${first ? 'Waiting for another landing of this repo to finish' : 'Still waiting to land'}${line}`);
   };
   say(true);
-  await queued?.(true);
   const timer = setInterval(() => say(false), landLimits.progressMs);
   try {
     return (await take(true))!;
   } finally {
     clearInterval(timer);
-    await queued?.(false);
   }
 }
 

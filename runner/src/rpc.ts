@@ -78,7 +78,6 @@ export const THREAD_METHODS = new Set([
   'threads.send',
   'threads.edit',
   'threads.interrupt',
-  'threads.queued',
   'threads.update',
   'threads.delete',
   'threads.events',
@@ -704,11 +703,6 @@ export class RpcServer {
         return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p) });
       case 'threads.edit':
         return r.editMessage(reqString(p, 'threadId'), reqNumber(p, 'seq'), optString(p, 'text') ?? '', optImages(p) ?? [], { stopBackground: p.stopBackground === true });
-      case 'threads.queued': {
-        const pid = reqNumber(p, 'pid');
-        if (typeof p.queued !== 'boolean') throw bad('queued must be true or false');
-        return r.setQueued(reqString(p, 'threadId'), { id: reqString(p, 'id'), pid, queued: p.queued, what: optString(p, 'what'), behind: optString(p, 'behind') });
-      }
       case 'threads.interrupt':
         // Sent on for an agent's interrupt_thread (handover.ts), it isn't his Stop.
         return r.interrupt(reqString(p, 'threadId'), { byMike: p.byAgent !== true });

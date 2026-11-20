@@ -71,6 +71,7 @@ pub mod spelling;
 pub mod sidebar;
 pub mod slash;
 pub mod tab_mentions;
+pub mod thread_mentions;
 pub mod swift_import;
 pub mod terminal;
 pub mod text_file;

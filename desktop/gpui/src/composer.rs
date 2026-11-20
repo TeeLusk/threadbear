@@ -110,6 +110,10 @@ pub struct Composer {
     pub(crate) tab_picker: threadbear_core::tab_mentions::PickerState,
     pub(crate) tab_asked: bool,
     pub(crate) tab_scroll: ScrollHandle,
+    /// The # thread picker's own state (thread_palette.rs): the thread the
+    /// arrows are on and the text Esc closed it at; and its list, to scroll.
+    pub(crate) thread_picker: threadbear_core::thread_mentions::PickerState,
+    pub(crate) thread_scroll: ScrollHandle,
     /// The box's width at the last paint, for the palette's columns.
     pub(crate) card_width: Rc<Cell<f32>>,
     /// The chip row's right edge and the send button's, at the last paint:
@@ -231,6 +235,7 @@ impl Composer {
             InputEvent::Change => {
                 this.palette_text_changed(cx);
                 this.tab_text_changed(cx);
+                this.thread_text_changed(cx);
                 // Marks, and a correction as a word ends (composer_spelling.rs).
                 this.spelling_after_edit(window, cx);
                 // Kept across a quit (drafts.rs).
@@ -293,6 +298,8 @@ impl Composer {
             tab_picker: Default::default(),
             tab_asked: false,
             tab_scroll: ScrollHandle::new(),
+            thread_picker: Default::default(),
+            thread_scroll: ScrollHandle::new(),
             card_width: Rc::new(Cell::new(style::MAX_CONTENT_WIDTH)),
             controls_fit: Rc::new(Cell::new((0., 0.))),
             box_top: Rc::new(Cell::new(f32::MAX)),
@@ -1866,10 +1873,14 @@ impl Render for Composer {
         // don't go with no sign of them (composer_answers.rs).
         let answer_chips = self.render_answer_chips(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
-        // The slash palette, or else the @ tab picker (tab_palette.rs).
+        // The slash palette, or else the @ tab picker (tab_palette.rs), or
+        // else the # thread picker (thread_palette.rs).
         let palette = match self.render_palette(window, cx) {
             Some(palette) => Some(palette),
-            None => self.render_tab_palette(window, cx),
+            None => match self.render_tab_palette(window, cx) {
+                Some(palette) => Some(palette),
+                None => self.render_thread_palette(window, cx),
+            },
         };
         let width = self.card_width.clone();
         let top = self.box_top.clone();

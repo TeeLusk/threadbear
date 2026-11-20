@@ -1754,6 +1754,8 @@ impl Threadbear {
         dump["pinnedPanels"] = self.pinned_panels_dump(cx);
         // The @ tab picker over the box, while it's open (tab_palette.rs).
         dump["tabPalette"] = self.composer(cx).map_or(Value::Null, |c| c.read(cx).tab_palette_dump(cx));
+        // The # thread picker over the box, while it's open (thread_palette.rs).
+        dump["threadPalette"] = self.composer(cx).map_or(Value::Null, |c| c.read(cx).thread_palette_dump(cx));
         // The tour or a page's intro on show, and Finish setting up (tour.rs, setup_panel.rs).
         dump["tour"] = self.tour_dump(cx);
         dump["setup"] = self.setup_dump(cx);

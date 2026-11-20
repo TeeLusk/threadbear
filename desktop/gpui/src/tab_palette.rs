@@ -359,7 +359,8 @@ impl Composer {
     /// Return sends and the arrows move the cursor, as if it weren't open;
     /// Esc still closes it.
     pub(crate) fn tab_palette_key(&mut self, key: PaletteKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some(view) = self.tab_view(cx) else { return false };
+        // With no @ picker open, the # thread picker may want it (thread_palette.rs).
+        let Some(view) = self.tab_view(cx) else { return self.thread_palette_key(key, window, cx) };
         let matches = view.matches();
         if matches.is_empty() && key != PaletteKey::Escape {
             return false;

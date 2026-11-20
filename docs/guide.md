@@ -791,6 +791,18 @@ BrowserBear isn't running or no profile is connected, the list says so.
 It's only on the Mac, and only for threads on this Mac's runner (a new
 thread starting on another runner doesn't get the list).
 
+### Mentioning another thread with #
+
+Type `#` at the start of a word in the message box and a list of your
+other threads opens above it, the most recently active first. What you
+type after the `#` narrows it by title or folder (each word you type has
+to be in one of them), or by the start of a thread's id. Archived threads
+show only once you've typed something, after the rest. Up and Down move,
+Return, Tab or a click picks one, and Esc closes the list. Picking one
+puts the thread's id where the `#word` was, so the agent can read that
+thread or send it a message. A space ends the word, so a Markdown heading
+(`# Title`) doesn't open it. It's in the GPUI app only.
+
 ## Hibernate and archive
 <!-- slug: hibernate-and-archive -->
 

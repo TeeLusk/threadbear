@@ -123,6 +123,7 @@ mod shell_blocks;
 mod sidebar;
 mod slash_palette;
 mod tab_palette;
+mod thread_palette;
 mod slash_resize;
 mod spinner;
 mod style;

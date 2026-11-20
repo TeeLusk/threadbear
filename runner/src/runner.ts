@@ -155,7 +155,6 @@ import { patchesPart, type PatchesPart } from './runner/patches.ts';
 import { withThreadId, type RowCommand } from './patches.ts';
 import { highlightsPart, type HighlightsPart } from './runner/highlights.ts';
 import { titlesPart, type TitlesPart } from './runner/titles.ts';
-import { keepWarmPart, type KeepWarmPart } from './runner/keep-warm.ts';
 import { commandsPart, type CommandsPart } from './runner/commands.ts';
 import { contextUsagePart, type ContextUsageAnswer, type ContextUsagePart } from './runner/context-usage.ts';
 import type { SlashCommand } from './slash-commands.ts';
@@ -698,7 +697,7 @@ export const UNTIL_RESTART = '9999-12-31T00:00:00.000Z';
 export const NO_WAKE_TIME = UNTIL_RESTART;
 
 // Parts of the Runner that live in runner/ (see each file's top).
-export interface Runner extends LooseEndsPart, QuietInboxPart, NestedPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart, KeepWarmPart {}
+export interface Runner extends LooseEndsPart, QuietInboxPart, NestedPart, LabReviewPart, NewThreadsPart, HibernationPart, TitlesPart, HighlightsPart, PatchesPart, EditingPart, ClisPart, ReviewsPart, ButtonsPart, ApprovalsPart, ProjectsHostPart, StoppedWorkPart, HandoversPart, PoolsPart, NetworkPart, WorktreesPart, CommandsPart, ContextUsagePart, MovesPart {}
 export class Runner {
   // While main.ts is still starting up: waking a thread for its waits
   // (reconcileWaits) would start a CLI whose tools aren't ready, so they
@@ -4389,7 +4388,7 @@ export class Runner {
 
 // The Runner's other methods live in parts under runner/, one area each;
 // they go onto its prototype here, as the class's own methods would be.
-for (const part of [looseEndsPart, quietInboxPart, nestedPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart, keepWarmPart]) {
+for (const part of [looseEndsPart, quietInboxPart, nestedPart, labReviewPart, newThreadsPart, hibernationPart, titlesPart, highlightsPart, patchesPart, editingPart, clisPart, reviewsPart, buttonsPart, approvalsPart, projectsHostPart, stoppedWorkPart, handoversPart, poolsPart, networkPart, worktreesPart, commandsPart, contextUsagePart, movesPart]) {
   for (const [key, d] of Object.entries(Object.getOwnPropertyDescriptors(part))) {
     Object.defineProperty(Runner.prototype, key, { ...d, enumerable: false });
   }

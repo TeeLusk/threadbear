@@ -25,10 +25,6 @@ struct ComposerView: View {
     @State private var importing = 0
     @State private var handle = ComposerHandle()
     @State private var palette = PaletteState()
-    @State private var tabPalette = TabPaletteState()
-    /// Where the cursor is, so the @ picker redraws when it moves without
-    /// the text changing.
-    @State private var cursor = 0
 
     static var cornerRadius: CGFloat { zoomed(20) }
     static var padding: CGFloat { zoomed(14) }
@@ -119,9 +115,6 @@ struct ComposerView: View {
                 handle: handle,
                 onEscape: { cancelEdit() },
                 onPaletteKey: { paletteKey($0, text: draft.wrappedValue.text) },
-                // Later, as a text view shown a draft moves its cursor
-                // while SwiftUI is still updating the box.
-                onSelectionChange: { DispatchQueue.main.async { noteCursor() } },
                 editable: !locked
             )
             .frame(height: height)
@@ -153,17 +146,11 @@ struct ComposerView: View {
         }
         // The slash command palette, in a panel of its own just above the
         // box (SlashPalettePanel): drawn here it was cut off at the pane.
-        // The @ picker of Chrome tabs shares its panel, when no command
-        // is being typed.
         .overlay(alignment: .top) {
-            let slash = paletteContent(draft)
-            let tabs = slash == nil ? tabPaletteContent(draft) : nil
             SlashPaletteHost(
-                content: slash.map { AnyView($0) } ?? tabs.map { AnyView($0) },
-                autoHeight: tabs != nil ? tabPaletteHeight : paletteHeight,
-                layout: tabs != nil
-                    ? Binding(get: { app.tabPaletteLayout }, set: { app.tabPaletteLayout = $0 })
-                    : Binding(get: { app.slashPaletteLayout }, set: { app.slashPaletteLayout = $0 })
+                content: paletteContent(draft),
+                autoHeight: paletteHeight,
+                layout: Binding(get: { app.slashPaletteLayout }, set: { app.slashPaletteLayout = $0 })
             )
             .frame(height: 1)
         }
@@ -171,14 +158,10 @@ struct ComposerView: View {
             guard paletteQuery(draft.wrappedValue.text) != nil else { return }
             if let thread { app.loadSlashCommands(thread.id) } else { app.loadNewThreadSlashCommands() }
         }
-        .task(id: tabQuery(draft.wrappedValue.text) != nil ? draftKey : nil) {
-            if tabQuery(draft.wrappedValue.text) != nil { app.loadBrowserTabs(draftKey, for: thread?.id) }
-        }
         // Esc closed the palette at that text only: any change reopens it,
         // even back to the same words later.
         .onChange(of: draft.wrappedValue.text) { _, text in
             if palette.closedAt != nil, palette.closedAt != text { palette.closedAt = nil }
-            if tabPalette.closedAt != nil, tabPalette.closedAt != text { tabPalette.closedAt = nil }
         }
         // The transcript's reading column: 780 wide at most at 100%,
         // centred, with the same side insets once the window is narrower.
@@ -288,66 +271,6 @@ struct ComposerView: View {
         )
     }
 
-    /// The "@word" before the cursor while the @ picker is open. Only for
-    /// a thread on this Mac's runner (or a new one starting here):
-    /// BrowserBear and Chrome are here, and another Mac's agent couldn't
-    /// reach the tab. Not with a selection, and not once Esc closed it at
-    /// this text.
-    private func tabQuery(_ text: String) -> TabMention.Query? {
-        _ = cursor
-        let here = thread.map { app.runnerName(of: $0) == nil } ?? (app.newThreadRunnerId == nil)
-        guard here, tabPalette.closedAt != text,
-              paletteQuery(text) == nil, let textView = handle.textView else { return nil }
-        let selection = textView.selectedRange()
-        guard selection.length == 0 else { return nil }
-        return TabMention.query(in: textView.string, cursor: selection.location)
-    }
-
-    private func noteCursor() {
-        guard let location = handle.textView?.selectedRange().location, location != cursor else { return }
-        cursor = location
-    }
-
-    private func tabPaletteContent(_ draft: Binding<Draft>) -> TabPaletteView? {
-        guard let query = tabQuery(draft.wrappedValue.text) else { return nil }
-        return TabPaletteView(
-            tabs: app.browserTabs[draftKey],
-            query: query.text,
-            threadId: draftKey,
-            state: $tabPalette,
-            onPick: { pickTab($0) },
-            layout: Binding(get: { app.tabPaletteLayout }, set: { app.tabPaletteLayout = $0 })
-        )
-    }
-
-    /// As tall as its rows, unless he dragged it to a height.
-    private var tabPaletteHeight: CGFloat {
-        let window = paletteWindow.height
-        if let chosen = app.tabPaletteLayout.height { return SlashPalette.Layout.height(chosen, window: window) }
-        let rows = (try? app.browserTabs[draftKey]?.get()).map { TabMention.matches($0, query: "").count } ?? 1
-        return TabPaletteView.height(rows: rows, window: window)
-    }
-
-    /// Puts the tab's reference where the @word was, through the text view
-    /// so it's one undo, and lends the tab to the thread now: the claim
-    /// has to be there by the agent's first command, not once it's sent.
-    /// A new thread has no id to lend to yet: its tab is lent as soon as
-    /// the thread is made (AppModel.send), before the agent's first reply.
-    private func pickTab(_ tab: BrowserTab) {
-        guard let textView = handle.textView,
-              let query = tabQuery(app.drafts[draftKey]?.normalized.text ?? textView.string) else { return }
-        tabPalette = TabPaletteState()
-        textView.insertText(TabMention.reference(tab) + " ", replacementRange: query.range)
-        textView.window?.makeFirstResponder(textView)
-        // Shown as lent here at once; the next list says how it went.
-        if case .success(var tabs) = app.browserTabs[draftKey], let i = tabs.firstIndex(where: { $0.tabId == tab.tabId }) {
-            tabs[i].lentTo = draftKey
-            tabs[i].allowed = true
-            app.browserTabs[draftKey] = .success(tabs)
-        }
-        if let thread { app.lendTab(tab, to: thread.id) } else { app.lendWhenMade(tab) }
-    }
-
     /// Where the palette's list is kept: the thread's, or for a new
     /// thread its login and folder's.
     private var paletteListKey: String { thread?.id ?? app.newThreadCommandsKey }
@@ -377,15 +300,6 @@ struct ComposerView: View {
     /// Arrows, Tab, Return and Esc while the palette is open. False lets
     /// the box have the key as usual.
     private func paletteKey(_ key: PaletteKey, text: String) -> Bool {
-        if let query = tabQuery(text) {
-            let matches = (try? app.browserTabs[draftKey]?.get()).map { TabMention.matches($0, query: query.text) } ?? []
-            // Nothing to pick (none match, or no BrowserBear): Return sends
-            // and the arrows move the cursor, as if it weren't open. Esc
-            // still closes it.
-            if matches.isEmpty, key != .escape { return false }
-            if let tab = TabPaletteView.handle(key, matches: matches, state: &tabPalette, text: text) { pickTab(tab) }
-            return true
-        }
         guard let typed = paletteTyped(text) else { return false }
         let commands = paletteCommands(typed) ?? []
         // Partway through a message, a closed palette leaves the keys alone.
@@ -785,8 +699,6 @@ struct ComposerTextField: NSViewRepresentable {
     var onEscape: () -> Bool = { false }
     /// The slash command palette's keys, first: true if it took the key.
     var onPaletteKey: (PaletteKey) -> Bool = { _ in false }
-    /// The cursor moved (or the text changed under it).
-    var onSelectionChange: () -> Void = {}
     /// False while what's in it is being sent (a new thread being made).
     var editable = true
 
@@ -916,11 +828,6 @@ struct ComposerTextField: NSViewRepresentable {
             guard let textView else { return }
             parent.draft = textView.draftNow
             updateHeight()
-        }
-
-        /// The @ picker follows the cursor: moved off the @word, it closes.
-        func textViewDidChangeSelection(_ notification: Notification) {
-            parent.onSelectionChange()
         }
 
         func updateHeight() {

@@ -688,20 +688,6 @@ final class AppModel {
     var slashPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "slashPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(slashPaletteLayout), forKey: "slashPaletteLayout") }
     }
-    /// The @ picker's palette, sized apart from the slash palette's: a few
-    /// tabs want a shorter one.
-    var tabPaletteLayout: SlashPalette.Layout = (UserDefaults.standard.data(forKey: "tabPaletteLayout")).flatMap { try? JSONDecoder().decode(SlashPalette.Layout.self, from: $0) } ?? SlashPalette.Layout() {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(tabPaletteLayout), forKey: "tabPaletteLayout") }
-    }
-    /// Tyler's Chrome tabs from BrowserBear, by the thread whose @ picker
-    /// asked (TabPaletteView.swift): `allowed` is per thread.
-    var browserTabs: [String: Result<[BrowserTab], BrowserBear.Unavailable>] = [:]
-    @ObservationIgnored var browserTabFetches: [String: Task<Void, Never>] = [:]
-    /// Tabs picked with @ and lent to a thread, with BrowserBear's words
-    /// for each, added to the message that mentions it when it's sent.
-    @ObservationIgnored var lentTabs: [String: [Int: String]] = [:]
-    /// Tabs picked with @ in the New Thread box, lent once it's made.
-    @ObservationIgnored var tabsToLend: [Int: BrowserTab] = [:]
     /// The commands picked from the palette lately, newest first.
     var recentSlashCommands: [String] = UserDefaults.standard.stringArray(forKey: "recentSlashCommands") ?? [] {
         didSet { UserDefaults.standard.set(recentSlashCommands, forKey: "recentSlashCommands") }
@@ -734,9 +720,6 @@ final class AppModel {
     /// Actions whose command is running, as "<threadId>/<actionId>", so
     /// the chip shows it and a second click doesn't start another.
     var runningActions: Set<String> = []
-    /// Bumped by "<threadId>/<panelId>" when a row's button has run, so the
-    /// list panel draws itself again then rather than at its next poll.
-    var panelDraws: [String: Int] = [:]
     /// The automation hook's `focus`: a scripted app is never in front, so
     /// it never marked anything read; with this it acts as if Mike were
     /// looking at it. Never set outside a scripted debug run.

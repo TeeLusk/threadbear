@@ -618,8 +618,7 @@ export type PanelItem = {
   url?: string;
   path?: string;
   icon?: string;
-  // ready: green, good to go; blocked: yellow, waiting on someone else.
-  tone?: 'attention' | 'failed' | 'done' | 'ready' | 'blocked';
+  tone?: 'attention' | 'failed' | 'done';
   // A heading drawn over the row where it differs from the row before's.
   section?: string;
   // Short, faint, at the end of the title's line: a date or a count.

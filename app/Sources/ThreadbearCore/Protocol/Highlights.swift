@@ -318,9 +318,7 @@ public struct CiRun: Sendable, Hashable, Codable, Identifiable {
 /// One row of a `list` panel, from `panels.render`.
 public struct PanelItem: Sendable, Hashable, Codable {
     public enum Tone: String, Sendable, Hashable, Codable {
-        /// `ready` is green (good to go), `blocked` yellow (waiting on
-        /// someone or something else).
-        case attention, failed, done, ready, blocked
+        case attention, failed, done
     }
 
     public var title: String

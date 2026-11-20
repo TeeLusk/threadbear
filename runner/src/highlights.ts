@@ -252,8 +252,8 @@ function noteEdited(state: HighlightState, file: string): void {
 // Longer than this isn't a link anyone will open, as reviews.ts has it.
 export const MAX_URL = 2000;
 
-export const PR_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i;
-export const PR_URL_G = /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/gi;
+const PR_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i;
+const PR_URL_G = /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/gi;
 
 export function linkItem(url: string): Pick<Highlight, 'id' | 'kind' | 'title' | 'url'> {
   // Trailing punctuation and Markdown emphasis ("**https://x.dev**") aren't

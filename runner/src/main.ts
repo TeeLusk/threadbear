@@ -17,7 +17,6 @@ import type { RunnerUpdates } from './runner.ts';
 import { scheduledSendMethods, sendScheduled, Peers, PrimaryLink, ThreadRouter, drainChildrenName, peersElsewhere, phoneCommands, primaryElsewhere, primaryRemote, projectRouter, removeDrainInfo, scheduleRouter, writeDrainInfo, type CrossRunnerHooks, type Elsewhere } from './handover.ts';
 import { RunnerUpdater, releaseTreeAt } from './update.ts';
 import { RELEASE_NOTES_SYSTEM, SETTLE_MS, Upstream } from './upstream.ts';
-import { makePrStatus } from './runner/prs.ts';
 import { BringIn } from './bring-in.ts';
 import { SwiftChanges } from './swift-changes.ts';
 import { UpdateFixer } from './fix-update.ts';
@@ -841,7 +840,6 @@ async function main(): Promise<void> {
       return res.ok ? res.value : undefined;
     },
   });
-  if (cfg.prStatus) runner.prStatus = makePrStatus(runner, realClock, log);
   // A fork's own changes to the old Swift app, for rebuilding in the GPUI
   // one (swift-changes.ts): a thread the first time the GPUI app connects,
   // and the Updates panel's "Not in the new app yet".
@@ -1263,7 +1261,6 @@ async function main(): Promise<void> {
   step('resume after restart', () => restarter.resumeAfterRestart());
   step('tell stopped work', () => runner.tellStoppedWork());
   step('carry on stopped', () => runner.carryOnStopped());
-  step('pr status', () => runner.prStatus?.start());
   // A thread waited on may have finished while the runner was down. Only
   // now: waking one starts its CLI, whose tools need what's set up above.
   runner.holdWaits = false;
@@ -1281,7 +1278,6 @@ async function main(): Promise<void> {
     updater.stop();
     reinstaller.stop();
     upstream.stop();
-    runner.prStatus?.stop();
     swiftChanges.stop();
     stopHousekeeping();
     log.info('runner stopping', { signal });
@@ -1347,7 +1343,6 @@ async function main(): Promise<void> {
       updater.stop();
       reinstaller.stop();
       upstream.stop();
-      runner.prStatus?.stop(); // the new runner asks GitHub from here on
       swiftChanges.stop();
       stopHousekeeping();
       scheduler.stop();

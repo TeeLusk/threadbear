@@ -897,12 +897,6 @@ From the top, and only when there's something to show:
 - A line or two from the librarian on where the thread is up to.
 - **Needs you**: what the agent's last reply asked you to do, each with a
   box to tick off as you go. Ticking one here ticks it in the thread too.
-- **Pull requests**: a card for each pull request the thread made or
-  pushed to, with its state, each check (failed ones first, and open when
-  one has failed), its review, any merge conflicts, and when it was last
-  checked. Click the title to open it; its ••• menu has Open on GitHub,
-  Copy link and, when an open or draft PR's checks fail, Fix failing
-  checks, which asks the thread to find the cause and push a fix.
 - The thread's projects, each under its icon and name with its links,
   such as a live site or an admin page, and its task board if it has one
   (see [Projects](#projects)). The ⓘ beside a project's name
@@ -923,8 +917,7 @@ From the top, and only when there's something to show:
 - **Pinned**: what the agent pinned for you (below).
 - **Files**: documents, pages, pictures and videos the thread wrote, opened
   or mentioned.
-- **Links**: web pages and pull requests it opened or mentioned (one
-  with a card under Pull requests isn't listed again).
+- **Links**: web pages and pull requests it opened or mentioned.
 - **Runs**: with the GitHub Actions runs experiment on (see
   [Experiments](#experiments)), the workflow runs its pushes, dispatches and re-runs set off,
   each queued, running, passed or failed. Click one to open it on GitHub.

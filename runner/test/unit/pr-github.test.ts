@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildQuery, ghFromLoginShell, isSafeBranch, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
+import { buildQuery, isSafeBranch, parseAnswer, outcomeOf, toThreadPr } from '../../src/pr-github.ts';
 import type { PrDetail } from '../../src/pr-status-types.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/pr-graphql.json', import.meta.url), 'utf8'));
@@ -9,7 +9,6 @@ const asked = [
   { url: 'https://github.com/acme/widgets/pull/12' },
   { url: 'https://github.com/acme/widgets/pull/9' },
   { url: 'https://github.com/gone/gone/pull/1' },
-  { url: 'https://github.com/acme/gadgets/pull/4' },
 ];
 const NOW = '2026-11-06T11:00:00.000Z';
 
@@ -62,26 +61,9 @@ test('merged PR with no protection rule and no checks', () => {
   assert.equal(d.checks?.state, 'none');
 });
 
-test('no reviewDecision (reviews not required): worked out from the reviews', () => {
-  const d = parseAnswer(fixture, asked, NOW).get(asked[3]!.url)!;
-  assert.equal(d.review?.decision, 'changes');
-  assert.equal(d.review?.approvals, 1);
-  const decision = (pr: Record<string, unknown>) =>
-    parseAnswer({ data: { p0: { pullRequest: { state: 'OPEN', reviewDecision: null, ...pr } } } }, [asked[0]!], NOW).get(asked[0]!.url)!.review?.decision;
-  const reviews = (...states: string[]) => ({ nodes: states.map((state, i) => ({ author: { login: `r${i}` }, state })) });
-  const requests = (...logins: string[]) => ({ nodes: logins.map((login) => ({ requestedReviewer: { login } })) });
-  assert.equal(decision({ latestReviews: reviews('APPROVED', 'COMMENTED') }), 'approved');
-  assert.equal(decision({ latestReviews: reviews('COMMENTED'), reviewRequests: requests('dave-lead') }), 'waiting');
-  assert.equal(decision({ latestReviews: reviews('APPROVED'), reviewRequests: requests('dave-lead') }), 'approved');
-  assert.equal(decision({ latestReviews: reviews('COMMENTED') }), 'none');
-  assert.equal(decision({}), 'none');
-  // GitHub's own decision still wins where it gives one.
-  assert.equal(decision({ reviewDecision: 'REVIEW_REQUIRED', latestReviews: reviews('APPROVED') }), 'waiting');
-});
-
 test('null PR is skipped', () => {
   const m = parseAnswer(fixture, asked, NOW);
-  assert.equal(m.size, 3);
+  assert.equal(m.size, 2);
   assert.equal(m.has(asked[2]!.url), false);
   assert.equal(parseAnswer({ data: null }, asked, NOW).size, 0);
   assert.equal(parseAnswer('junk', asked, NOW).size, 0);
@@ -119,22 +101,4 @@ test('toThreadPr counts', () => {
 test('only plain branch names go to gh: no flags, no ".."', () => {
   for (const ok of ['main', 'feature/sort-widgets', 'fix_1.2', 'cloud/a-b']) assert.equal(isSafeBranch(ok), true, ok);
   for (const bad of ['', '-x', '--web', '--repo=evil/x', 'a..b', 'a b', 'a;rm', '$(x)', 'a\nb']) assert.equal(isSafeBranch(bad), false, JSON.stringify(bad));
-});
-
-test('a check link that is not http or https is dropped', () => {
-  const contexts = [
-    { __typename: 'CheckRun', name: 'web', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/widgets/actions/runs/1' },
-    { __typename: 'CheckRun', name: 'script', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'javascript:alert(1)' },
-    { __typename: 'StatusContext', context: 'file', state: 'SUCCESS', targetUrl: 'file:///etc/passwd' },
-    { __typename: 'StatusContext', context: 'plain', state: 'SUCCESS', targetUrl: 'http://ci.example.com/7' },
-  ];
-  const pr = { title: 'x', state: 'OPEN', commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
-  const url = 'https://github.com/acme/widgets/pull/7';
-  const d = parseAnswer({ data: { p0: { pullRequest: pr } } }, [{ url }], NOW).get(url)!;
-  assert.deepEqual(d.checkList.map((c) => c.url), ['https://github.com/acme/widgets/actions/runs/1', undefined, undefined, 'http://ci.example.com/7']);
-});
-
-// It takes no logger, so it can't log on each retry; PrStatus logs once ('no gh').
-test('no gh: ghFromLoginShell finds nothing', async () => {
-  assert.equal(await ghFromLoginShell(['/usr/bin/false']), undefined);
 });

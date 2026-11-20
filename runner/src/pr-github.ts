@@ -4,6 +4,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loginShell } from './system-tools.ts';
+import type { Logger } from './log.ts';
 import { parsePrUrl } from './pr-find.ts';
 import type { PrCheck, PrDetail, PrOutcome, PrReview, ThreadPr } from './pr-status-types.ts';
 
@@ -56,8 +57,7 @@ function checkOf(c: Node): PrCheck {
   const workflow = c.checkSuite?.workflowRun?.workflow?.name;
   if (typeof workflow === 'string' && workflow) check.workflow = workflow;
   const url = c.detailsUrl ?? c.targetUrl;
-  // Only a web page: a check's link comes from whoever set up the check.
-  if (typeof url === 'string' && /^https?:\/\//i.test(url)) check.url = url;
+  if (typeof url === 'string' && url) check.url = url;
   const s = seconds(c);
   if (s !== undefined) check.seconds = s;
   return check;
@@ -69,14 +69,6 @@ const DECISION: Record<string, NonNullable<PrDetail['review']>['decision']> = {
   CHANGES_REQUESTED: 'changes',
   REVIEW_REQUIRED: 'waiting',
 };
-
-// GitHub gives no reviewDecision unless the repo requires reviews, so then
-// it's worked out from the latest reviews and who's still asked.
-function decisionFrom(reviews: PrReview[], requested: string[]): NonNullable<PrDetail['review']>['decision'] {
-  if (reviews.some((r) => r.state === 'changes')) return 'changes';
-  if (reviews.some((r) => r.state === 'approved')) return 'approved';
-  return requested.length ? 'waiting' : 'none';
-}
 
 function detailOf(pr: Node, url: string, now: string): PrDetail {
   const state: PrDetail['state'] = pr.merged ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.isDraft ? 'draft' : 'open';
@@ -90,7 +82,7 @@ function detailOf(pr: Node, url: string, now: string): PrDetail {
   const parsed = parsePrUrl(url);
   const rule = pr.baseRef?.branchProtectionRule;
   const review: NonNullable<PrDetail['review']> = {
-    decision: DECISION[pr.reviewDecision] ?? decisionFrom(reviews, requested),
+    decision: DECISION[pr.reviewDecision] ?? 'none',
     approvals: reviews.filter((r) => r.state === 'approved').length,
   };
   if (typeof rule?.requiredApprovingReviewCount === 'number') review.required = rule.requiredApprovingReviewCount;
@@ -151,22 +143,23 @@ export type Gh = {
   prForBranch(cwd: string, branch?: string): Promise<string | undefined>;
 };
 
-// Finds `gh` the way a terminal would (the runner's own PATH is short).
-// Undefined when it's missing or not logged in. It says nothing itself: it's
-// tried again every round, and PrStatus logs that once.
-export async function ghFromLoginShell(how: string[] = loginShell()): Promise<Gh | undefined> {
+// Finds `gh` the way a terminal would (the runner's own PATH is short), once.
+// Undefined when it's missing or not logged in: the feature is then off.
+export async function ghFromLoginShell(log: Logger): Promise<Gh | undefined> {
   let bin: string;
   try {
-    const [shell, ...flags] = how;
+    const [shell, ...flags] = loginShell();
     const { stdout } = await run(shell!, [...flags, 'command -v gh'], { timeout: 10_000 });
     bin = stdout.trim().split('\n').pop() ?? '';
     if (!bin) throw new Error('empty');
   } catch {
+    log.info('pr status: gh not found, PR status is off');
     return undefined;
   }
   try {
     await run(bin, ['auth', 'status'], { timeout: 10_000 });
   } catch {
+    log.info('pr status: gh is not logged in, PR status is off');
     return undefined;
   }
   return {

@@ -779,7 +779,7 @@ struct ThreadRowView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if !showsActions { PRBadgeView(prs: thread.prs) }
+                    if !showsActions { PRBadgeView(prs: thread.prs).padding(.leading, zoomed(6)) }
                     if showsActions {
                         // Room for the hover buttons, drawn over the row so
                         // they don't change its height.

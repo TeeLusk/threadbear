@@ -2,8 +2,6 @@
 // adapter's pingCache).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import { CACHE_TTL_MS, DEFAULT_KEEP_ALIVE, inHours, keepAliveConfig, pingPlan, warmState, type KeepWarmThread } from '../../src/cache-keepalive.ts';
 import { ClaudeAdapter, PING_PROMPT } from '../../src/adapters/claude/adapter.ts';
 import { ProcessRegistry } from '../../src/proc.ts';
@@ -34,16 +32,15 @@ function thread(o: Partial<KeepWarmThread> = {}, endedAt = MON_10 - 55 * MIN): K
   };
 }
 
-// The hours default to the Mac's own zone; these tests are in Phoenix's.
-const cfg = { ...DEFAULT_KEEP_ALIVE, timeZone: 'America/Phoenix' };
+const cfg = DEFAULT_KEEP_ALIVE;
 
-test("keep-alive: defaults are on, 50K, 55 minutes, 3 pings, the Mac's own hours", () => {
+test('keep-alive: defaults are on, 50K, 55 minutes, 3 pings, Phoenix hours', () => {
   const c = keepAliveConfig({});
   assert.equal(c.enabled, true);
   assert.equal(c.minContextTokens, 50_000);
   assert.equal(c.intervalMs, 55 * MIN);
   assert.equal(c.maxPings, 3);
-  assert.equal(c.timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  assert.equal(c.timeZone, 'America/Phoenix');
   assert.deepEqual(c.weekdays, [7, 15]);
   assert.deepEqual(c.weekends, [7, 20]);
 });
@@ -56,7 +53,7 @@ test('keep-alive: runner.json turns it off or changes the limits; bad values kee
   const bad = keepAliveConfig({ cacheKeepAlive: { intervalMinutes: 90, maxPings: -1, timeZone: 'Mars/Olympus', weekdays: [15, 7] } as never });
   assert.equal(bad.intervalMs, 55 * MIN, 'past the cache lifetime, a ping would come too late');
   assert.equal(bad.maxPings, 3);
-  assert.equal(bad.timeZone, DEFAULT_KEEP_ALIVE.timeZone);
+  assert.equal(bad.timeZone, 'America/Phoenix');
   assert.deepEqual(bad.weekdays, [7, 15]);
 });
 
@@ -202,9 +199,6 @@ test('pingCache: a login out of room says so; a sandboxed thread is never pinged
 test('runner: a due thread is pinged on its own login, counted, and nothing reaches the thread', async () => {
   const { makeHarness } = await import('../helpers/fakes.ts');
   const h = makeHarness();
-  // An experiment, off until runner.json turns it on (experiments/cacheKeepAlive.md).
-  const json = path.join(h.cfg.home, 'runner.json');
-  fs.writeFileSync(json, JSON.stringify({ cacheKeepAlive: { timeZone: 'America/Phoenix' } }));
   const { thread } = h.runner.create({ text: 'Look into the cache', accountId: 'claude-3' });
   const s = h.adapter.last;
   s.init();
@@ -224,8 +218,6 @@ test('runner: a due thread is pinged on its own login, counted, and nothing reac
     return { ok: true, inputTokens: 2, outputTokens: 4, cacheReadTokens: 119_000, cacheWriteTokens: 90, ms: 800 };
   };
   const before = h.events(thread.id).length;
-  assert.equal((await h.runner.keepWarmTick()).length, 0, 'the experiment is off by default');
-  fs.writeFileSync(json, JSON.stringify({ experiments: { cacheKeepAlive: true }, cacheKeepAlive: { timeZone: 'America/Phoenix' } }));
   const sent = await h.runner.keepWarmTick();
   assert.equal(sent.length, 1);
   assert.equal(sent[0].accountId, 'claude-3');

@@ -14,7 +14,6 @@ mod a11y;
 mod activity;
 mod activity_panels;
 mod agent_browser;
-mod browser_annotations;
 mod about_window;
 mod alert;
 mod app;

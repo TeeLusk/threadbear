@@ -55,7 +55,6 @@ Then('the Browser pane lists {string} from {string} with {string}', async functi
 const tips: Record<string, string> = {
   'Show window': "Bring this page's window to the front",
   Done: "Tell the agent you've finished here",
-  Annotate: 'Mark what to change on this page in Chrome',
 };
 
 When('I press {string} on {string}', async function (this: ThreadbearWorld, button: string, title: string) {

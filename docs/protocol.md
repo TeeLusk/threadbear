@@ -5734,7 +5734,7 @@ elements with selector, tag, a little HTML and text, regions, drawn lines and
 the viewport) and a PNG of the visible page to BrowserBear, which writes
 `annotations/<sessionId>.json` (`{thread, annotation, screenshot}`) and
 `<sessionId>.png` in its folder (0600) and opens
-`threadbear://thread/<thread>?annotation=<sessionId>`. The Mac app, Swift or GPUI (only
+`threadbear://thread/<thread>?annotation=<sessionId>`. The Mac app (only
 from macOS's link hand-over, never a link in a transcript) checks the file
 names that thread and is a bounded annotation, imports the picture with
 `media.import`, adds the words and the picture after the thread's draft,

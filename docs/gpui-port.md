@@ -269,7 +269,7 @@ right. Each spec runs against the mock runner, through the app's scripted
 commands, on both apps: the Swift one through `dev-app.sh`, the GPUI one
 through its own debug socket. Then GPUI has to pass the same file.
 
-**The log** (`docs/gpui-port/PARITY.md`) keeps Ghostex's shape, one entry a
+**The log** (`docs/gpui-port/LOG.md`) keeps Ghostex's shape, one entry a
 slice: what changed, files, what's left, plus a `Verification:` line that has
 to be a spec run or a screenshot from a running app. A slice with no runtime
 check doesn't count. The table has one column per system, so Windows and Linux

@@ -460,7 +460,9 @@ through the deploy script (Releases and deploys, above).
   not released at the idle time; the countdown starts when the work ends.
   Snoozing, archiving or moving a thread with background work stops the CLI
   at once rather than waiting for it, and a system note lists what was
-  stopped.
+  stopped. A fresh CLI asked for at the end of a turn (another login or
+  folder, `/clear`) waits the same way for background shells and sub-agents
+  to finish; only snoozing, archiving or Mike's next message stops them.
 - **Live CLI cap.** Each live CLI is a `claude` process plus its own copy of
   the account's MCP servers, about 400 MB on these logins. When starting
   one would pass `maxLiveCLIs` (default 6), the one idle the longest is

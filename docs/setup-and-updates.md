@@ -326,5 +326,5 @@ How things work today, from a read of the repo on 28 Oct:
 - Phone: `ios/ThreadbearKit/Sources/ThreadbearKit/Pairing.swift` (only `*.convex.cloud`
   and `*.convex.site`), `ios/scripts/pair-qr.swift`, `ios/scripts/install-phone.sh`
   (Mike's phone and App Store Connect key).
-- Network: `runner/src/config.ts` binds `127.0.0.1`; docs/convex-backend.md section 2
+- Network: `runner/src/config.ts` binds `127.0.0.1`; docs/archive/convex-backend-research.md section 2
   ruled out the phone talking to the runner directly because the Mac sleeps.

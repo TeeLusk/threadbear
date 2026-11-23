@@ -550,6 +550,34 @@ impl DockController {
         self.open(panel, drop);
     }
 
+    /// Makes the group `panel` is in at least `width` points wide, taking
+    /// the room from what's beside it down to `keep` points each (`widened`
+    /// has the rules), for a panel whose content needs the room. `available`
+    /// and `gap` are the view's, as for `group_frames`. Returns what it
+    /// changed, for `restore_width`. None if nothing changed, or before the
+    /// dock has been laid out, when there are no widths to go by.
+    pub fn widen(&mut self, panel: &str, width: f64, keep: f64, available: &dyn Fn(&str) -> bool, gap: f64) -> Option<Widened> {
+        if self.bounds.width <= 0. {
+            return None;
+        }
+        let widened = widened(&self.layout.root, panel, width, keep, self.bounds, available, gap)?;
+        self.layout.set_fractions(&widened.split, &widened.after);
+        Some(widened)
+    }
+
+    /// Puts back what `widen` changed, and says whether it did. Only while
+    /// the split is still as `widen` left it: once a divider's been dragged,
+    /// or a panel has come or gone beside it, the sizes are ones chosen
+    /// since and they stay.
+    pub fn restore_width(&mut self, widened: &Widened) -> bool {
+        let untouched = split_in(&self.layout.root, &widened.split)
+            .is_some_and(|s| s.children.len() == widened.after.len() && s.fractions.iter().zip(&widened.after).all(|(now, after)| (now - after).abs() < WIDEN_SAME));
+        if untouched {
+            self.layout.set_fractions(&widened.split, &widened.before);
+        }
+        untouched
+    }
+
     /// A rail button, VS Code's way: closes a panel that's showing, brings
     /// up one that's open behind another tab, opens one that isn't.
     pub fn toggle(&mut self, panel: &str, near: &[&str], fallback: &DockDrop) {
@@ -842,18 +870,99 @@ fn place_groups(node: &DockNode, r: Rect, available: &dyn Fn(&str) -> bool, gap:
     match node {
         DockNode::Group(g) => out.push((g.id.clone(), r)),
         DockNode::Split(s) => {
-            let shown = shown_indices(s, available);
-            let fractions = normalized(&shown.iter().map(|&i| s.fractions[i]).collect::<Vec<_>>());
-            let horizontal = s.axis == SplitAxis::Horizontal;
-            let length = if horizontal { r.width } else { r.height };
-            let room = (length - gap * shown.len().saturating_sub(1) as f64).max(0.);
-            let mut at = 0.;
-            for (k, &i) in shown.iter().enumerate() {
-                let size = room * fractions[k];
-                let child = if horizontal { Rect::new(r.x + at, r.y, size, r.height) } else { Rect::new(r.x, r.y + at, r.width, size) };
+            for (i, child) in shown_rects(s, r, available, gap) {
                 place_groups(&s.children[i], child, available, gap, out);
-                at += size + gap;
             }
         }
+    }
+}
+
+/// A split's shown children, by index, and where each is drawn in `r`.
+fn shown_rects(s: &DockSplit, r: Rect, available: &dyn Fn(&str) -> bool, gap: f64) -> Vec<(usize, Rect)> {
+    let shown = shown_indices(s, available);
+    let fractions = normalized(&shown.iter().map(|&i| s.fractions[i]).collect::<Vec<_>>());
+    let horizontal = s.axis == SplitAxis::Horizontal;
+    let length = if horizontal { r.width } else { r.height };
+    let room = (length - gap * shown.len().saturating_sub(1) as f64).max(0.);
+    let mut at = 0.;
+    let mut out = Vec::new();
+    for (k, &i) in shown.iter().enumerate() {
+        let size = room * fractions[k];
+        out.push((i, if horizontal { Rect::new(r.x + at, r.y, size, r.height) } else { Rect::new(r.x, r.y + at, r.width, size) }));
+        at += size + gap;
+    }
+    out
+}
+
+// MARK: Widening a panel from code. Not in the Swift dock.
+
+/// What `widened` changed, for `DockController::restore_width` to put back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Widened {
+    pub split: String,
+    /// The split's fractions before and after, hidden children's included.
+    pub before: Vec<f64>,
+    pub after: Vec<f64>,
+}
+
+/// A change of less than this many points isn't made: there'd be nothing to
+/// see, and still something to undo.
+const WIDEN_LEAST: f64 = 0.5;
+/// How far a split's fractions can be from the ones `widened` left and still
+/// count as those: normalising them again moves the last digits.
+const WIDEN_SAME: f64 = 1e-6;
+
+/// The fractions that make the group `panel` is in at least `width` points
+/// wide, with the dock drawn in `bounds` as `group_frames` has it. The room
+/// comes from the other shown children of the nearest split above the group
+/// that lays its children side by side, each giving in proportion to what it
+/// has over `keep` points, so none of them ends up narrower than `keep` (or
+/// than a divider would leave it, `MIN_PANEL`) and one that's narrower
+/// already isn't touched. With too little room for `width`, the group gets
+/// what there is. Hidden children keep their fractions, as with a divider.
+///
+/// None if nothing would change: the group is that wide already, there's
+/// nothing to take, nothing is beside it, or it isn't drawn (its panels have
+/// nothing to show, or `panel` is in a window of its own or not open).
+pub fn widened(root: &DockNode, panel: &str, width: f64, keep: f64, bounds: Rect, available: &dyn Fn(&str) -> bool, gap: f64) -> Option<Widened> {
+    let (split, index, length) = row_of(root, bounds, panel, available, gap, None)?;
+    let shown = shown_indices(split, available);
+    let at = shown.iter().position(|&i| i == index)?;
+    let room = (length - gap * shown.len().saturating_sub(1) as f64).max(0.);
+    let mut sizes: Vec<f64> = normalized(&shown.iter().map(|&i| split.fractions[i]).collect::<Vec<_>>()).iter().map(|f| f * room).collect();
+    let keep = keep.max(MIN_PANEL);
+    let spare: Vec<f64> = sizes.iter().enumerate().map(|(k, size)| if k == at { 0. } else { (size - keep).max(0.) }).collect();
+    let total: f64 = spare.iter().sum();
+    let take = (width - sizes[at]).min(total);
+    if take < WIDEN_LEAST {
+        return None;
+    }
+    for (size, over) in sizes.iter_mut().zip(&spare) {
+        *size -= take * over / total;
+    }
+    sizes[at] += take;
+    let after = DockLayout::normalised_fractions(&merged(&normalized(&sizes), &split.fractions, &shown));
+    Some(Widened { split: split.id.clone(), before: split.fractions.clone(), after })
+}
+
+/// The nearest split above `panel`'s group that lays its children side by
+/// side, which of its children the group is in, and the split's width as
+/// drawn. A vertical split in between is passed through: its children are
+/// all as wide as it is. None if the group isn't drawn or has no such split.
+fn row_of<'a>(node: &'a DockNode, r: Rect, panel: &str, available: &dyn Fn(&str) -> bool, gap: f64, row: Option<(&'a DockSplit, usize, f64)>) -> Option<(&'a DockSplit, usize, f64)> {
+    match node {
+        DockNode::Group(g) => row.filter(|_| g.panels.iter().any(|p| p == panel)),
+        DockNode::Split(s) => shown_rects(s, r, available, gap).into_iter().find_map(|(i, child)| {
+            let row = if s.axis == SplitAxis::Horizontal { Some((s, i, r.width)) } else { row };
+            row_of(&s.children[i], child, panel, available, gap, row)
+        }),
+    }
+}
+
+fn split_in<'a>(node: &'a DockNode, id: &str) -> Option<&'a DockSplit> {
+    match node {
+        DockNode::Group(_) => None,
+        DockNode::Split(s) if s.id == id => Some(s),
+        DockNode::Split(s) => s.children.iter().find_map(|c| split_in(c, id)),
     }
 }

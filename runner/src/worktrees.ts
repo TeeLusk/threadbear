@@ -15,6 +15,7 @@ import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
 import { mainCheckoutOf as linkedMainCheckout } from './patch-trust.ts';
 import { untrustedGitArgs } from './safe-git.ts';
+import { carryAcross, crossings, mergeAcross, touchesFormatted, TreeFormatter, type FormatCommit } from './format-replay.ts';
 import { LAND_TIMES_FILE, joinQueue, leaveQueue, queueDir, readEntry, readRunning, ridesFree, setRunning, typicalCheckSeconds, waiting, waitingLine, writeEntry, type QueueEntry } from './land-queue.ts';
 
 // What a thread's record keeps about its worktree.
@@ -941,7 +942,30 @@ async function prepare(
   if (merges === undefined) return fail(`Couldn't read ${t.branch}'s history in ${t.path}, so nothing landed. Run tb land again.`);
   const hasMerge = Boolean(merges);
   const behind = !(await git(t.path, ['merge-base', '--is-ancestor', base, t.branch])).ok;
-  if (hasMerge && behind) {
+  // A format commit on main the branch doesn't have yet (one listed in
+  // .git-blame-ignore-revs, like the whole of desktop/ through cargo fmt)
+  // conflicts with every change to the files it formatted. It's crossed with
+  // each commit formatted as it was made (format-replay.ts), so only real
+  // conflicts are left.
+  const cross = behind ? await crossings(t.path, t.branch, base).catch((): FormatCommit[] => []) : [];
+  const crossHint = cross.length
+    ? ` It crosses ${cross.map((f) => `${f.commit.slice(0, 10)} (${f.entry.subject})`).join(', ')}, which only reformatted files: scripts/replay-over-format.sh${hasMerge ? ` --merge ${MAIN}` : ''} in ${t.path} does that part for you and stops only at real conflicts.`
+    : '';
+  const crossMerge = hasMerge && cross.length > 0 && (await touchesFormatted(t.path, `${(await gitOut(t.path, ['merge-base', base, t.branch])) ?? base}..${t.branch}`, cross).catch(() => true));
+  if (hasMerge && behind && crossMerge) {
+    const merged = await mergeAcross(t.path, base, { message: `Merge branch '${MAIN}' into ${t.branch}` });
+    for (const n of merged.notes) out(n);
+    if (!merged.ok) {
+      if ('conflict' in merged) {
+        return fail(
+          `Bringing ${MAIN} into ${t.branch} (it has a merge on it, so it isn't rebased) ran into conflicts ${merged.step}, in:`,
+          ...merged.conflict.map((f) => `  ${f}`),
+          `That was undone, so ${t.branch} is as it was and ${MAIN} wasn't touched.${crossHint} Sort out those files, commit, then run tb land again.`,
+        );
+      }
+      return fail(`Couldn't bring ${MAIN} into ${t.branch}, so nothing landed: ${merged.error}`);
+    }
+  } else if (hasMerge && behind) {
     const merged = await git(t.path, ['merge', '--no-edit', MAIN]);
     if (!merged.ok) {
       const conflicted = (await gitOut(t.path, ['diff', '--name-only', '--diff-filter=U'])) ?? '';
@@ -956,6 +980,10 @@ async function prepare(
       return fail(`git merge ${MAIN} failed in ${t.path}, so nothing landed: ${firstLine(merged.stderr || merged.stdout)}`);
     }
   } else if (!hasMerge) {
+    if (cross.length) {
+      const carried = await carryFormatted(t, base, cross, out);
+      if (carried) return fail(...carried);
+    }
     const rebase = await git(t.path, ['rebase', base]);
     if (!rebase.ok) {
       const conflicted = (await gitOut(t.path, ['diff', '--name-only', '--diff-filter=U'])) ?? '';
@@ -964,7 +992,7 @@ async function prepare(
         return fail(
           `Rebasing ${t.branch} on ${MAIN} ran into conflicts in:`,
           ...conflicted.split('\n').map((f) => `  ${f}`),
-          `The rebase was undone, so ${t.branch} is as it was and ${MAIN} wasn't touched. Run git rebase ${MAIN} in ${t.path}, sort out those files, finish the rebase, then run tb land again.`,
+          `The rebase was undone, so ${t.branch} is as it was and ${MAIN} wasn't touched.${crossHint || ` Run git rebase ${MAIN} in ${t.path}, sort out those files and finish the rebase.`} Then run tb land again.`,
         );
       }
       return fail(`git rebase ${MAIN} failed in ${t.path}, so nothing landed: ${firstLine(rebase.stderr || rebase.stdout)}`);
@@ -1003,6 +1031,42 @@ async function prepare(
   const commit = await gitOut(t.path, ['rev-parse', 'HEAD']);
   if (!commit) return fail(`Couldn't read HEAD in ${t.path}.`);
   return { hasMerge, base, commit, commits };
+}
+
+// The branch's commits carried across the format commits main has and it
+// doesn't, each formatted as they were made, onto main (format-replay.ts).
+// Only when it changes something they format; otherwise a plain rebase
+// can't trip on them. Undefined when that's done (or not needed, or the
+// formatter can't run here, which a plain rebase then tries), or the lines
+// to fail with on a real conflict. Nothing moves unless it all went on.
+async function carryFormatted(t: LandTarget, main: string, cross: FormatCommit[], out: (line: string) => void): Promise<string[] | undefined> {
+  const from = await gitOut(t.path, ['merge-base', main, t.branch]);
+  const tip = await gitOut(t.path, ['rev-parse', t.branch]);
+  if (!from || !tip) return undefined;
+  const names = cross.map((f) => `${f.commit.slice(0, 10)} (${f.entry.subject})`).join(', ');
+  try {
+    if (!(await touchesFormatted(t.path, `${from}..${tip}`, cross))) return undefined;
+    out(`Carrying ${t.branch} across ${names}, each commit formatted as that was made...`);
+    const r = await carryAcross(t.path, { base: from, tip, onto: main, formatter: new TreeFormatter(t.path, cross) });
+    for (const n of r.notes) out(n);
+    if (r.ok) {
+      const moved = await git(t.path, ['reset', '--keep', r.tip]);
+      if (!moved.ok) return [`Couldn't move ${t.branch} to its carried commits in ${t.path}, so nothing landed: ${firstLine(moved.stderr || moved.stdout)}`];
+      out(`Carried ${r.count} commit${r.count === 1 ? '' : 's'} across it (${t.branch} was at ${tip.slice(0, 10)}).`);
+      return undefined;
+    }
+    if ('conflict' in r) {
+      return [
+        `Carrying ${t.branch} across ${names}, with each commit formatted as that was made, ran into real conflicts at ${r.at.slice(0, 10)} (${r.subject}), in:`,
+        ...r.conflict.map((f) => `  ${f}`),
+        `Nothing changed, so ${t.branch} is as it was and ${MAIN} wasn't touched. Run scripts/replay-over-format.sh in ${t.path}: it does the same and stops at the conflict for you to sort out (then git rebase --continue). Then run tb land again.`,
+      ];
+    }
+    out(`Couldn't carry it across with formatting (${r.error}), so it's rebased as it is.`);
+  } catch (e) {
+    out(`Couldn't carry it across with formatting (${e instanceof Error ? e.message : String(e)}), so it's rebased as it is.`);
+  }
+  return undefined;
 }
 
 // Why what `from...to` changes can't land now (opts.hold), or undefined.
@@ -1062,6 +1126,24 @@ async function replay(cwd: string, from: string, to: string, onto: string): Prom
     list.push(c);
   }
   return pick(cwd, list, onto);
+}
+
+// replay(), except that a branch crossing a format commit on the way (one
+// it doesn't have, that changes files it changes) is carried across with
+// each commit formatted as that was made (format-replay.ts), as its own tb
+// land would.
+async function replayFormatted(cwd: string, from: string, to: string, onto: string): Promise<string | undefined> {
+  try {
+    const cross = await crossings(cwd, to, onto);
+    if (cross.length && (await touchesFormatted(cwd, `${from}..${to}`, cross))) {
+      if (!(await git(cwd, ['merge-base', '--is-ancestor', from, onto])).ok) return undefined;
+      const r = await carryAcross(cwd, { base: from, tip: to, onto, formatter: new TreeFormatter(cwd, cross) });
+      return r.ok ? r.tip : undefined;
+    }
+  } catch {
+    // Couldn't tell: as before there were format commits.
+  }
+  return replay(cwd, from, to, onto);
 }
 
 // Commits `list`, oldest first, made again on `onto` without touching any
@@ -1134,7 +1216,7 @@ async function stackWaiting(
     if ((await gitOut(e.path, ['rev-parse', 'HEAD'])) !== e.commit) continue;
     if (!(await git(t.path, ['merge-base', '--is-ancestor', e.base, main])).ok) continue;
     if ((await gitOut(t.path, ['rev-list', '--merges', `${e.base}..${e.commit}`])) !== '') continue;
-    const next = await replay(t.path, e.base, e.commit, tip);
+    const next = await replayFormatted(t.path, e.base, e.commit, tip);
     if (!next || next === tip) continue;
     const commits = await gitOut(t.path, ['log', '--oneline', '--first-parent', `${tip}..${next}`]);
     if (commits === undefined) continue;
@@ -1299,7 +1381,7 @@ async function findBroken(a: {
       left++;
       continue;
     }
-    const alone = await replay(a.t.path, g.entry.base, g.entry.commit, a.main);
+    const alone = await replayFormatted(a.t.path, g.entry.base, g.entry.commit, a.main);
     const r = alone && alone !== a.main ? await run(g.entry.branch, alone, only) : { state: 'unknown' as const, text: '' };
     if (r.state === 'failed') failed.set(g.entry.id, r.text);
     else if (r.state === 'passed') passed.add(g.entry.id);
@@ -1472,14 +1554,14 @@ async function landLocked(
     }
     if (!opts.dryRun && !ready.hasMerge && !alone) {
       let stacked = await stackWaiting(t, common, main, limit, check ?? null, opts.checkFrom ?? '', withFixes, true, allowed);
-      let top = stacked.group.length ? await replay(t.path, main, own, stacked.tip) : undefined;
+      let top = stacked.group.length ? await replayFormatted(t.path, main, own, stacked.tip) : undefined;
       // Held on GitHub for what the others change (not a fix's, which is
       // the repair): then only the fixes go with it, and the others go by
       // themselves later, each hearing why. Still held with only the fixes
       // (this one's own change, moved by one): it goes alone.
       if (opts.hold && top && (await groupHeld(t, main, stacked.group, top, opts))) {
         stacked = await stackWaiting(t, common, main, limit, check ?? null, opts.checkFrom ?? '', withFixes, false, allowed);
-        top = stacked.group.length ? await replay(t.path, main, own, stacked.tip) : undefined;
+        top = stacked.group.length ? await replayFormatted(t.path, main, own, stacked.tip) : undefined;
         if (top && (await groupHeld(t, main, stacked.group, top, opts))) top = undefined;
       }
       if (stacked.group.length) {

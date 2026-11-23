@@ -197,6 +197,24 @@ impl DockView {
         walk(&self.model.read(cx).layout().root, panel, &is_available)
     }
 
+    /// Makes the group `panel` is in at least `width` points wide, leaving
+    /// what's beside it `keep` points each, and returns what changed for
+    /// `restore_width` (`DockModel::widen_panel`, with what the content says
+    /// is available, as it's drawn). That asks the content, so an app whose
+    /// content reads the app itself can't call this from inside its own
+    /// update: it calls the model's with its own answer.
+    pub fn widen_panel(&mut self, panel: &str, width: f32, keep: f32, cx: &mut Context<Self>) -> Option<dl::Widened> {
+        let content = self.content.clone();
+        let available: HashSet<PanelId> = self.model.read(cx).layout().panels().into_iter().filter(|p| content.available(p, cx)).collect();
+        self.model.update(cx, |m, cx| m.widen_panel(panel, width, keep, &|p: &str| available.contains(p), cx))
+    }
+
+    /// Puts back what `widen_panel` changed, unless a divider there has been
+    /// dragged since (`DockModel::restore_width`).
+    pub fn restore_width(&mut self, widened: &dl::Widened, cx: &mut Context<Self>) -> bool {
+        self.model.update(cx, |m, cx| m.restore_width(widened, cx))
+    }
+
     /// Whether a dropped panel's ghost is still flying to where it landed.
     /// Something drawn over the dock (the app's turning arcs) keeps out of
     /// the way while it does, as while the panel's dragged.

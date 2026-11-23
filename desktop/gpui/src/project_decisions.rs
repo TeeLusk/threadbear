@@ -56,11 +56,29 @@ pub(crate) struct DecisionCard {
     inputs: HashMap<usize, Entity<TextareaState>>,
     subs: Vec<Subscription>,
     style: Option<(crate::style::ReadingStyleKey, gpui_kit::base::TextViewStyle)>,
+    /// A card in the Feed (inbox_feed.rs): the picks stay on it while the
+    /// answer's on its way, the pressed button spinning and the others
+    /// taking no clicks, rather than the card turning into a "Sending to"
+    /// line; a refusal takes them off again.
+    keeps_picks: bool,
+    /// Its answer is on its way, as the Feed said before drawing it (the card
+    /// can't read the app while the app is drawing it).
+    sending_now: bool,
 }
 
 impl DecisionCard {
     fn new(app: WeakEntity<Threadbear>, thread: String) -> Self {
-        DecisionCard { app, thread, seq: None, asks: Vec::new(), place: (Origin::ThisMac, String::new()), picks: BTreeMap::new(), notes: BTreeMap::new(), inputs: HashMap::new(), subs: Vec::new(), style: None }
+        DecisionCard { app, thread, seq: None, asks: Vec::new(), place: (Origin::ThisMac, String::new()), picks: BTreeMap::new(), notes: BTreeMap::new(), inputs: HashMap::new(), subs: Vec::new(), style: None, keeps_picks: false, sending_now: false }
+    }
+
+    /// Whether its answer is on its way, set by the Feed before each draw.
+    pub(crate) fn mark_sending(&mut self, on: bool) {
+        self.sending_now = on;
+    }
+
+    /// A thread's card of asks in the Feed (`keeps_picks`).
+    pub(crate) fn for_feed(app: WeakEntity<Threadbear>, thread: String) -> Self {
+        DecisionCard { keeps_picks: true, ..DecisionCard::new(app, thread) }
     }
 
     /// The thread's card as it is now. Picks made on an older card are
@@ -119,9 +137,14 @@ impl DecisionCard {
         let images = composer::note_images(&self.asks, &self.picks, &self.notes);
         let answers_json = Value::Array(answers.iter().map(|(_, a)| json!({ "action": a.action, "answer": a.answer })).collect());
         let words: Vec<String> = answers.iter().map(|(_, a)| a.answer.clone()).collect();
-        let picks = (std::mem::take(&mut self.picks), std::mem::take(&mut self.notes));
-        self.inputs.clear();
-        self.subs.clear();
+        let picks = if self.keeps_picks {
+            (self.picks.clone(), self.notes.clone())
+        } else {
+            let picks = (std::mem::take(&mut self.picks), std::mem::take(&mut self.notes));
+            self.inputs.clear();
+            self.subs.clear();
+            picks
+        };
         cx.notify();
         let (thread, card) = (self.thread.clone(), cx.entity().downgrade());
         if let Some(app) = self.app.upgrade() {
@@ -132,6 +155,16 @@ impl DecisionCard {
     /// The runner didn't take it: the picks come back, unless he's picked
     /// again since.
     pub(crate) fn restore(&mut self, seq: u64, picks: Picks, cx: &mut Context<Self>) {
+        // The Feed's card kept them: the buttons come back unpicked, so the
+        // same click sends again rather than taking the pick off. What was
+        // written under Something else stays for when it's picked again.
+        if self.keeps_picks {
+            if self.seq == Some(seq) {
+                self.picks.clear();
+                cx.notify();
+            }
+            return;
+        }
         if self.seq == Some(seq) && self.picks.is_empty() && self.notes.is_empty() {
             (self.picks, self.notes) = picks;
             cx.notify();
@@ -157,6 +190,10 @@ impl DecisionCard {
 impl AskHost for DecisionCard {
     fn ask_pick(&self, ask: usize) -> Option<i64> {
         self.picks.get(&(ask as i64)).copied()
+    }
+
+    fn ask_sending(&self, ask: usize, _cx: &App) -> Option<Option<i64>> {
+        (self.keeps_picks && self.sending_now).then(|| self.ask_pick(ask))
     }
 
     fn ask_place(&self, _cx: &App) -> (Origin, String) {

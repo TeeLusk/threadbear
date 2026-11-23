@@ -910,6 +910,8 @@ struct MessageView: View {
         switch message.role {
         case .user where message.agentHeader != nil:
             AgentMessageCard(header: message.agentHeader!, seq: message.seq)
+        case .user where message.scheduledCard != nil:
+            ScheduledMessageCard(card: message.scheduledCard!, seq: message.seq)
         case .user:
             VStack(alignment: .trailing, spacing: 4) {
                 // The photos he sent, over his words as the Mac shows them,
@@ -1000,10 +1002,38 @@ struct MessageView: View {
 
     private var originText: String? {
         switch message.origin {
-        case "schedule": "Scheduled"
         case "runner": "From the runner"
         default: nil
         }
+    }
+}
+
+/// A message a schedule sent: the same quiet card, a clock with the
+/// schedule's name and when it runs on top, then its words as a reply's
+/// (code blocks and all), not his bubble with the raw `[Scheduled: ...]`
+/// line (Mike, 20 Nov).
+struct ScheduledMessageCard: View {
+    var card: (label: String, body: String)
+    var seq: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(card.label).lineLimit(2)
+            } icon: {
+                Image(systemName: "clock")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            if !card.body.isEmpty {
+                MarkdownText(card.body, seq: seq)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Look.tile.opacity(0.5), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Look.tile))
     }
 }
 

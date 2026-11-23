@@ -1,6 +1,6 @@
 # Step 4: Codex, every account, usage and CLI updates
 
-This is `docs/step4-plan.md`. It follows `docs/plan.md` ("Later steps") and `docs/dev-tools.md`.
+This is `docs/archive/step4-plan.md`. It follows `docs/archive/plan.md` ("Later steps") and `docs/dev-tools.md`.
 
 Updated on 27 Oct with two things: the spike results (summed up in "Checked" near the end, and folded into each section), and what landed on main after the first version (`3aea55f`), described in "Starting point".
 
@@ -24,7 +24,7 @@ Two of his complaints about T3 shape the details.
 
 Threadbear already handles images properly for Claude, with a media folder, inline thumbnails and Quick Look. This step puts Codex on the same path. Every image a Codex thread receives, looks at or makes becomes a file in the thread's media folder and shows inline. That includes images from its subagents.
 
-**Correction to `docs/plan.md`.** One line in it is wrong: "`pathToClaudeCodeExecutable` = `~/.local/bin/claude` so the CLI keeps updating itself". SDK sessions never update the CLI. Only the terminal UI, `claude update` and `claude install` do.
+**Correction to `docs/archive/plan.md`.** One line in it is wrong: "`pathToClaudeCodeExecutable` = `~/.local/bin/claude` so the CLI keeps updating itself". SDK sessions never update the CLI. Only the terminal UI, `claude update` and `claude install` do.
 
 **How the CLIs get updated today.** Token Stats keeps both CLIs current once a day. `cli-updates.log` shows `claude update` and `npm install -g @openai/codex@latest` every day since 19 Oct. T3 also has an "Update all" button.
 
@@ -107,7 +107,7 @@ All of it happens on the integration branch `step4` (worktree `~/dev/me/threadbe
 
 | Piece | Owns |
 |---|---|
-| 0. Contracts | `docs/protocol.md`, `docs/plan.md` (line fixes), `runner/src/protocol.ts`, `runner/src/adapters/types.ts`, new `runner/src/adapters/context.ts` (it moves `NormalizerContext` and `fileContext` out of `claude/normalize.ts` and leaves a re-export there), new fields in `runner/src/config.ts`, `runner/test/helpers/protocol-check.ts`, `app/Sources/ThreadbearCore/Protocol/Models.swift` and `Event.swift`, `app/Tools/mock-runner/server.mjs` (new fields only), `app/Tests/ThreadbearCoreTests/ModelsTests.swift` |
+| 0. Contracts | `docs/protocol.md`, `docs/archive/plan.md` (line fixes), `runner/src/protocol.ts`, `runner/src/adapters/types.ts`, new `runner/src/adapters/context.ts` (it moves `NormalizerContext` and `fileContext` out of `claude/normalize.ts` and leaves a re-export there), new fields in `runner/src/config.ts`, `runner/test/helpers/protocol-check.ts`, `app/Sources/ThreadbearCore/Protocol/Models.swift` and `Event.swift`, `app/Tools/mock-runner/server.mjs` (new fields only), `app/Tests/ThreadbearCoreTests/ModelsTests.swift` |
 | A. Codex sessions | `runner/src/adapters/codex/appserver.ts`, `adapter.ts`, `approvals.ts`, `tools.ts`, `types.ts`, `surface.ts`, `runner/scripts/codex-schema-check.sh`, `runner/test/helpers/fake-app-server.ts`, `runner/test/unit/codex-appserver.test.ts`, `codex-adapter.test.ts`, `codex-approvals.test.ts`, `runner/test/e2e/codex.e2e.test.ts` |
 | B. Codex events and images | `runner/src/adapters/codex/normalize.ts`, `runner/src/media.ts`, `runner/src/adapters/context.ts` (after Contracts creates it), `runner/scripts/sanitize-codex-recording.ts`, `runner/test/fixtures/codex/`, `runner/test/unit/codex-normalize.test.ts`, `media-files.test.ts` |
 | C. Runner plumbing | `runner/src/runner.ts`, `main.ts`, `rpc.ts`, `store.ts`, `threadbear-mcp.ts`, `cli.ts`, `tb-dev.ts`, `runner/scripts/dev-runner.sh`, `runner/test/helpers/fakes.ts`, `runner/test/unit/runner.test.ts`, `rpc.test.ts`, `threadbear-tools.test.ts`, `tb.test.ts`, `check.sh` |

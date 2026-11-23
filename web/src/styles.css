@@ -1,4 +1,4 @@
-/* The Mac app's look (docs/design-pass.md, app Theme.swift): neutral greys,
+/* The Mac app's look (docs/archive/design-pass.md, app Theme.swift): neutral greys,
    system blue used only where it means something (unread, the agent's pick,
    the primary button, a card waiting on you), orange for waiting on you. */
 :root {
@@ -420,6 +420,11 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 
 .command { font-size: 13px; color: var(--muted); display: flex; gap: 10px; padding: 0 2px 6px; }
 .command.failed { color: var(--red); }
+/* Dismiss or Stop waiting: words, not a grey box. */
+.command .link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+.command .link:hover { text-decoration: underline; }
+.command.in-card { padding: 8px 0 0; }
+.command.inline { display: inline-flex; padding: 0 0 0 8px; font-size: 0.85em; }
 
 /* The card of asks, the done card or an approval, joined to the composer
    as on the Mac: one rounded box, outlined in blue while it waits on you. */

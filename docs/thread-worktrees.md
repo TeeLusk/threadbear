@@ -71,6 +71,13 @@ worktree of `<repo>` at `<path>` on branch `thread/<id8>`, made from main;
 commit there; other threads use other worktrees; when the work is done and
 checked, `tb land` puts it on main.
 
+In this repo the folder is usually an earlier thread's slot,
+`<parent>/threadbear-threads/slot-<n>` (below, "Reusing worktrees"), reused
+with its build caches so the app builds warm, and `worktree-setup.sh` links
+its `node_modules` to the main checkout's. Changing a `package.json`?
+Replace the link first: `rm runner/node_modules` (no trailing slash, so only
+the link goes), then `npm ci` there.
+
 ## Landing
 
 `tb land`, run in the thread's worktree (an agent's Bash, or Mike's Land
@@ -91,6 +98,17 @@ stays. Separate repos do not block one another.
    docs/bringing-in-updates.md) is never rebased, since that would flatten
    the merge and rewrite Mike's commits: if main has moved, main is merged
    into it instead, with the same undo-and-name-the-files on a conflict.
+   A format commit on main that the branch doesn't have (one that only ran
+   a formatter over a folder, like `cargo fmt --all` over desktop/, listed
+   in `.git-blame-ignore-revs`) would conflict with every change the branch
+   made there, so when the branch changes anything it formats, each of its
+   commits is made again with its tree formatted as that commit was, and
+   its change in formatted terms goes onto main, the same three-way merge
+   a rebase does (`runner/src/format-replay.ts`). Only real conflicts are
+   left; one is named with `scripts/replay-over-format.sh`, which does the
+   same in the worktree and stops at the conflict for `git rebase
+   --continue`. A commit the formatter can't parse is left as it is there
+   and said. Waiting landings are stacked into a group check the same way.
    Then it refuses a commit whose `Important:` line git doesn't read as a
    trailer (not in the last paragraph with `Co-Authored-By`), as a release
    would not flag it and forks wouldn't hear. And it holds a landing while
@@ -115,11 +133,21 @@ It pushes only where runner.json's `pushAfterLanding` lists the repo
 runner and the app follow the local main by themselves. On a machine with `followOrigin` on (docs/dev-tools.md), `tb
 land` refuses in the repo the runner follows, as that main has to stay
 GitHub's: push the branch as `cloud/<topic>` or hand the work to the main
-Mac.
+Mac. On Mike's Hetzner Cloud runner (and sandboxes to come) git pushes with a
+one-hour token the main Mac hands over (`~/dev/me/misc/github-app` there),
+and the repo's rulesets let it write only `cloud/**` branches: `main`, other
+branches and tags are refused, so push work as `cloud/<topic>` and say so.
 
 The Land chip has an hour for waiting and checking; other command actions
 keep their usual ten-minute limit. In an agent tool with its own shorter
-command limit, run `tb land` in the background and collect its result.
+command limit, run `tb land` in the background with the longest timeout and
+collect its result: landings waiting for the lock are checked together
+(below, "Landing together"), so expect up to two checks' wait. If it
+refuses, it says why and what to fix: commit your changes, sort out the
+conflicting files, fix the check, or wait for whoever has uncommitted
+changes in main's checkout. A failed check ends with the
+`./check.sh --only "..."` that runs just what failed, the quick way to see
+your fix work.
 
 ### A landing outlives its tb
 
@@ -556,8 +584,12 @@ With `keep`:
   threads archiving themselves and their starters writing to them again,
   24 came back there in four days and each had to borrow a worktree.
 
-A thread started outside the repo borrows one by hand with
-`./borrow-worktree.sh` and gives it back with `--give-back <dir>`. The
+A thread started outside the repo (in `~/dev/me/misc`, say) still needs a
+worktree of its own, as another thread may be editing the main checkout. It
+borrows a spare by hand with `./borrow-worktree.sh` in the main checkout,
+commits there, runs `tb land` in it, and gives it back with
+`--give-back <dir>` so the next thread gets it. Don't `git worktree add` a
+fresh one: its first app build takes 5 to 10 minutes. The
 borrowed one is on a branch of its own, `thread/borrow-<slot>-<time>`,
 so `tb land` in it lands it like any thread's (it only lands a `thread/`
 branch); giving it back deletes that branch. It takes a branch whose
@@ -625,7 +657,8 @@ touched. Besides `thread/` branches it takes Claude Code's own worktrees,
 helper's work and thrown away, which is what the `thread/` rule is
 there to tell apart from main and branches kept by hand.
 
-A hand-merge, landing without `tb land`, holds the same landing lock.
+A hand-merge, landing without `tb land`, holds the same landing lock (a
+plain `git merge` outside it wastes the queued checks).
 From the worktree, on a Mac:
 
 ```sh
@@ -704,5 +737,5 @@ the fetch: everything has to be inside the one locked command.
 - Moving a thread with a worktree to another folder (allowed, the worktree
   just stays where it is until the thread is archived).
 - Showing the branch in the app beyond the summary field.
-- Projects (docs/projects-design.md): when patches load from project
+- Projects (docs/archive/projects-design.md): when patches load from project
   folders, `worktree` still only counts from the thread's own folder chain.

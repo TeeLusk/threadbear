@@ -34,7 +34,7 @@ function setup() {
 }
 
 test('waitFor: hibernates until the thread finishes, then wakes and carries on with its reply', () => {
-  const { h, waiter, target, session, turn } = setup();
+  const { h, waiter, target, turn } = setup();
   turn(waiter, { needs: 'nothing', waitFor: [target.slice(0, 8)] });
   let t = h.runner.get(waiter);
   assert.deepEqual(checkSummary(t), []);

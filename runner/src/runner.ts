@@ -13,18 +13,13 @@ import type { SwiftChangesStatus } from './swift-changes.ts';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
-import { SAMPLE_THREADS, WELCOME_PATCH } from './samples.ts';
-import { keepPictureMarkers, reviewInput, reviewDraft, reviewReply, sameDraft, type ReviewInput } from './reviews.ts';
+import { keepPictureMarkers } from './reviews.ts';
 import path from 'node:path';
-import { ConvexKeys, convexFolderFor, type ConvexKey, type ConvexDeployments, type ConvexKeysOptions, type ConvexLogin } from './convex-keys.ts';
+import { ConvexKeys, type ConvexKeysOptions } from './convex-keys.ts';
 import crypto from 'node:crypto';
 import type {
-  Panel,
   Account,
-  Action,
   AnyEvent,
-  ApprovalDecision,
-  BackgroundTask as ProtocolBackgroundTask,
   CliPolicy,
   CliStatus,
   DeltaBody,
@@ -40,8 +35,6 @@ import type {
   AskAnswer,
   MessageOrigin,
   ModelChoice,
-  PanelPlace,
-  PanelRequest,
   ShareAccess,
   PermissionMode,
   PersistedEvent,
@@ -49,10 +42,8 @@ import type {
   Provider,
   ProviderInfo,
   Question,
-  RewoundFiles,
   RunnerDefaults,
   Subagent,
-  ThreadStartedBy,
   ThreadStatus,
   ThreadSummary,
   TurnOutcome,
@@ -68,74 +59,53 @@ import type {
   AdapterOutput,
   BackgroundTask,
   QuestionAnswer,
-  QuestionRequest,
   SessionSink,
   SubagentUpdate,
   ToolApprovalAnswer,
-  ToolApprovalRequest,
   TurnResult,
 } from './adapters/types.ts';
 import { SessionNotFoundError } from './adapters/types.ts';
-import type { RewindResult, UseResetOutcome } from './adapters/types.ts';
+import type { UseResetOutcome } from './adapters/types.ts';
 import type { EventLog, ThreadRecord, ThreadStore, QueuedSend, SubagentRecord } from './store.ts';
 import { cutOut } from './store.ts';
 
 // The presses a thread keeps for its agent to hear of (Runner.notePress).
 const MAX_PRESS_NOTES = 20;
-import { appliedChanges, undoChanges } from './undo-edits.ts';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import { LimitRecheck } from './limit-recheck.ts';
-import { BIN_DIR, threadEnv } from './restart.ts';
-import { cleanUpWorktree, makeWorktree, sameSubfolder, worktreeInstructions } from './worktrees.ts';
+import { threadEnv } from './restart.ts';
+import { worktreeInstructions } from './worktrees.ts';
 import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from './accounts.ts';
 import type { SignInState } from './sign-in-state.ts';
-import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage.ts';
-import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
-import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
+import { pickAccount as pickByRoom, type UsageReading } from './usage.ts';
+import { RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
+import { experimentOn } from './experiments.ts';
+import { limitWhy, loginOk, nextLogin, pickInPool, poolAccounts } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
 import { isDirectory } from './fsutil.ts';
 import { commandFolders } from './tools.ts';
 import { copySessionTranscript, subagentTranscriptPath } from './transcripts.ts';
-import { historyItems, selectHistory } from './handoff-history.ts';
 import { readSubagentTranscript } from './adapters/claude/subagents.ts';
 import { fileContext } from './adapters/claude/normalize.ts';
-import { ASK_CODEX_MODEL, HAIKU, type Models } from './models/index.ts';
-import { EXPLAIN_SYSTEM, RECENT_CHARS, RECENT_MESSAGES, explainPrompt } from './explain.ts';
-import type { ExplainTurn } from './explain.ts';
-import { SAID_MAX, WAKE_SYSTEM, awayFor, hibernateNote, localWhen, readWakeAnswer, wakePrompt } from './wake-when.ts';
+import type { Models } from './models/index.ts';
+import { localWhen } from './wake-when.ts';
 import { parseWhen } from './when.ts';
-import { emptyHighlights, observe as observeHighlights, pinItem, remove as removeHighlight, unpin as unpinHighlight, upsert as upsertHighlight, view as highlightsView, absolute, type ThreadHighlights } from './highlights.ts';
-import { SERVER_NAME, approvalTitle } from './threadbear-mcp.ts';
-import { PANEL_ACK_WAIT_MS, PANEL_PLACES, resolvePanel } from './panel-requests.ts';
+import { SERVER_NAME } from './threadbear-mcp.ts';
 import { archiveFromTool, bylineFromTool, END_TURN_TOOL, endTurnAccepted, endTurnAddedArchive, endTurnAddedSnooze, snoozeFromTool, waitForFromTool, endTurnAsksForMessage, endTurnIsOneReply, endTurnMessageStands, endTurnOwesReply, endTurnRefusedRepeat, endTurnRefusedUnread, endTurnTaken, endTurnWantsReply, needsFromText, needsFromTool, replyWithoutRepeat, splitReplySection, summaryFromTool, summaryMarkdown, WakeRead } from './needs.ts';
 import type { Needs } from './needs.ts';
 import { asksForAppRestart, MAX_AGE_MS as APP_RESTART_MAX_AGE_MS } from './app-restarts.ts';
 import type { ConnectorsStatus } from './connectors.ts';
 import type { TrustOffThread } from './trust-off-thread.ts';
-import { isPatchFile, PatchTrust, type ClaudeLook, type ClaudeVerdict, type PatchTrustStore } from './patch-trust.ts';
+import { PatchTrust, type ClaudeLook, type ClaudeVerdict, type PatchTrustStore } from './patch-trust.ts';
 import { claudeOptions, claudeSettingsWithoutCommands, type ClaudeOptions } from './claude-trust.ts';
 import {
-  EMPTY_PATCH_SET,
-  findWorktreePatch,
-  hookApplies,
-  isInside,
-  loadPatchSet,
-  applyLive,
-  hasLive,
-  projectPanels,
-  renderListPanel,
-  renderPanel,
   runCommand,
   simctlScreenshot,
   type CommandOutcome,
-  type PanelRender,
   type PatchCache,
   type PatchSet,
-  type ProjectFolder,
   type Screenshot,
-  worktreePatchFiles,
-  projectPatchFiles,
   webPage,
 } from './patches.ts';
 import { cutSafely, firstLineSafely, isSafeSlice } from './safe-cut.ts';
@@ -192,6 +162,7 @@ export type Notification =
   | { method: 'projects.updated'; params: { projects: Project[] } }
   | { method: 'librarian.updated'; params: { librarian: LibrarianStatus } }
   | { method: 'connectors.updated'; params: { connectors: ConnectorsStatus } }
+  | { method: 'recipes.updated'; params: Record<string, never> }
   // Only from a draining runner, to the primary (handover.ts).
   | { method: 'drain.handedOver'; params: { threadId: string } }
   | { method: 'drain.usage'; params: { accountId: string; reading: UsageReading } };
@@ -1022,6 +993,7 @@ export class Runner {
       // recovery, not the runner.
       try {
         if (rec.asked === undefined && !rec.archivedAt) this.backfillAsked(rec);
+        if (rec.request === undefined && !rec.archivedAt) this.backfillRequest(rec);
         this.recoverReviews(st);
         if (this.recover(st)) stopped++;
       } catch (e) {
@@ -1663,6 +1635,17 @@ export class Runner {
     return sortByActivity(out);
   }
 
+  // Threads a schedule started since `since` (ms), archived ones too, for
+  // Recipes' run counts (recipes.ts): only those are summarised, as it looks
+  // every 30 seconds and a runner can have thousands of threads.
+  scheduledSince(since: number): ThreadSummary[] {
+    const out: ThreadSummary[] = [];
+    for (const st of this.threads.values()) {
+      if (st.rec.schedule && Date.parse(st.rec.createdAt) >= since) out.push(this.summary(st));
+    }
+    return out;
+  }
+
   bucket(rec: ThreadRecord): 'inbox' | 'snoozed' | 'archived' {
     if (rec.archivedAt) return 'archived';
     if (rec.snoozedUntil && Date.parse(rec.snoozedUntil) > this.clock.now()) return 'snoozed';
@@ -1701,6 +1684,12 @@ export class Runner {
   // UNREAD_MESSAGE). It counts as a refusal for each (adapters/types.ts).
   unreadMessage(threadId: string): boolean {
     return this.threads.get(threadId)?.rt.session?.unreadMessage?.() === true;
+  }
+
+  // Whether one of the experiments is on here (experiments.ts), for what
+  // a tool tells the agent (threadbear-mcp.ts).
+  experiment(id: string): boolean {
+    return experimentOn(this.cfg.home, id);
   }
 
   get(threadId: string): ThreadSummary {
@@ -4394,6 +4383,11 @@ export class Runner {
     if (body.type === 'user.message') {
       const asked = askedLine(body, st.rec.reviews);
       if (asked) st.rec.asked = asked;
+      // His first only: once set it stays.
+      if (st.rec.request === undefined) {
+        const request = requestLine(body, st.rec.reviews);
+        if (request) st.rec.request = request;
+      }
     }
     this.markDirty(st);
     this.notify({ method: 'thread.event', params: { threadId: st.rec.id, event } });
@@ -4625,6 +4619,7 @@ export class Runner {
     if (rec.startedBy) s.startedBy = { ...rec.startedBy };
     if (rec.detached) s.detached = true;
     if (rec.asked) s.asked = rec.asked;
+    if (rec.request) s.request = rec.request;
     if (rec.keywords) s.keywords = rec.keywords;
     if (rec.panelRequest) s.panelRequest = { ...rec.panelRequest };
     // A record from 28 Oct may say "people" (sharing with specific people,
@@ -4919,6 +4914,21 @@ export class Runner {
     }
   }
 
+  // Threads from before `request` (20 Nov 2026) learn it from the start of
+  // their log, once, like backfillAsked. A log longer than that with none
+  // of his in it gets "" (none, and his next message isn't his first).
+  backfillRequest(rec: ThreadRecord): void {
+    const log = this.store.log(rec.id);
+    for (const e of log.read(1, Math.min(300, log.lastSeq))) {
+      const request = e.type === 'user.message' ? requestLine(e, rec.reviews) : undefined;
+      if (request) {
+        rec.request = request;
+        return;
+      }
+    }
+    if (log.lastSeq > 300) rec.request = '';
+  }
+
   // A note outside any turn (restart.ts: "Runner restarted: ...").
   note(threadId: string, text: string): void {
     this.emit(this.mustGet(threadId), { type: 'system.note', text });
@@ -5159,7 +5169,7 @@ function turnNeeds(turn: Turn): (Needs & { from: 'tool' | 'text' }) | undefined 
 // line. Not the runner's, a schedule's or another agent's messages, which
 // he didn't write. A design review's reply is his words (reply, then
 // notes), or which ones he picked, without the "Review: <title> (<id>)" heading.
-export function askedLine(m: { text: string; origin?: MessageOrigin; reviewId?: string; reviewResponse?: ReviewDraft }, reviews?: DesignReview[]): string | undefined {
+export function askedLine(m: { text: string; origin?: MessageOrigin; reviewId?: string; reviewResponse?: ReviewDraft }, reviews?: DesignReview[], max = LIMITS.previewChars): string | undefined {
   if (!fromMike(m.text, m)) return undefined;
   let text = m.text;
   if (m.reviewId && m.reviewResponse) {
@@ -5169,7 +5179,14 @@ export function askedLine(m: { text: string; origin?: MessageOrigin; reviewId?: 
     const picked = (r.pickedIds ?? (r.pickedId ? [r.pickedId] : [])).map(id => options.find(o => o.id === id)?.title).filter(Boolean);
     text = words.length ? words.join(' ') : picked.length ? `Picked ${picked.join(' + ')}` : r.none ? 'None of them' : '';
   }
-  return oneLine(text, LIMITS.previewChars) || undefined;
+  return oneLine(text, max) || undefined;
+}
+
+// The first of those lines, longer: what the thread is for (docs/protocol.md,
+// "What Mike first asked").
+export const REQUEST_CHARS = 200;
+export function requestLine(m: Parameters<typeof askedLine>[0], reviews?: DesignReview[]): string | undefined {
+  return askedLine(m, reviews, REQUEST_CHARS);
 }
 
 export function oneLine(text: string, max: number): string {

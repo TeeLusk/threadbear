@@ -6,8 +6,8 @@ export const PROTOCOL_VERSION = 1;
 
 // cursor, opencode and grok run over ACP (adapters/acp/); each turns up as a
 // login only where its CLI is installed and logged in (adapters/acp/agents.ts).
-export type Provider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'grok';
-export const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'cursor', 'opencode', 'grok'];
+export type Provider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'grok' | 'antigravity';
+export const PROVIDERS: readonly Provider[] = ['claude', 'codex', 'cursor', 'opencode', 'grok', 'antigravity'];
 
 // What a provider is called and can do (providers.ts holds the table). `id`
 // is a plain string as a client can be sent one it has never heard of.
@@ -317,6 +317,9 @@ export type ThreadSummary = {
   // Mike's last message to it, one line, for the sidebar's "You: ..."
   // (docs/protocol.md, "What Mike last asked"). Absent until he's sent one.
   asked?: string;
+  // His first message to it, one line of up to 200 chars, for the Feed's
+  // card (docs/protocol.md, "What Mike first asked"). It stays once set.
+  request?: string;
   // The librarian's search words for it, space-separated (docs/protocol.md,
   // "Search"): searches match them as well as the title and preview.
   keywords?: string;

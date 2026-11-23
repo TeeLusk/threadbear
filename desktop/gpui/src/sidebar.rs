@@ -136,7 +136,7 @@ impl Threadbear {
     /// Up or down a thread from the open one (from nothing open, the first
     /// or the last), kept in view, with the keyboard staying in the list.
     pub(crate) fn step_thread(&mut self, step: i32, window: &mut Window, cx: &mut Context<Self>) {
-        if self.mode != SidebarMode::Inbox {
+        if !matches!(self.mode, SidebarMode::Inbox | SidebarMode::Feed) {
             return;
         }
         let order = self.arrow_order(cx);
@@ -628,6 +628,9 @@ impl Threadbear {
         if self.selected.as_deref() != Some(id) {
             return;
         }
+        // Put away from the Feed, which stays: the thread behind it goes
+        // without another opening in its place.
+        let next = next.filter(|_| self.home_page() != Some(SidebarMode::Feed));
         match next {
             Some(next) => {
                 // The page flying to its heading fades this one in under it
@@ -652,7 +655,7 @@ impl Threadbear {
 
     /// Whether an experiment is on for this Mac's runner: Settings' switch
     /// first, as it changes without a new hello, else the hello's list.
-    fn experiment_on(&self, id: &str) -> bool {
+    pub(crate) fn experiment_on(&self, id: &str) -> bool {
         let switch = self.runner_settings.as_ref().and_then(|s| s["experiments"].as_array()?.iter().find(|e| e["id"] == id).map(|e| e["on"].as_bool() == Some(true)));
         switch.unwrap_or_else(|| self.remote.experiments.iter().any(|e| e == id))
     }
@@ -1650,6 +1653,7 @@ impl Threadbear {
     pub(crate) fn new_thread(&mut self, cx: &mut Context<Self>) {
         self.leave_pane(cx);
         self.selected = None;
+        self.leave_feed_for_thread();
         self.shows_home = false;
         self.projects.open = None;
         self.note_navigation();
@@ -2809,7 +2813,8 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, window: &mut Win
                             found = shown(window);
                         }
                     } else {
-                        let scrolls = app.read(cx).side.read(cx).prs.shown_scroll().into_iter().chain(crate::activity_panels::panel_scrolls());
+                        let recipes = Some(app.read(cx).recipes.home_scroll.clone());
+                        let scrolls = app.read(cx).side.read(cx).prs.shown_scroll().into_iter().chain(crate::activity_panels::panel_scrolls()).chain(recipes);
                         for scroll in scrolls {
                             let pane = scroll.bounds();
                             if bounds.center().x < pane.left() || bounds.center().x > pane.right() || !crate::settings_window::scroll_to(&scroll, bounds) {

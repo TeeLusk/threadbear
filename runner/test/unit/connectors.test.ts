@@ -18,7 +18,6 @@ import {
   gatewayBase,
   parseHealth,
   serviceState,
-  signInNudge,
   signInSignal,
   turnSignIns,
   uncovered,

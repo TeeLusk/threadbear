@@ -101,6 +101,9 @@ pub(crate) struct WebPanels {
     client: Option<Arc<Client>>,
     /// Links that left a panel for the browser, newest last (the dump's).
     left: Vec<String>,
+    /// What each page the app made does with a click on one of its own
+    /// links (`made_page`), by the page's key.
+    asks: HashMap<String, Rc<dyn Fn(&str, &mut App)>>,
     /// Whether something could be over the pages in the last frame.
     covered: bool,
 }
@@ -110,7 +113,7 @@ impl Global for Shared {}
 
 pub(crate) fn init(cx: &mut App) {
     let selections = load_selections();
-    let entity = cx.new(|_| WebPanels { pages: Vec::new(), failed: HashMap::new(), making: HashSet::new(), convex: HashMap::new(), selections, renewing: HashSet::new(), client: None, left: Vec::new(), covered: false });
+    let entity = cx.new(|_| WebPanels { pages: Vec::new(), failed: HashMap::new(), making: HashSet::new(), convex: HashMap::new(), selections, renewing: HashSet::new(), client: None, left: Vec::new(), asks: HashMap::new(), covered: false });
     cx.set_global(Shared(entity.clone()));
     // The app draws the panels, so it's told when a page, a Convex panel or
     // the runtime changes.
@@ -373,7 +376,9 @@ impl WebPanels {
                 self.pages.push(Kept { key, page: Rc::new(page), drawn: Rc::new(Cell::new((0, Bounds::default()))), _events: task });
                 while self.pages.len() > CAPACITY {
                     // Never the one just made: it's last.
-                    self.pages.remove(0).page.set_hidden(true);
+                    let closed = self.pages.remove(0);
+                    closed.page.set_hidden(true);
+                    self.asks.remove(&closed.key);
                 }
             }
             Err(why) => {
@@ -395,8 +400,13 @@ impl WebPanels {
                 crate::open_gate::open_web(&url, cx);
             }
             PanelEvent::Changed => {}
+            // Once this update is over: what it does may come back here.
+            PanelEvent::Asked(rest) => {
+                if let Some(ask) = self.asks.get(key).cloned() {
+                    cx.defer(move |cx| ask(&rest, cx));
+                }
+            }
         }
-        let _ = key;
         cx.notify();
     }
 
@@ -409,6 +419,9 @@ impl WebPanels {
         }
         self.pages.retain(|k| k.key != key);
         self.failed.remove(key);
+        self.asks.remove(key);
+        // One asked for this frame and closed before it was made isn't.
+        self.making.remove(key);
     }
 }
 
@@ -490,6 +503,73 @@ pub(crate) fn local_page(real: &str, scripts_for: Option<&str>, opened: u64, mai
 /// the side pane (Full size), placed whole as the pane's other pages are.
 pub(crate) fn live_page(real: &str, digest: &str, run: u64, in_pane: bool, main: bool, window: &mut Window, cx: &mut App) -> AnyElement {
     sealed_page(&live_key(real, digest, run), real, Some(digest), !in_pane, true, main, window, cx)
+}
+
+/// A page the app made itself, in the pane (a design review's,
+/// review_pane.rs): sealed like any local page, its scripts off, answered
+/// from `site` (`Site::made`). A click on one of its own links comes to
+/// `asked` with what the link named (threadbear_web::preview_rules::asked),
+/// and goes nowhere. One view a `key`.
+pub(crate) fn made_page(key: &str, site: Arc<threadbear_core::local_preview::Site>, asked: Rc<dyn Fn(&str, &mut App)>, main: bool, window: &mut Window, cx: &mut App) -> AnyElement {
+    let Some(panels) = panels(cx) else { return note("This page can't show here.", cx) };
+    let parent = match running("hl-page", "this page", main, None, window, cx) {
+        Ok(parent) => parent,
+        Err(instead) => return instead,
+    };
+    let key = key.to_owned();
+    if let Some(drawn) = panels.update(cx, |p, _| p.touch(&key)) {
+        return placed(drawn, false);
+    }
+    if let Some(why) = panels.read(cx).failed.get(&key).cloned() {
+        return note(&format!("Couldn't show this page: {why}"), cx);
+    }
+    if panels.update(cx, |p, _| p.making.insert(key.clone())) {
+        let preview = threadbear_web::PreviewSite::made(site);
+        let (panels, url) = (panels.clone(), preview.page_url());
+        // After this frame, as a panel's page is made.
+        cx.defer(move |cx| {
+            panels.update(cx, |p, cx| {
+                // Closed in the meantime (`forget`): no view left behind.
+                if !p.making.contains(&key) {
+                    return;
+                }
+                p.asks.insert(key.clone(), asked);
+                p.make(key, url, PanelKind::Preview(preview), parent, cx);
+            })
+        });
+    }
+    div().size_full().into_any_element()
+}
+
+/// Loads a made page again where it is, after its site's document changed
+/// (`Site::remake`). Nothing for a page not made yet: it loads the new one.
+pub(crate) fn reload_made_page(key: &str, cx: &App) {
+    if let Some(page) = panels(cx).and_then(|p| p.read(cx).page(key).cloned()) {
+        page.reload();
+    }
+}
+
+/// Runs a script of the app's own in a made page, through its DevTools (the
+/// page's own scripts stay off): a tick set where the page stands. If it
+/// doesn't answer true, the page is loaded again, which shows the same
+/// from its top. Nothing for a page not made yet: it loads as it now is.
+pub(crate) fn run_in_made_page(key: &str, script: String, cx: &mut App) {
+    let Some(page) = panels(cx).and_then(|p| p.read(cx).page(key).cloned()) else { return };
+    let answer = page.devtools("Runtime.evaluate", json!({ "expression": script, "returnByValue": true }));
+    cx.spawn(async move |_| {
+        let done = matches!(answer.await, Ok(Ok(said)) if said["result"]["value"] == json!(true));
+        if !done {
+            page.reload();
+        }
+    })
+    .detach();
+}
+
+/// Closes a made page's view, when what it showed is closed.
+pub(crate) fn close_made_page(key: &str, cx: &mut App) {
+    if let Some(panels) = panels(cx) {
+        panels.update(cx, |p, _| p.forget(key));
+    }
 }
 
 thread_local! {

@@ -56,6 +56,29 @@ impl ReviewWindow {
             .into_any_element()
     }
 
+    /// Under the stage when the window's a closer look from the review's
+    /// page (`closer_look`): the option on show's tick, name and reasons, at the
+    /// thread's reading size, where the eye already is. Nothing while
+    /// they're all side by side.
+    pub(super) fn render_words(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let index = self.session.focused();
+        let Some(option) = self.session.review().options.get(index).filter(|_| self.session.mode == ReviewMode::Single).cloned() else { return div().into_any_element() };
+        let picked = self.session.draft().picked_ids.contains(&option.id);
+        let recommended = self.session.review().recommended.as_deref() == Some(option.id.as_str());
+        let title = h_flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(10.))
+            .child(self.render_pick_mark(&option, picked, cx))
+            .child(div().text_size(px(style::size::HEADER + 2.)).line_height(px(style::natural_line(style::size::HEADER + 2.))).font_weight(FontWeight::SEMIBOLD).child(option.title.clone()))
+            .when(recommended, |s| s.child(recommended_mark(cx)));
+        let mut words = v_flex().w_full().max_w(px(860.)).gap(px(6.)).child(title);
+        if let Some(reason) = option.note.clone().filter(|n| !n.is_empty()) {
+            words = words.child(div().text_size(px(style::size::BODY)).line_height(px(style::size::BODY_LINE)).child(inline_note(("review-words", index), &reason, style::label_text(cx), &self.cwd, cx)));
+        }
+        h_flex().id("review-words").flex_none().w_full().justify_center().px(px(28.)).pt(px(14.)).pb(px(22.)).child(words).into_any_element()
+    }
+
     /// One option: its tick, its name and reasons (a click shows it on the
     /// stage), its shots when it has several, and a note left on it.
     fn render_choice(&mut self, index: usize, option: &ReviewOption, cx: &mut Context<Self>) -> AnyElement {

@@ -1,0 +1,23 @@
+# Commits that only ran a formatter over the code. git blame looks past
+# them with `git config blame.ignoreRevsFile .git-blame-ignore-revs`, and
+# GitHub's blame does by itself.
+#
+# The `# format-...:` lines above an id say how that commit was made, for
+# carrying work made before it across it (runner/src/format-replay.ts; tb land
+# does it by itself, scripts/replay-over-format.sh by hand, and a fork
+# bringing in Mike's release with --merge):
+#   format-subject  the commit's subject, which finds it until its id is
+#                   written below it (tb land and sync-main.sh can both
+#                   rebase it on the way to GitHub, so the id is filled in
+#                   from origin/main afterwards)
+#   format-command  what made it, run from the top of a copy of the tree
+#   format-paths    the folders it formats (and only reads from)
+#   format-config   files taken from the format commit itself while
+#                   formatting an older tree, so it's formatted the same way
+# The tree's own config files are put back afterwards. A format commit
+# that's reverted comes out of this list in the same commit.
+
+# format-subject: Format desktop/'s Rust with cargo fmt --all, nothing else
+# format-command: cd desktop && cargo fmt --all
+# format-paths: desktop
+# format-config: rust-toolchain.toml desktop/rustfmt.toml

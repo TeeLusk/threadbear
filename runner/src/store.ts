@@ -351,6 +351,9 @@ export type ThreadRecord = {
   startedBy?: ThreadStartedBy;
   // Mike's last message, one line (askedLine in runner.ts).
   asked?: string;
+  // Mike's first message, one line (requestLine in runner.ts). Once set it
+  // stays. "" when the log was too long to find it in (backfillRequest).
+  request?: string;
   // The librarian's search words: what someone might type to find it that
   // its title doesn't say ("dentist" for a wisdom tooth appointment).
   // "" once a look or the keyword sweep found none, so the sweep moves on.

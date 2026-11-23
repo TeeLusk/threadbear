@@ -71,6 +71,9 @@ pub struct Threadbear {
     pub(crate) frame_rate: Option<Entity<crate::frame_stats::FrameRate>>,
     /// The pane sections Hide Panels closed, for Show Panels (`hiddenPanes`).
     pub(crate) hidden_panes: Vec<String>,
+    /// The pane sections made wide for a page, and what that changed, for
+    /// putting each back (`show_pane_wide`).
+    pub(crate) pane_widths: HashMap<String, threadbear_dock::Widened>,
     pub(crate) mode: SidebarMode,
     /// When the activity bar last switched the sidebar's view, for the new
     /// one to settle in (shell.rs `render_threads_panel`).
@@ -183,6 +186,8 @@ pub struct Threadbear {
     pub(crate) restoring_place: bool,
     /// The Librarian view (librarian.rs).
     pub(crate) librarian: crate::librarian::LibrarianState,
+    /// The Recipes view (recipes.rs), with the `recipes` experiment on.
+    pub(crate) recipes: crate::recipes::RecipesState,
     /// What the Librarian page's picture says when it's poked.
     pub(crate) librarian_pokes: crate::home_page::Pokes,
     /// The Usage panel's numbers and the honey pot (usage.rs).
@@ -266,6 +271,8 @@ pub struct Threadbear {
     /// The projects themselves, the page that's open and the views' own
     /// state (projects.rs).
     pub(crate) projects: crate::projects::ProjectsState,
+    /// The Feed's cards, folds and replies (inbox_feed.rs).
+    pub(crate) inbox_feed: crate::inbox_feed::FeedState,
 
     /// The new-thread page's box and what it's set to (new_thread.rs).
     pub(crate) new_thread: crate::new_thread::NewThreadState,
@@ -516,6 +523,7 @@ impl Threadbear {
             #[cfg(feature = "frame-stats")]
             frame_rate: None,
             hidden_panes: Vec::new(),
+            pane_widths: HashMap::new(),
             mode: SidebarMode::Inbox,
             view_switched: None,
             history: NavigationHistory::default(),
@@ -571,8 +579,10 @@ impl Threadbear {
             scheduled,
             schedule_editor: None,
             shows_home: false,
+            inbox_feed: Default::default(),
             restoring_place: false,
             librarian: crate::librarian::LibrarianState::new(),
+            recipes: crate::recipes::RecipesState::new(),
             librarian_pokes: crate::home_page::Pokes::new(crate::home_page::Art::Librarian),
             usage,
             runner_settings: None,
@@ -865,6 +875,7 @@ impl Threadbear {
                     self.logins = RunnerLogins::from_hello(hello);
                     self.remote.experiments = hello["experiments"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_owned)).collect();
                     crate::live_pages::set_on(self.remote.experiments.iter().any(|e| e == crate::live_pages::EXPERIMENT), self.main_window, cx);
+                    crate::review_pane::set_on(self.remote.experiments.iter().any(|e| e == crate::review_pane::EXPERIMENT), cx);
                     self.runner_version = hello["runnerVersion"].as_str().unwrap_or("").to_owned();
                     self.upstream_on = hello["updates"]["upstream"]["state"].as_str().is_some_and(|s| s != "off");
                     self.upstream_checkout = hello["updates"]["upstream"]["checkout"].as_str().filter(|c| !c.is_empty()).map(str::to_owned);
@@ -906,6 +917,7 @@ impl Threadbear {
                     self.load_remote(cx);
                     self.load_clis(cx);
                     self.load_connectors(cx);
+                    self.load_recipes(cx);
                     self.load_setup_devices(cx);
                     self.side.update(cx, |side, cx| side.connected(cx));
                     for pane in self.pane.iter().chain(self.thread_panels.panes()) {
@@ -1017,6 +1029,7 @@ impl Threadbear {
                     }
                 }
                 "librarian.updated" => self.librarian.status = Some(threadbear_core::librarian::Status::decode(&params["librarian"])),
+                "recipes.updated" => self.load_recipes(cx),
                 "settings.updated" => self.runner_settings = Some(params["settings"].clone()),
                 // A login appearing or going, its models once asked, its
                 // usage; and the pools after a save: both replace `hello`'s.
@@ -1060,6 +1073,13 @@ impl Threadbear {
                     // An open review window hears its review change whichever
                     // thread is open here (review_window.rs).
                     crate::review_window::receive_event(&params, cx);
+                    // And its page in the pane, if that's how it's open
+                    // (review_pane.rs).
+                    if params["event"]["type"].as_str() == Some("review.updated") {
+                        if let (Some(thread_id), Some(review)) = (params["threadId"].as_str(), threadbear_core::reducer::DesignReview::decode(&params["event"]["review"])) {
+                            self.side.update(cx, |side, cx| side.review_updated(thread_id, &review, cx));
+                        }
+                    }
                     // Each pane takes its own thread's events only: the open
                     // ones, and those kept loaded, which stay subscribed.
                     let id = params["threadId"].as_str().unwrap_or("");
@@ -1402,6 +1422,7 @@ impl Threadbear {
             // Open already, behind a page (a schedule's target was clicked,
             // or a project's page): the page goes.
             if self.shows_home || self.projects.open.is_some() {
+                self.leave_feed_for_thread();
                 self.shows_home = false;
                 self.projects.open = None;
                 self.note_navigation();
@@ -1428,6 +1449,7 @@ impl Threadbear {
         let client = self.client.clone();
         let composer = self.composer_for(&id, window, cx);
         self.selected = Some(id);
+        self.leave_feed_for_thread();
         self.shows_home = false;
         self.projects.open = None;
         let pane = match (moved, kept) {
@@ -1539,6 +1561,7 @@ impl Threadbear {
         self.close_subagent(cx);
         self.leave_pane(cx);
         self.selected = None;
+        self.leave_feed_for_thread();
         self.shows_home = false;
         self.projects.open = None;
         self.note_navigation();
@@ -1678,6 +1701,9 @@ impl Threadbear {
         if self.mode == SidebarMode::Projects {
             sidebar["sections"] = self.projects_sidebar_dump();
         }
+        if self.recipes_on() {
+            sidebar["recipes"] = self.recipes_dump();
+        }
         let mut dump = json!({
             "connection": connection,
             "selection": self.selection_dump(),
@@ -1695,6 +1721,7 @@ impl Threadbear {
             "homePage": match self.home_page() {
                 Some(SidebarMode::Scheduled) => self.scheduled_home_dump(),
                 Some(SidebarMode::Projects) => json!({ "title": "Projects" }),
+                Some(SidebarMode::Feed) => self.feed_dump(),
                 Some(_) => self.librarian_home_dump(),
                 None => Value::Null,
             },
@@ -1864,6 +1891,10 @@ impl Threadbear {
             // The picks shown as chips under a folded card (composer_answers.rs).
             if let Some(answers) = composer.answer_chip_lines(cx) {
                 out["answers"] = json!(answers);
+            }
+            // The options ticked on a review's page, over the words.
+            if let Some(picks) = composer.review_pick_lines(cx) {
+                out["reviewPicks"] = json!(picks);
             }
         }
         out

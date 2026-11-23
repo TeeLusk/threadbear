@@ -504,7 +504,7 @@ test('background shells and subagents hold an idle restart until they finish', a
 test('when background work ends, the restart also waits for the turn the CLI starts to read the result', async () => {
   const h = makeHarness();
   const { r, state } = withRestarter(h);
-  const { thread } = create(h);
+  create(h);
   const s = h.adapter.last;
   s.init();
   s.out({ kind: 'tasks', tasks: TASKS });
@@ -798,7 +798,7 @@ test('a snooze that ends while the runner is down still sends the queued message
 test('a thread someone has written in since it asked is not resumed over them', async () => {
   const h = makeHarness();
   const { r } = withRestarter(h);
-  const other = create(h).thread;
+  create(h);
   const so = h.adapter.last;
   so.init();
   const { thread } = create(h);

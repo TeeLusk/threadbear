@@ -15,6 +15,7 @@ import { toPhoneAsk } from '../../src/sync.ts';
 import { CodexTools, type ToolDefinition } from '../../src/adapters/codex/tools.ts';
 import { toolTitle } from '../../src/tools.ts';
 import { ThreadRouter } from '../../src/handover.ts';
+import { startedHeader } from '../../src/cross-runner.ts';
 
 function start(h: ReturnType<typeof makeHarness>, text = 'Fix the tests', extra: Record<string, unknown> = {}) {
   const { thread } = h.runner.create({ text, accountId: 'claude-3', ...extra });
@@ -2439,4 +2440,22 @@ test("a short id here is found when the list of other Macs' threads never comes 
   const r = (await list.find((x) => x.name === 'read_thread')!.handler({ threadId: other.id.slice(0, 8) } as never, {})) as { content: { text: string }[]; isError?: boolean };
   assert.equal(Boolean(r.isError), false, r.content[0].text);
   assert.match(r.content[0].text, /Answerer/);
+});
+
+// A thread the main Mac started on a runner-key runner (the Pixel, 20 Nov)
+// can't reach its starter: send_message to it says the report goes back
+// in its reply (far-reports.ts) rather than "No thread".
+test('send_message to the thread on another Mac that started this one says to put the report in the reply', async () => {
+  const h = makeHarness();
+  const starter = '02888d03-bca0-4aa4-9f9d-ce61750f0dae';
+  const { thread } = start(h, `${startedHeader(starter, 'M5')}Find out why the update failed, and send_message me what you find.`);
+  const { call } = tools(h, thread.id);
+  for (const id of [starter, '02888d03']) {
+    const r = await call('send_message', { threadId: id, text: 'Found it.' });
+    assert.equal(r.error, true);
+    assert.match(r.text, /Not sent: thread 02888d03-bca0-4aa4-9f9d-ce61750f0dae started this one from another Mac.*put your report in your reply/);
+  }
+  // A few characters of it, or any other id it can't find, is still "No thread".
+  assert.match((await call('send_message', { threadId: '0288', text: 'x' })).text, /No thread with id 0288/);
+  assert.match((await call('send_message', { threadId: '0000dead-0000-0000-0000-000000000000', text: 'x' })).text, /No thread with id 0000dead/);
 });

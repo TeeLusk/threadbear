@@ -184,7 +184,11 @@ File references are where to look.
   `desktop-drafts.json`, what's typed but not sent in each message box and card's Something else box, so
   a quit or relaunch doesn't lose it, and
   `sync-sent.json`, hashes of what's already in your
-  Convex mirror so a restart sends only what changed, and
+  Convex mirror so a restart sends only what changed,
+  `far-reports.json`, the threads this Mac's agents started on your other
+  Macs and which thread here each one's replies go back to (ids, the last
+  turn passed on and when), read from your Convex backend every 15 seconds
+  while one is busy (every five minutes once it's quiet), and
   `shared-pools.json`, the last pools your Convex backend had, which every
   runner shares, so one starts with them while the backend can't be reached,
   `profiles/`, the last ten CPU profiles of the runner, made only when
@@ -382,6 +386,14 @@ File references are where to look.
   (`seen.mjs`, which does nothing) whose running Grok reports, so a thread
   whose plugin didn't load is stopped. The guard reads
   `~/.grok/trusted_folders.toml` (`runner/src/adapters/acp/grok-guard.ts`).
+- **When Google's antigravity-acp (Gemini) is set up and signed in**
+  (`antigravityPath` in `runner.json`, or an `agy_acp_server.par` on your
+  PATH, signed by Google), it starts that for threads on Gemini, runs
+  `/usr/bin/codesign --verify` on it and the `localharness_external` beside
+  it, and runs it with `--version` when the runner starts. Each session opens
+  in an empty folder under your temp folder (`threadbear-acp-session-*`),
+  removed when it ends, as Antigravity writes a `skills/` folder into the
+  folder its session opens in. Threadbear never updates or downloads it.
 - **New installs start threads on Auto.** On Auto, Claude runs with its
   safety check approving or blocking each action, and Codex asks before
   edits. An install set up before 9 Nov 2026 keeps starting threads on
@@ -621,6 +633,30 @@ File references are where to look.
   thread, add an email to a thread's next turn, start a thread (to act on
   an email, or the twice-daily list) and keeps `runner/mail-watch.json` in
   the data folder (the ids it has seen and the list's emails).
+- **Agent Archive, if you run it** (`runner/src/agent-archive.ts`, the
+  experiment archive, off unless you turn it on): every ten minutes it
+  writes `archive-sessions.json` in the data folder, saying which Claude
+  or Codex session is which thread (its title, project and folder), and
+  each Claude login's `projects` and Codex login's `sessions` folder, for
+  Agent Archive's own sync to read. With Agent Archive installed it also
+  runs that sync's `status --json` for `tb status`. With `archive.repo`
+  in `runner.json` it checks that repo's main with `git ls-remote`, and
+  when main moves, builds the sync in `~/Library/Caches/Threadbear/agent-archive`
+  (`git clone`, `npm ci`, a build) and runs the archive's own
+  `install-runtime`, which replaces its runtime and restarts its service;
+  then copies the build to the machines in `archive.pushTo` over ssh and
+  installs it there. It remembers the last build in
+  `agent-archive-update.json`. It never reads the archive's credentials.
+- **Recipes, if you turn them on** (`runner/src/recipes.ts`, the
+  experiment recipes, off unless you turn it on): every 30 seconds the
+  runner reads the recipes that come with Threadbear (`runner/src/recipes/`)
+  and your own, in `~/ThreadbearThreads/recipes` (runner.json's
+  `recipes.folder`). Nothing is fetched or sent anywhere. It keeps
+  `recipes.json` in the data folder (which recipes you added, the thread that
+  set each up and the schedules that are its). Adding a recipe makes its
+  folder there and starts a thread in it; the schedules that thread makes are
+  ordinary schedules. Switching one off pauses them, and for the email
+  watcher's recipe turns that experiment off.
 - **Your changes to the old Mac app** (`runner/src/swift-changes.ts`): a
   couple of minutes after the runner starts, then hourly, after each
   release check and when the new desktop app connects, it reads your
@@ -699,6 +735,10 @@ File references are where to look.
 
 ## What it reads
 
+- With the Feed experiment on, the GPUI app reads your account's full name
+  from its own user record (`getpwuid`) once, and shows its first word over
+  your messages on the Feed's cards (`desktop/gpui/src/inbox_feed.rs`). It
+  isn't stored or sent anywhere.
 - When you click a picture panel to open Simulator, the GPUI app looks up
   Apple's Simulator and runs `/usr/bin/codesign --verify --strict` with its
   Apple signature and bundle-id requirement before opening it. This runs
@@ -724,6 +764,9 @@ File references are where to look.
   (never opened). Grok itself reads `~/.grok`, and as it does anywhere your
   `~/.claude` settings, hooks, skills and `CLAUDE.md`; its threads run your
   own Grok and Claude hooks.
+- Whether `$GEMINI_HOME/antigravity-acp/acp_token.json` (`~/.gemini` by
+  default) exists (never opened). Antigravity itself reads and writes its
+  own folder there (its sign-in, conversations and settings).
 - With the Shared memory experiment on (off unless you turn it on): on your
   main Mac, each Claude login's `CLAUDE.md` and the memory files under
   `projects/*/memory/` for folders in your home folder, once a minute, which
@@ -782,10 +825,12 @@ File references are where to look.
 | OpenCode's Zen (opencode.ai), models.dev, and whichever providers you've logged it into | theirs | Only with a thread on OpenCode: that thread's prompts and tool output, through the official CLI, and small jobs' text when a pool of only OpenCode logins is picked for them in Settings |
 | Cursor (api2.cursor.sh) | theirs | Only with a thread on Cursor: the same, on your own login |
 | xAI (cli-chat-proxy.grok.com and Grok's other services) | theirs | Only with a thread on Grok: the same, on your own login, and small jobs' text when a pool of only Grok logins is picked for them in Settings. After a Grok turn fails because the API couldn't be reached, the runner opens (and closes) a connection to cli-chat-proxy.grok.com as it does for the others |
+| Google (cloudcode-pa.googleapis.com and Antigravity's other services) | theirs | Only with a thread on Gemini: the same, on your own Google login. After a Gemini turn fails because the API couldn't be reached, the runner opens (and closes) a connection to cloudcode-pa.googleapis.com as it does for the others |
 | Fly.io (api.machines.dev) | yours, if you set it up | Never from the Mac: only from your Convex deployment, and only once you've made a virtual runner there (`boxes:setRunnerService`, docs/virtual-runners.md) and set `FLY_API_TOKEN` and `FLY_APP` on the deployment. It makes, pauses, resumes, lists and deletes a Fly Machine for each thread on a virtual runner (`convex/boxService.ts`, `convex/boxProviders/fly.ts`), and every 10 minutes lists them to delete any nobody wants. A machine's environment holds only your deployment's address and a single-use boot token that lapses in 10 minutes, and its tags name the box's rows. |
 | Mike's push relay | Mike's | Only when a paired iPhone or Android phone gets a notification (an Android phone's goes on to Google's Firebase Cloud Messaging, from the relay). It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A UnifiedPush server (ntfy.sh or whichever distributor the phone uses) | the distributor's | Only with the Android app's F-Droid build paired: each notification is posted from your Convex deployment, not the Mac, to the https address the phone's distributor gave it, encrypted so the server sees neither the text nor the thread (`convex/push.ts` `sendWebPush`, `docs/push-relay.md`, "UnifiedPush"). Private and local addresses are refused. |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
+| Agent Archive's repo, and the machines you list for it, over ssh | yours | Only with the archive experiment on and `archive.repo` set: `git ls-remote` and `git fetch` of that repo every ten minutes, `npm ci` from the npm registry when its main moves, and the built sync copied over ssh to each machine in `archive.pushTo`. The runner sends nothing to the archive itself: Agent Archive's own sync does, to the archive it was set up with. |
 | Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The installed GPUI app of Mike's repo, on the real data folder, sends its panics, crashes and freezes of 15 seconds or more, each as one POST to Sentry's endpoint with the function names and nothing typed or opened (`desktop/core/src/crash_report.rs`, `desktop/gpui/src/crash_reporting.rs`); it uploads no symbols. The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,

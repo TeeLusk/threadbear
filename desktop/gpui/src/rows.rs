@@ -250,6 +250,9 @@ impl ThreadPane {
     /// `userText`: Mike's words, or for a message answering asks or a review
     /// each question small and quiet with his answer under it.
     fn user_row(&mut self, ix: usize, row: &Row, message: &UserMessage, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        if message.is_from_schedule() {
+            return self.schedule_message_row(ix, row, message, cx);
+        }
         if message.shows_as_note() {
             return self.runner_note_row(message, cx);
         }
@@ -392,23 +395,12 @@ impl ThreadPane {
         Some(threadbear_core::juice::send_lift(now - at, reduce))
     }
 
-    /// `runnerMessageText` and `scheduledMessageText`: a centred quiet note
-    /// saying where the message came from, then the message itself.
+    /// `runnerMessageText`: a centred quiet note saying the runner sent it,
+    /// then the message itself.
     fn runner_note_row(&mut self, message: &UserMessage, cx: &mut Context<Self>) -> AnyElement {
         let faint = style::faint_text(cx);
         let quiet = style::quiet_text(cx);
-        let (mut header, body) = if message.is_from_schedule() {
-            match message.scheduled_header() {
-                Some(h) => (format!("Scheduled: {} · {}", h.title, h.when_text), h.body),
-                None => ("Sent by a schedule".to_owned(), message.text.clone()),
-            }
-        } else {
-            (message.runner_header(), message.text.clone())
-        };
-        if message.is_from_schedule() {
-            // Clock glyph in the text's place (`symbol("clock", ...)`).
-            header.insert_str(0, "\u{23F2}\u{FE0E} ");
-        }
+        let (header, body) = (message.runner_header(), message.text.clone());
         let body = body.trim().to_owned();
         let col = v_flex()
             .pt(px(RUNNER_TOP))
@@ -422,13 +414,45 @@ impl ThreadPane {
     /// `agentMessageText`: another thread's agent wrote this, so a card on the
     /// left that can't pass for Mike's bubble, headed by that thread.
     fn agent_message_row(&mut self, ix: usize, row: &Row, header: &AgentHeader, cx: &mut Context<Self>) -> AnyElement {
-        let (card_bg, border) = (style::card_background(cx), style::card_border(cx));
         // Its first line names the sending thread as a chip (chips.rs), and
         // thread ids in its words are chips too.
         let title = self.agent_header_line(&format!("agent-{ix}"), header, cx);
+        self.message_card(ix, row, title, &header.body, cx)
+    }
+
+    /// A schedule's message: the same card, a clock with the schedule's name
+    /// and when it runs on top, then its words as a reply's, so a code block
+    /// is a code block (Mike, 20 Nov, from the phone's raw `[Scheduled: ...]`
+    /// bubble). It was a centred note of plain text, which a check's output
+    /// in a fence didn't survive.
+    fn schedule_message_row(&mut self, ix: usize, row: &Row, message: &UserMessage, cx: &mut Context<Self>) -> AnyElement {
+        let (label, body) = match message.scheduled_header() {
+            Some(h) => {
+                let name = if h.title.is_empty() { "Untitled".to_owned() } else { h.title };
+                (if h.when_text.is_empty() { name } else { format!("{name} \u{b7} {}", h.when_text) }, h.body)
+            }
+            None => ("Sent by a schedule".to_owned(), message.text.clone()),
+        };
+        let faint = style::faint_text(cx);
+        let title = h_flex()
+            .min_h(px(17.))
+            .items_center()
+            .text_size(px(size::SMALL))
+            .line_height(px(17.))
+            .text_color(faint)
+            .child(div().flex_none().mr(px(3.)).child(crate::icons::symbol("clock").size(px(size::SMALL)).text_color(faint)))
+            .child(div().min_w_0().truncate().child(label))
+            .into_any_element();
+        self.message_card(ix, row, title, &body, cx)
+    }
+
+    /// `agentMessageText`'s card: on the left so it can't pass for Mike's
+    /// bubble, a quiet line saying who sent it, then the words as markdown.
+    fn message_card(&mut self, ix: usize, row: &Row, title: AnyElement, body: &str, cx: &mut Context<Self>) -> AnyElement {
+        let (card_bg, border) = (style::card_background(cx), style::card_border(cx));
         // Its pictures as a reply's: another Mac's thread draws none from
         // this Mac, and only picture files are drawn (`markdown::pictures`).
-        let body = markdown::pictures(header.body.trim(), self.summary.runner_id.is_none()).into_owned();
+        let body = markdown::pictures(body.trim(), self.summary.runner_id.is_none()).into_owned();
         let body = self.with_thread_chips(body, cx);
         let body = self.with_link_marks(body, cx);
         let doc = (!body.is_empty()).then(|| self.markdown_state(&format!("agent-{ix}"), &body, cx));

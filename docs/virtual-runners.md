@@ -10,7 +10,7 @@ provider has "a minimum set of functionality that we would require".
 
 This replaces the sandboxed-threads experiment (a container around Claude
 Code on a shared runner, taken out on 16 Nov) and is the "cloud sandboxes"
-half of step 6 (docs/plan.md). Coordinators are a separate experiment and
+half of step 6 (docs/archive/plan.md). Coordinators are a separate experiment and
 out of scope here.
 
 Status: the spike passed (Order, 1), and the backend is built in two
@@ -1018,7 +1018,7 @@ Not built yet, in about the order they're needed:
 5. **Move to** and from a virtual runner, GitHub tokens from Convex,
    limits and costs in Settings.
 
-Everything here goes through the cross-lab review in AGENTS.md before
+Everything here goes through the cross-lab review in Mike's global instructions before
 it's called done.
 
 ## Faster starts

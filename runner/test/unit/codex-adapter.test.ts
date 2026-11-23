@@ -19,7 +19,7 @@ import { SessionNotFoundError, type AdapterOutput, type QuestionRequest, type Se
 import { ProcessRegistry } from '../../src/proc.ts';
 import { nullLogger } from '../../src/log.ts';
 import type { Account } from '../../src/protocol.ts';
-import { FakeCodex, type FakeConn } from '../helpers/fake-app-server.ts';
+import { FakeCodex } from '../helpers/fake-app-server.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
 
 const dirs: string[] = [];

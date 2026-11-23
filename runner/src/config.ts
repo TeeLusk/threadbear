@@ -7,6 +7,7 @@ import { atomicWriteFileSync } from './fsutil.ts';
 import { RELEASE } from './release.ts';
 import { gatewayBase, gatewayUrlFrom } from './connectors.ts';
 import type { MailWatchSettings } from './mail-watch.ts';
+import type { ArchiveSettings } from './agent-archive.ts';
 import { credentialUrlProblem } from './secure-url.ts';
 import { reviewerLists, type LabReviewer } from './lab-reviewers.ts';
 import { findGatewayClient } from './notion-tasks.ts';
@@ -42,6 +43,7 @@ export type CliUpdatesConfig = {
   cursor?: CliPolicy;
   opencode?: CliPolicy;
   grok?: CliPolicy;
+  antigravity?: CliPolicy;
   checkMinutes: number;
   keepCodexVersions: number; // Codex copies kept under <home>/tools/codex
   // Other CLIs' update commands, run daily (updates/extra.ts). None by default.
@@ -104,6 +106,8 @@ export type Config = {
   cursorPath?: string;
   opencodePath?: string;
   grokPath?: string;
+  // agy_acp_server.par, with localharness_external beside it.
+  antigravityPath?: string;
   codexArgs: string[]; // extra `codex app-server` arguments
   codexMainDir: string; // codex-main's CODEX_HOME
   tokenStatsLimitsFile: string; // Token Stats' limits.json, read only
@@ -212,6 +216,7 @@ export type RunnerJson = {
   cursorPath?: string;
   opencodePath?: string;
   grokPath?: string;
+  antigravityPath?: string;
   codexArgs?: string[];
   cliUpdates?: Partial<CliUpdatesConfig>;
   accountNotes?: Record<string, string>;
@@ -261,7 +266,7 @@ export type RunnerJson = {
   // icon: an SF Symbol for this runner in lists (machine.ts works one out).
   // An rpcUrl left from the direct link between Macs (gone 13 Nov 2026) is ignored.
   // full: true sends tool output to your Convex deployment as well, scrubbed first
-  // (docs/full-convex.md). Off unless set. fullAsked, fullAskedThread and
+  // (docs/convex-backend.md, "Full sync"). Off unless set. fullAsked, fullAskedThread and
   // fullAskedQuestion are left from the once-only offer (taken out 16 Nov 2026).
   // usageWarning: false hides tb status's warning near Convex's Free limits.
   // pastedPictures: false keeps pictures you paste off your Convex deployment
@@ -280,6 +285,11 @@ export type RunnerJson = {
   // that prints new emails, how often, when the pile comes, and the
   // decisions it may act on.
   mailWatch?: MailWatchSettings;
+  // Agent Archive through Threadbear (agent-archive.ts): its repo and the machines its sync is pushed to.
+  archive?: ArchiveSettings;
+  // Recipes (experiment recipes, recipes.ts): where the user's own recipes
+  // and set-up recipes' working files go. Default ~/ThreadbearThreads/recipes.
+  recipes?: { folder?: string };
 };
 
 // What defaults.permissionMode may be. Not Plan first: that waits for Mike
@@ -505,6 +515,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     ...(nonEmpty(json.cursorPath) ? { cursorPath: expand(nonEmpty(json.cursorPath)!) } : {}),
     ...(nonEmpty(json.opencodePath) ? { opencodePath: expand(nonEmpty(json.opencodePath)!) } : {}),
     ...(nonEmpty(json.grokPath) ? { grokPath: expand(nonEmpty(json.grokPath)!) } : {}),
+    ...(nonEmpty(json.antigravityPath) ? { antigravityPath: expand(nonEmpty(json.antigravityPath)!) } : {}),
     codexArgs: Array.isArray(json.codexArgs) ? json.codexArgs.filter((a): a is string => typeof a === 'string') : [],
     codexMainDir: expand(env.THREADBEAR_CODEX_MAIN_DIR || '~/.codex'),
     tokenStatsLimitsFile: expand(

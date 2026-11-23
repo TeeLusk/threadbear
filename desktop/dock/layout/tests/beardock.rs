@@ -480,3 +480,151 @@ fn rename_keeps_a_panels_place_selection_window_and_hidden_title() {
     l.rename("nowhere", "elsewhere");
     assert_eq!(l, before);
 }
+
+// Not from the Swift tests: a panel made wider from code, and put back.
+
+/// A dock of `layout` drawn `width` points wide. The tests give it 1 point gaps.
+fn drawn(layout: DockLayout, width: f64) -> DockController {
+    let mut c = DockController::new(layout);
+    c.bounds = Rect::new(0., 0., width, 800.);
+    c
+}
+fn widths(c: &DockController, available: &dyn Fn(&str) -> bool) -> HashMap<String, f64> {
+    group_frames(&c.layout.root, c.bounds, available, 1.).into_iter().map(|(id, r)| (id, r.width)).collect()
+}
+fn fractions(c: &DockController, split: &str) -> Vec<f64> {
+    fn find(node: &DockNode, id: &str) -> Option<Vec<f64>> {
+        let DockNode::Split(s) = node else { return None };
+        if s.id == id {
+            return Some(s.fractions.clone());
+        }
+        s.children.iter().find_map(|child| find(child, id))
+    }
+    find(&c.layout.root, split).expect("the split")
+}
+fn near(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9)
+}
+
+#[test]
+fn widening_a_panel_wide_enough_already_changes_nothing() {
+    // 300 | 600 | 300, less the two gaps.
+    let mut c = drawn(threeColumns(), 1202.);
+    let before = c.layout.clone();
+    assert_eq!(c.widen("highlights", 300., 420., &|_| true, 1.), None);
+    assert_eq!(c.widen("highlights", 120., 420., &|_| true, 1.), None);
+    assert_eq!(c.layout, before);
+}
+
+#[test]
+fn widening_takes_the_room_from_what_can_spare_it() {
+    let mut c = drawn(threeColumns(), 1202.);
+    let w = c.widen("highlights", 400., 420., &|_| true, 1.).expect("widened");
+    assert_eq!(w.split, "root");
+    assert_eq!(w.before, vec![0.25, 0.5, 0.25]);
+    assert!(near(&w.after, &[0.25, 500. / 1200., 400. / 1200.]), "{:?}", w.after);
+    assert!(near(&fractions(&c, "root"), &w.after));
+    // The threads list is under 420 already, so it's left alone, and both
+    // groups in the column are as wide as the column.
+    let now = widths(&c, &|_| true);
+    assert!((now["left"] - 300.).abs() < 1e-6 && (now["mid"] - 500.).abs() < 1e-6, "{now:?}");
+    assert!((now["hl"] - 400.).abs() < 1e-6 && (now["cx"] - 400.).abs() < 1e-6, "{now:?}");
+}
+
+#[test]
+fn widening_shares_what_it_takes_by_what_each_has_to_spare() {
+    // 500 | 300 | 200: over 100 each, the first has twice what the second has.
+    let mut c = drawn(layout(h("root", vec![g("a", &["a"]), g("b", &["b"]), g("c", &["c"])], &[0.5, 0.3, 0.2])), 1002.);
+    c.widen("c", 400., 100., &|_| true, 1.).expect("widened");
+    let now = widths(&c, &|_| true);
+    assert!((now["a"] - (500. - 400. / 3.)).abs() < 1e-6 && (now["b"] - (300. - 200. / 3.)).abs() < 1e-6 && (now["c"] - 400.).abs() < 1e-6, "{now:?}");
+}
+
+#[test]
+fn widening_without_the_room_goes_as_wide_as_keep_allows() {
+    let mut c = drawn(threeColumns(), 1202.);
+    c.widen("highlights", 700., 420., &|_| true, 1.).expect("widened");
+    let now = widths(&c, &|_| true);
+    assert!((now["left"] - 300.).abs() < 1e-6 && (now["mid"] - 420.).abs() < 1e-6 && (now["hl"] - 480.).abs() < 1e-6, "{now:?}");
+    // Nothing more to take: asking again changes nothing.
+    assert_eq!(c.widen("highlights", 700., 420., &|_| true, 1.), None);
+    // A keep under the divider's own minimum is that minimum.
+    let mut c = drawn(layout(h("root", vec![g("a", &["a"]), g("b", &["b"])], &[0.5, 0.5])), 401.);
+    c.widen("b", 1000., 0., &|_| true, 1.).expect("widened");
+    assert!((widths(&c, &|_| true)["a"] - MIN_PANEL).abs() < 1e-6);
+}
+
+#[test]
+fn widening_leaves_hidden_children_their_fractions() {
+    // The tool side has nothing to show: 800 | 400 of the 1200 drawn.
+    let root = h("root", vec![g("tool", &["tandem"]), g("mid", &["transcript"]), g("right", &["highlights"])], &[0.25, 0.5, 0.25]);
+    let available = |p: &str| p != "tandem";
+    let mut c = drawn(layout(root), 1201.);
+    let w = c.widen("highlights", 600., 420., &available, 1.).expect("widened");
+    assert!(near(&w.after, &[0.25, 0.375, 0.375]), "{:?}", w.after);
+    let now = widths(&c, &available);
+    assert!((now["mid"] - 600.).abs() < 1e-6 && (now["right"] - 600.).abs() < 1e-6, "{now:?}");
+    // A panel that isn't drawn has no width to change.
+    assert_eq!(c.widen("tandem", 600., 420., &available, 1.), None);
+    // Put back, the hidden side still has its quarter.
+    assert!(c.restore_width(&w));
+    assert!(near(&fractions(&c, "root"), &[0.25, 0.5, 0.25]));
+}
+
+#[test]
+fn widening_uses_the_nearest_side_by_side_split() {
+    // left | (x | y over z): x's row is the inner one, the column's 500 less its gap.
+    let root = h("root", vec![g("left", &["left"]), v("col", vec![h("inner", vec![g("x", &["x"]), g("y", &["y"])], &[0.5, 0.5]), g("z", &["z"])], &[0.5, 0.5])], &[0.5, 0.5]);
+    let mut c = drawn(layout(root), 1001.);
+    let w = c.widen("x", 350., 100., &|_| true, 1.).expect("widened");
+    assert_eq!(w.split, "inner");
+    assert_eq!(fractions(&c, "root"), vec![0.5, 0.5]);
+    let now = widths(&c, &|_| true);
+    assert!((now["x"] - 350.).abs() < 1e-6 && (now["y"] - 149.).abs() < 1e-6 && (now["left"] - 500.).abs() < 1e-6, "{now:?}");
+    // A row under a split that stacks: the row, not the root.
+    let root = v("root", vec![h("row", vec![g("a", &["a"]), g("b", &["b"])], &[0.5, 0.5]), g("under", &["under"])], &[0.5, 0.5]);
+    let mut c = drawn(layout(root), 801.);
+    assert_eq!(c.widen("b", 500., 100., &|_| true, 1.).expect("widened").split, "row");
+    // Nothing beside it to take from.
+    assert_eq!(c.widen("under", 5000., 100., &|_| true, 1.), None);
+}
+
+#[test]
+fn widening_needs_the_dock_laid_out_and_the_panel_in_it() {
+    let mut c = DockController::new(threeColumns());
+    assert_eq!(c.widen("highlights", 400., 420., &|_| true, 1.), None);
+    let mut c = drawn(threeColumns(), 1202.);
+    assert_eq!(c.widen("nowhere", 400., 420., &|_| true, 1.), None);
+    c.layout.float("convex", Rect::new(0., 0., 300., 200.), None, None);
+    assert_eq!(c.widen("convex", 400., 420., &|_| true, 1.), None);
+}
+
+#[test]
+fn restoring_puts_a_widened_split_back() {
+    let mut c = drawn(threeColumns(), 1202.);
+    let w = c.widen("highlights", 400., 420., &|_| true, 1.).expect("widened");
+    assert!(c.restore_width(&w));
+    assert!(near(&fractions(&c, "root"), &[0.25, 0.5, 0.25]));
+    // Once is enough: it's no longer as the widening left it.
+    assert!(!c.restore_width(&w));
+    assert!(near(&fractions(&c, "root"), &[0.25, 0.5, 0.25]));
+}
+
+#[test]
+fn restoring_after_a_divider_drag_keeps_the_dragged_size() {
+    let mut c = drawn(threeColumns(), 1202.);
+    let w = c.widen("highlights", 400., 420., &|_| true, 1.).expect("widened");
+    c.layout.set_fractions("root", &[0.25, 0.45, 0.3]);
+    assert!(!c.restore_width(&w));
+    assert!(near(&fractions(&c, "root"), &[0.25, 0.45, 0.3]));
+    // A side closed meanwhile: the split has other children now.
+    let mut c = drawn(threeColumns(), 1202.);
+    let w = c.widen("highlights", 400., 420., &|_| true, 1.).expect("widened");
+    c.close("threads");
+    let after_close = fractions(&c, "root");
+    assert!(!c.restore_width(&w));
+    assert_eq!(fractions(&c, "root"), after_close);
+    // The split gone altogether.
+    c.close("transcript");
+    assert!(!c.restore_width(&w));
+}

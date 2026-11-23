@@ -333,6 +333,8 @@ impl Threadbear {
             SidebarMode::Scheduled => "rail-scheduled",
             SidebarMode::Projects => "rail-projects",
             SidebarMode::Librarian => "rail-librarian",
+            SidebarMode::Recipes => "rail-recipes",
+            SidebarMode::Feed => "rail-feed",
         }
         .into();
         let sliding = lit(Some(lit_id.clone()), cx.reduce_motion());
@@ -349,6 +351,13 @@ impl Threadbear {
             this.unfold_threads(cx);
             this.set_mode(SidebarMode::Inbox, cx)
         }, cx));
+        // The Feed (experiment `feed`, inbox_feed.rs): the Inbox as cards in
+        // the main panel, the list staying as it is.
+        if self.feed_on() {
+            let mut button = view_button(RailButton::new("rail-feed", "text.alignleft", "Feed", mode == SidebarMode::Feed));
+            button.tip = "Feed: your Inbox as cards, one after another".into();
+            views.push(rail_button(button, |this, _, cx| this.show_feed(cx), cx));
+        }
         if self.schedules_supported {
             let mut button = view_button(RailButton::new("rail-scheduled", "clock", "Scheduled", mode == SidebarMode::Scheduled));
             button.tip = self.shortcut_tip("Scheduled", ShortcutCommand::ShowScheduled);
@@ -385,6 +394,19 @@ impl Threadbear {
                 this.set_mode(SidebarMode::Librarian, cx);
                 // Its page takes the thread's place, and the list the
                 // keyboard, so Esc there goes back to the Inbox.
+                window.focus(&this.sidebar.focus, cx);
+                crate::web_panels::keyboard_to_app(window);
+            }, cx));
+        }
+        // Recipes, with its experiment on (recipes.rs): how many are on.
+        if self.recipes_on() {
+            let mut button = view_button(RailButton::new("rail-recipes", "book", "Recipes", mode == SidebarMode::Recipes));
+            button.tip = "Recipes: techniques worth keeping, set up for you by an agent".into();
+            button.badge = self.recipes.list.as_ref().map(|l| threadbear_core::recipes::on_count(l)).filter(|n| *n > 0);
+            views.push(rail_button(button, |this, window, cx| {
+                this.unfold_threads(cx);
+                let page = this.recipes.open.clone();
+                this.show_recipes(page, cx);
                 window.focus(&this.sidebar.focus, cx);
                 crate::web_panels::keyboard_to_app(window);
             }, cx));
@@ -534,12 +556,18 @@ impl Threadbear {
         use serde_json::json;
         let mode = self.mode;
         let mut activity = vec![json!({ "title": "Threads", "badge": self.inbox_count(cx), "active": mode == SidebarMode::Inbox })];
+        if self.feed_on() {
+            activity.push(json!({ "title": "Feed", "active": mode == SidebarMode::Feed }));
+        }
         if self.schedules_supported {
             activity.push(json!({ "title": "Scheduled", "badge": self.scheduled.active_count(), "active": mode == SidebarMode::Scheduled }));
         }
         if self.projects_supported {
             activity.push(json!({ "title": "Projects", "active": mode == SidebarMode::Projects }));
             activity.push(json!({ "title": "Librarian", "badge": self.librarian.status.as_ref().map(|s| s.pending_count()), "active": mode == SidebarMode::Librarian }));
+        }
+        if self.recipes_on() {
+            activity.push(json!({ "title": "Recipes", "badge": self.recipes.list.as_ref().map(|l| threadbear_core::recipes::on_count(l)), "active": mode == SidebarMode::Recipes }));
         }
         // The foot's panels, with their dots: `dot` the accent, `quietDot` the grey.
         if self.connectors_on() {

@@ -1,5 +1,3 @@
-import path from 'node:path';
-import fs from 'node:fs';
 // One thread, read three ways, to check they agree (scenarios.test.ts):
 //
 //   here    this runner's own events and summary, as the Mac app reads them

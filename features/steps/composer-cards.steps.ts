@@ -244,10 +244,11 @@ When('I pick {string} from the Archive menu', async function (this: ThreadbearWo
 
 // What the runner got with the archive: the verdict, or "" for none.
 Then('the runner was told I archived {string} as {string}', async function (this: ThreadbearWorld, title: string, verdict: string) {
-  let last: { threadId?: string; verdict?: string | null } | null = null;
+  type Archived = { threadId?: string; verdict?: string | null };
+  let last: Archived | null = null;
   for (let tries = 0; tries < 50 && !last; tries += 1) {
     const text = await this.app.do({ cmd: 'mock', method: 'lastArchive', params: {} });
-    last = ((typeof text === 'string' ? JSON.parse(text) : text) as { params?: typeof last }).params ?? null;
+    last = ((typeof text === 'string' ? JSON.parse(text) : text) as { params?: Archived }).params ?? null;
     if (!last) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const d = await this.app.dump();

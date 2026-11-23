@@ -3,7 +3,7 @@
 The design this started from, 29 Oct 2026, kept as a record. Second runners
 are built and supported: INSTALL.md sets one up, and the guide's "If you run
 Threadbear on more than one Mac" says how it behaves today, which differs
-from this draft in places. It follows `docs/plan.md` ("Build order") and the
+from this draft in places. It follows `docs/archive/plan.md` ("Build order") and the
 multi-runner notes in `docs/convex-backend.md`.
 
 The plan said Tinker Desk. On 29 Oct Mike moved it to Bruce: Tinker Desk is
@@ -194,6 +194,6 @@ the app, the agent's own runner for what an agent makes.
   first.
 - **Moving a thread to another runner**, by Mike or its agent
   (`move_thread` with a runner), with a handoff note as account moves do
-  (`docs/pools-plan.md`), when the folder exists on both.
+  (`docs/archive/pools-plan.md`), when the folder exists on both.
 - Cloud sandboxes: a runner in a throwaway VM is a remote peer like Bruce,
   plus making and destroying the VM.

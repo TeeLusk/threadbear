@@ -46,6 +46,11 @@ pub(crate) enum SidebarMode {
     Scheduled,
     Projects,
     Librarian,
+    /// The `recipes` experiment's view (recipes.rs).
+    Recipes,
+    /// The Feed (experiment `feed`, inbox_feed.rs): its page in the main
+    /// panel, the Inbox in the sidebar.
+    Feed,
 }
 
 impl SidebarMode {
@@ -55,6 +60,8 @@ impl SidebarMode {
             SidebarMode::Scheduled => "scheduled",
             SidebarMode::Projects => "projects",
             SidebarMode::Librarian => "librarian",
+            SidebarMode::Recipes => "recipes",
+            SidebarMode::Feed => "feed",
         }
     }
 }
@@ -91,6 +98,10 @@ pub(crate) struct InboxEndNote {
     pub(crate) id: u64,
     pub(crate) empty: bool,
 }
+
+/// What a pane made wide for its page leaves the transcript, and anything
+/// else beside it, in points at 100% zoom (`show_pane_wide`).
+const WIDE_PANE_KEEPS: f32 = 420.;
 
 /// Swift's `WindowDock.defaultLayout`: the sidebar without a title, the
 /// thread, and Highlights, side by side.
@@ -301,6 +312,7 @@ actions!(
         ShowScheduled,
         ShowProjects,
         ShowLibrarian,
+        ShowFeed,
         ShowHibernating,
         ShowArchived,
         ShowPreviousTab,
@@ -392,6 +404,7 @@ commands!(
     (ShowScheduled, ShowScheduled, Some(ShortcutCommand::ShowScheduled)),
     (ShowProjects, ShowProjects, Some(ShortcutCommand::ShowProjects)),
     (ShowLibrarian, ShowLibrarian, Some(ShortcutCommand::ShowLibrarian)),
+    (ShowFeed, ShowFeed, None),
     (ShowHibernating, ShowHibernating, Some(ShortcutCommand::ShowHibernating)),
     (ShowArchived, ShowArchived, Some(ShortcutCommand::ShowArchived)),
     (PreviousTab, ShowPreviousTab, Some(ShortcutCommand::PreviousTab)),
@@ -483,7 +496,9 @@ impl Threadbear {
         match self.home_page().unwrap_or(SidebarMode::Inbox) {
             SidebarMode::Projects => "Projects".into(),
             SidebarMode::Librarian => "Librarian".into(),
+            SidebarMode::Recipes => "Recipes".into(),
             SidebarMode::Scheduled => "Scheduled".into(),
+            SidebarMode::Feed => "Feed".into(),
             SidebarMode::Inbox => match self.open_thread() {
                 Some(t) if t.title.is_empty() => "Untitled".into(),
                 Some(t) => t.title.clone(),
@@ -553,6 +568,40 @@ impl Threadbear {
         let near = self.open_panes(cx);
         let near_refs: Vec<&str> = near.iter().map(String::as_str).collect();
         self.dock.update(cx, |m, cx| m.show(panel, &near_refs, DockDrop::window(DockEdge::Right), cx));
+    }
+
+    /// Shows a section's panel and makes it at least `width` points wide
+    /// (at 100% zoom, as the app's sizes are), for a page that needs the
+    /// room: Mike kept dragging the pane wider for a design review. The
+    /// room comes from what's beside it, the transcript mostly, which keeps
+    /// `WIDE_PANE_KEEPS`. With less room than that it goes as wide as it
+    /// can, and one that's wide enough already stays as it is.
+    /// `restore_pane_width` puts the width back.
+    pub(crate) fn show_pane_wide(&mut self, section: &str, width: f32, cx: &mut Context<Self>) {
+        if !self.is_panel_showing(section, cx) {
+            self.show_pane(section, cx);
+        }
+        // Worked out here and handed over, where the dock's view would ask
+        // its content: that reads this app, which is in the middle of this
+        // update. The widths are the last frame's and the tree is already
+        // the new one, so a section shown just now is widened at once.
+        let available: std::collections::HashSet<String> = self.dock.read(cx).layout().panels().into_iter().filter(|p| self.panel_available(p, cx)).collect();
+        let (width, keep) = (style::zoomed(width), style::zoomed(WIDE_PANE_KEEPS));
+        let widened = self.dock.update(cx, |m, cx| m.widen_panel(section, width, keep, &|p: &str| available.contains(p), cx));
+        // Nothing changed (wide enough already) leaves an earlier widening's
+        // record be, so that one can still be put back.
+        if let Some(widened) = widened {
+            self.pane_widths.insert(section.to_string(), widened);
+        }
+    }
+
+    /// Puts a section's panel back to the width it had before
+    /// `show_pane_wide`, unless Mike has dragged a divider there since:
+    /// then it stays as he left it. The panel stays open either way.
+    pub(crate) fn restore_pane_width(&mut self, section: &str, cx: &mut Context<Self>) {
+        if let Some(widened) = self.pane_widths.remove(section) {
+            self.dock.update(cx, |m, cx| m.restore_width(&widened, cx));
+        }
     }
 
     /// A rail button, VS Code's way: closes the section's panel if it's
@@ -754,6 +803,7 @@ impl Threadbear {
             Command::PreviousTab => self.step_project_tab(-1, cx),
             Command::NextTab => self.step_project_tab(1, cx),
             Command::OpenAnything | Command::OpenAnythingAlso => self.toggle_open_anything(window, cx),
+            Command::ShowFeed => self.show_feed(cx),
             // Each brings the Threads panel back if ⌘/ folded it away.
             Command::ShowInbox | Command::ShowScheduled | Command::ShowProjects | Command::ShowLibrarian | Command::ShowHibernating | Command::ShowArchived => {
                 self.unfold_threads(cx);
@@ -870,8 +920,13 @@ impl Threadbear {
         // A page of the activity bar's takes a project's page's place
         // (`showProjects`); the Inbox leaves it where it is.
         let closes_project = home && self.projects.open.is_some();
+        if self.mode == SidebarMode::Feed && mode != SidebarMode::Feed {
+            self.left_feed();
+        }
         if self.mode != mode || self.shows_home != home || closes_project {
-            if self.mode != mode {
+            // The Feed's sidebar is the Inbox's: nothing there to switch.
+            let same_list = matches!((self.mode, mode), (SidebarMode::Inbox | SidebarMode::Feed, SidebarMode::Inbox | SidebarMode::Feed));
+            if self.mode != mode && !same_list {
                 self.view_switched = Some(std::time::Instant::now());
             }
             self.mode = mode;
@@ -974,7 +1029,9 @@ impl Threadbear {
                 self.select_none(cx);
             }
         }
-        // After the thread: opening one takes a page away.
+        // After the thread: opening one takes a page away (and the Feed's
+        // mode with it).
+        self.mode = place.mode;
         self.shows_home = place.home;
         self.projects.open = place.project.filter(|id| self.project(id).is_some());
         self.restoring_place = false;
@@ -997,6 +1054,7 @@ impl Threadbear {
         Some(match (page, place.thread.and_then(|id| self.threads.get(&id).cloned())) {
             (Some(SidebarMode::Scheduled), _) => "Scheduled".to_string(),
             (Some(SidebarMode::Projects), _) => "Projects".to_string(),
+            (Some(SidebarMode::Feed), _) => "Feed".to_string(),
             (Some(_), _) => "Librarian".to_string(),
             (None, Some(t)) if t.title.is_empty() => "Untitled".to_string(),
             (None, Some(t)) => t.title.clone(),
@@ -1395,7 +1453,11 @@ impl Threadbear {
                     item("Show Next Tab", Command::NextTab).enabled(self.can_step_project_tab(1, cx)),
                     Separator,
                     item("Open Anything…", Command::OpenAnything),
-                ],
+                ]
+                .into_iter()
+                // The Feed, with its experiment on (inbox_feed.rs).
+                .chain(self.feed_on().then(|| vec![Separator, item("Show Feed", Command::ShowFeed)]).into_iter().flatten())
+                .collect(),
             ),
             TopMenu::new(
                 "Thread",
@@ -1656,9 +1718,10 @@ impl Threadbear {
     /// rail's other modes (drawn by `SidebarView`).
     pub(crate) fn render_threads_panel(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let view = match self.mode {
-            SidebarMode::Inbox => self.render_sidebar(cx).into_any_element(),
+            SidebarMode::Inbox | SidebarMode::Feed => self.render_sidebar(cx).into_any_element(),
             SidebarMode::Scheduled => self.render_scheduled_list(cx),
             SidebarMode::Librarian => self.render_librarian_list(cx),
+            SidebarMode::Recipes => self.render_recipes_list(cx),
             SidebarMode::Projects => self.render_projects_list(cx),
         };
         // A view the activity bar's just switched to fades up into place
@@ -1699,6 +1762,8 @@ impl Threadbear {
             },
             (_, Some(SidebarMode::Scheduled)) => self.render_scheduled_home(cx),
             (_, Some(SidebarMode::Librarian)) => self.render_librarian_home(cx),
+            (_, Some(SidebarMode::Recipes)) => self.render_recipes_home(cx),
+            (_, Some(SidebarMode::Feed)) => self.render_feed(window, cx),
             (_, Some(_)) => self.render_projects_home(window, cx),
             // Its thread is open in a panel of its own (thread_panels.rs).
             (None, None) if self.open_elsewhere(cx).is_some() => {

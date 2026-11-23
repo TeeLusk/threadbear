@@ -348,6 +348,15 @@ pub struct PickerRow {
     pub is_older: bool,
 }
 
+/// One provider's models in a picker column (ModelPicker.Section), with
+/// its name over them when the column has more than one provider.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickerSection {
+    pub provider: String,
+    pub title: Option<String>,
+    pub rows: Vec<PickerRow>,
+}
+
 /// ComposerChips.choice: the picker row an id belongs to.
 pub fn choice_for<'a>(id: &str, choices: &'a [ModelChoice]) -> Option<&'a ModelChoice> {
     choices.iter().find(|c| c.id == id).or_else(|| choices.iter().find(|c| c.model == id))
@@ -602,6 +611,50 @@ impl<'a> ChipSettings<'a> {
         picker_rows(choices, default.as_deref(), if own { self.effective_model() } else { None }.as_deref(), query, provider)
     }
 
+    /// A column's models (ThreadSettings.sections). Without pools a column
+    /// is one provider. A pool lists each of its providers' models, under
+    /// the provider's name when it has more than one: a pool of Claude,
+    /// Codex and OpenCode logins showed only Claude's until 20 Nov, so
+    /// OpenCode's Gemini models were nowhere. The default and the tick are
+    /// only for the thread's own pool and provider. Any other column (the
+    /// pinned one) is the thread's own login's list.
+    pub fn sections(&self, column: &str, query: &str) -> Vec<PickerSection> {
+        if !self.uses_pools() {
+            return vec![PickerSection { provider: column.to_owned(), title: None, rows: self.rows(column, query) }];
+        }
+        let Some(shown) = self.logins.pool(column) else {
+            return vec![PickerSection { provider: self.provider.clone(), title: None, rows: self.rows(&self.provider, query) }];
+        };
+        let providers = crate::new_thread::pool_providers(shown, &self.logins.accounts);
+        let many = providers.len() > 1;
+        providers
+            .into_iter()
+            .filter_map(|provider| {
+                let own = self.pool().is_some_and(|p| p.id == shown.id) && provider == self.provider;
+                // The login whose list it shows: the thread's own, else (or
+                // when its own lists none, signed out or not yet asked) the
+                // first of the pool's that lists models.
+                let logins = crate::new_thread::pool_logins(shown, &self.logins.accounts, Some(&provider));
+                let listing = logins.iter().find(|a| !a.models.is_empty()).or(logins.first()).copied();
+                let rows = if own {
+                    let choices = if self.choices().is_empty() { listing.map_or(&[][..], |a| a.models.as_slice()) } else { self.choices() };
+                    let default = self.default_model().or_else(|| listing.and_then(|a| a.default_model.clone()));
+                    let chosen = resolved_model(&[self.model.as_deref(), default.as_deref()]).map(str::to_owned);
+                    picker_rows(choices, default.as_deref(), chosen.as_deref(), query, &provider)
+                } else {
+                    let default = self.logins.defaults.model_for(&provider).map(str::to_owned).or_else(|| listing.and_then(|a| a.default_model.clone()));
+                    picker_rows(listing.map_or(&[][..], |a| a.models.as_slice()), default.as_deref(), None, query, &provider)
+                };
+                // Nothing to list (no match, or none known yet): no section,
+                // so no heading with nothing under it.
+                if rows.is_empty() {
+                    return None;
+                }
+                Some(PickerSection { title: many.then(|| self.logins.provider_title(&provider)), provider, rows })
+            })
+            .collect()
+    }
+
     pub fn effort_levels(&self) -> Vec<String> {
         self.logins.effort_levels(self.effective_model().as_deref(), self.choices(), &self.provider)
     }
@@ -760,6 +813,32 @@ mod tests {
         let rows = settings(&l).rows("codex", "");
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].is_selected);
+    }
+
+    #[test]
+    fn a_pool_of_several_providers_lists_each_ones_models() {
+        let mut l = logins();
+        l.accounts.push(Account { id: "opencode-main".into(), provider: "opencode".into(), models: vec![ModelChoice { id: "google/gemini-4-neon".into(), model: "google/gemini-4-neon".into(), title: "Gemini 4 Neon".into(), ..Default::default() }], ..Default::default() });
+        l.pools[0].account_ids = vec!["claude-main".into(), "opencode-main".into(), "codex-main".into()];
+        let sections = settings(&l).sections("claude", "");
+        let heads: Vec<(&str, Option<&str>)> = sections.iter().map(|s| (s.provider.as_str(), s.title.as_deref())).collect();
+        assert_eq!(heads, vec![("claude", Some("Claude")), ("opencode", Some("OpenCode")), ("codex", Some("Codex"))]);
+        assert!(sections[0].rows.iter().any(|r| r.is_selected), "the thread's own provider has its tick");
+        assert_eq!(sections[1].rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Gemini 4 Neon"]);
+        assert!(sections[1..].iter().flat_map(|s| &s.rows).all(|r| !r.is_selected), "no tick on another provider");
+        l.accounts.push(Account { id: "grok-main".into(), provider: "grok".into(), ..Default::default() });
+        l.pools[0].account_ids.push("grok-main".into());
+        assert!(settings(&l).sections("claude", "").iter().all(|s| s.provider != "grok"), "a provider with no models known has no heading");
+        let found = settings(&l).sections("claude", "gemini");
+        assert_eq!(found.iter().map(|s| s.provider.as_str()).collect::<Vec<_>>(), vec!["opencode"], "a search drops providers with no match");
+    }
+
+    #[test]
+    fn a_pool_of_one_provider_has_no_heading() {
+        let l = logins();
+        let sections = settings(&l).sections("claude", "");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, None);
     }
 
     #[test]

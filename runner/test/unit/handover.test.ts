@@ -291,7 +291,7 @@ test('a stopped wait started again wakes the thread at most three times until so
 
 test('a thread whose background work a plain restart stopped is told once the next runner is up', async () => {
   const h = makeHarness();
-  const t = create(h).thread;
+  create(h);
   const s = h.adapter.last;
   s.init();
   s.out({ kind: 'tasks', tasks: [{ id: 'b1', type: 'local_bash', kind: 'shell', description: 'Wait for the scan' }] });
@@ -557,6 +557,17 @@ test('a handed-over thread from before `asked` learns it from its log', () => {
   fs.writeFileSync(threadFile(h, t.id), JSON.stringify(rec));
   const b = primary(h, [t.id]);
   assert.equal(b.runner.adopt(t.id)?.asked, 'busy one');
+});
+
+test('a handed-over thread from before `request` learns it from the start of its log', () => {
+  const h = makeHarness();
+  const t = create(h, 'busy one').thread;
+  h.runner.flush();
+  const rec = JSON.parse(fs.readFileSync(threadFile(h, t.id), 'utf8'));
+  delete rec.request;
+  fs.writeFileSync(threadFile(h, t.id), JSON.stringify(rec));
+  const b = primary(h, [t.id]);
+  assert.equal(b.runner.adopt(t.id)?.request, 'busy one');
 });
 
 test('Peers: the bearer header goes only to a draining runner whose own drain file says it predates the challenge', async () => {

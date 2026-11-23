@@ -239,6 +239,10 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "review" {
         return crate::review_window::automation(&weak, window, cmd, cx).await;
     }
+    // A design review's page beside the thread (review_pane.rs).
+    if cmd["cmd"] == "review-page" {
+        return crate::review_pane::automation(&weak, window, cmd, cx).await;
+    }
     // Send's right-click menu (composer_send.rs), read the same way.
     // The slash palette's right-click menu (slash_resize.rs), the same way.
     if cmd["cmd"] == "palette-menu" {
@@ -253,6 +257,7 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
         return crate::reply_links::menu_command(&weak, window, cmd, cx).await;
     }
     let Some(app) = app.upgrade() else { return Err("the app has gone".into()) };
+    let main = window;
     // `"settings": true`: in the Settings window, as the Swift app's `click`
     // and `shot --settings` reach it; `"review": id`, in that review's.
     let window = if let Some(id) = cmd["review"].as_str() {
@@ -269,6 +274,15 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     };
     if cmd["cmd"] == "screenshot" {
         let path = std::path::PathBuf::from(text(cmd, "path"));
+        // A covered window draws only when asked, so a move started by the
+        // last command (a panel docked, a thread opening) is at its first
+        // frame: a shot then had the panel's column missing or empty (20 Nov,
+        // the Usage panel after `dock-move`). Let it play out first, at most
+        // 3 seconds, as the specs' `settle` does; `"settle": false` takes
+        // the frame as it is, for a picture of the move itself.
+        if cmd["settle"].as_bool() != Some(false) {
+            settle_motion(&app, main, cx).await;
+        }
         let image = cx.update_window(window, |_, window, cx| {
             // A covered window gets no system frames. Draw its latest state
             // before reading the pixels, including pictures just loaded.
@@ -374,6 +388,23 @@ pub(crate) fn whole_point(drawn: Bounds<Pixels>) -> Option<(i32, i32)> {
         (low < end).then(|| ((start + end) / 2.).round().clamp(low, high) as i32)
     };
     Some((axis(drawn.left(), drawn.right())?, axis(drawn.top(), drawn.bottom())?))
+}
+
+/// Draws the main window until nothing in it is moving (the dock's panels,
+/// a thread's flight, an opening), for 3 seconds at most. What's moving says
+/// so for 40 ms after each frame it draws, so a frame comes first each time.
+async fn settle_motion(app: &Entity<Threadbear>, main: AnyWindowHandle, cx: &mut AsyncApp) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        let moving = cx.update_window(main, |_, window, cx| {
+            window.render_frame(cx);
+            app.read(cx).moving(cx)
+        });
+        if !matches!(moving, Ok(true)) || std::time::Instant::now() >= until {
+            return;
+        }
+        cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+    }
 }
 
 fn text<'a>(cmd: &'a Value, key: &str) -> &'a str {
@@ -527,6 +558,7 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // page's search, and the sidebar's folded project rows.
         "project" | "projectParent" => crate::projects::automation(app, cmd, window, cx),
         "decision" => crate::project_decisions::automation(app, cmd, window, cx),
+        "feed" => crate::inbox_feed::automation(app, cmd, window, cx),
         "projectTab" => crate::project_decisions::tab_automation(app, cmd, cx),
         "search" if cmd["projects"].as_bool() == Some(true) => crate::projects::automation(app, cmd, window, cx),
         "expand" | "collapse" if cmd.get("projectRow").is_some() => crate::projects_list::fold_automation(app, cmd, cx),
@@ -1231,6 +1263,8 @@ fn shell_step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &m
                 "scheduled" => shell::SidebarMode::Scheduled,
                 "projects" => shell::SidebarMode::Projects,
                 "librarian" => shell::SidebarMode::Librarian,
+                "recipes" => shell::SidebarMode::Recipes,
+                "feed" => shell::SidebarMode::Feed,
                 "archive" => {
                     app.update(cx, |t, cx| t.run_command(shell::Command::ShowArchived, window, cx));
                     return Ok(json!("ok"));

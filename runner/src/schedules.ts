@@ -7,7 +7,7 @@
 // older than API 9, they're this runner's own schedules.json, as they always
 // were. Once a backend of API 9 is attached (attach(), from sync.ts), they
 // live in its `schedules` table so every runner sees one list and a schedule
-// can run on another runner (step 6, docs/step6-plan.md): this runner moves
+// can run on another runner (step 6, docs/archive/step6-plan.md): this runner moves
 // its own file up once, keeps a live copy of the whole table (and a copy on
 // disk for when the backend can't be reached), and sends only its own,
 // each run taken with a claim first so it's sent once.

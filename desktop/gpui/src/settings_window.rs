@@ -1187,7 +1187,7 @@ fn waiting_text(app: &WeakEntity<Threadbear>, cx: &App) -> String {
 /// `SettingsSection`: its title, with what it is and what to ask your agent
 /// behind the ⓘ, over its rows in a rounded group.
 // Full sync's ⓘ, kept here in one place so its wording is easy to change.
-// The benefit first, then what goes up and what doesn't (docs/full-convex.md).
+// The benefit first, then what goes up and what doesn't (docs/convex-backend.md, "Full sync").
 // The runner reads sync.full when it starts, hence the last sentence.
 const FULL_SYNC_ABOUT: &str = "Lets your phone, the website and your other machines show a thread's tool output and diffs, even when the machine that ran it is off.\n\nTool output, inputs and diffs go to your own Convex deployment, with secrets scrubbed out first, and are kept for 30 days. Screenshots, and tools reading things like .env files and keys, stay on this Mac. Scrubbing isn't a guarantee. A change takes effect when the runner next starts.";
 const FULL_SYNC_ASK: &str = "explain what goes up, or turn it on or off for you.";

@@ -6,7 +6,7 @@
 // to each other. All owner only (runnerAccess.ts ACCESS): a runner key
 // can't read another runner's threads or queue work for it.
 //
-// Read rules (docs/full-convex.md): the live tail is a few rows, older pages
+// Read rules (docs/convex-backend.md, "Read rules"): the live tail is a few rows, older pages
 // are read once and kept on the runner, a thread's row is one document, and
 // a command's state is one get by id.
 import { ConvexError, v } from 'convex/values';

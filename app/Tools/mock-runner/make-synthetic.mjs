@@ -343,7 +343,7 @@ function toolDetailsThread() {
   writeFixture(dir, summary, events);
 }
 
-// A Codex thread: what the Codex adapter sends (docs/step4-plan.md,
+// A Codex thread: what the Codex adapter sends (docs/archive/step4-plan.md,
 // section B). One edit touching three files, a plan, a generated image, an
 // image Codex looked at, a subagent with its own image, a command left
 // running in the background that finishes after the turn, an interrupted

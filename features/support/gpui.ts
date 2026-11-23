@@ -123,7 +123,7 @@ export class GpuiDriver implements Driver {
       }
       return;
     }
-    if (c.pid && process.platform !== 'win32') {
+    if (c.pid) {
       try {
         process.kill(-c.pid, 'SIGTERM');
         return;

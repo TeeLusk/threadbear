@@ -60,7 +60,7 @@ import type { Lane, TrustOffThread } from './trust-off-thread.ts';
 import { isBinary, looksRunnable, MAX_READ_BYTES, reachOf, reachOfCommand, Reads, type FollowOptions, type ScriptReach } from './script-trust.ts';
 import { bareImport } from './tracked-packages.ts';
 import { allowCommand } from './shell-allowlist.ts';
-import { clicksOnly, IS_WINDOWS, realPath, realPathSync, slashes } from './platform.ts';
+import { clicksOnly, IS_WINDOWS, realPath, realPathSync } from './platform.ts';
 
 export type TrustVerdict =
   // `files`: the local files its hash covered, real paths. Absent when the

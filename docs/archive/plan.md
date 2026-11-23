@@ -33,10 +33,10 @@ Two pieces, both on Mike's MacBook to start:
 The order Mike agreed on 26 Oct, and what became of each step:
 
 - **Steps 1 to 3: runner and Mac app v1**, then the design pass and the
-  dev tools (`docs/design-pass.md`, `docs/dev-tools.md`). Done 26 to 27 Oct.
+  dev tools (`docs/archive/design-pass.md`, `docs/dev-tools.md`). Done 26 to 27 Oct.
 - **Step 4: Codex threads, every login, usage in the app, CLI
-  auto-updates** (`docs/step4-plan.md`). Done 27 Oct. Pools
-  (`docs/pools-plan.md`) came on top: the runner picks the login per turn.
+  auto-updates** (`docs/archive/step4-plan.md`). Done 27 Oct. Pools
+  (`docs/archive/pools-plan.md`) came on top: the runner picks the login per turn.
 - **Step 5: Convex and the phone** (`docs/convex-backend.md`): thread
   summaries, recent messages, approvals, projects and schedules mirrored to
   Convex, phone commands, push when a thread needs Mike. Done 28 Oct, and
@@ -57,7 +57,7 @@ docs are in `docs/` and the contracts in `docs/protocol.md`.
 
 ## Step 6: a second runner (Bruce)
 
-Built. `docs/step6-plan.md` is the 29 Oct design it started from; for how
+Built. `docs/archive/step6-plan.md` is the 29 Oct design it started from; for how
 it works today read the guide and `docs/protocol.md`, "Runner keys".
 
 ## Behaviour Mike asked for

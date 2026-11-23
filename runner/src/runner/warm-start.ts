@@ -19,7 +19,7 @@ import type { Runner, ThreadState } from '../runner.ts';
 import { newRuntime } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
 import type { AdapterOutput, AgentSession, QuestionAnswer, QuestionRequest, SessionSink, StartSessionOptions, ToolApprovalAnswer, ToolApprovalRequest } from '../adapters/types.ts';
-import type { EffortLevel, PermissionMode } from '../protocol.ts';
+import type { EffortLevel, PermissionMode, Provider } from '../protocol.ts';
 import { experimentOn } from '../experiments.ts';
 
 export const WARM_START = 'warmStart';
@@ -34,6 +34,7 @@ export type WarmParams = {
   cwd?: string;
   accountId?: string;
   poolId?: string;
+  provider?: Provider;
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;

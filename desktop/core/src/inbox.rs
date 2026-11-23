@@ -141,6 +141,10 @@ pub struct ThreadSummary {
     pub moving: Option<Value>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub asked: Option<String>,
+    /// Mike's first message to it, one line (protocol "What Mike first
+    /// asked"): the Feed's card leads with it, else the title.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub request: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub preview: String,
     /// The librarian's search words, for finding a thread by what it's about

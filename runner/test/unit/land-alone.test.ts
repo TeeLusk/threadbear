@@ -47,7 +47,7 @@ function branches(main: string, names: string[]): LandTarget[] {
 }
 
 // a lands first while the others queue behind it; they're then one group.
-async function queued(root: string, main: string, a: LandTarget, others: LandTarget[], cmd: string) {
+async function queued(root: string, _main: string, a: LandTarget, others: LandTarget[], cmd: string) {
   const first = land({ ...a, check: cmd }, capture().opts);
   await until(() => fs.existsSync(path.join(root, 'checking')), "a's check");
   const caps = others.map(() => capture());

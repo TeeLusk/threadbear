@@ -177,9 +177,9 @@ upgrade with an `Authorization` header that's wrong is turned away with HTTP
 ## Types
 
 ```ts
-// cursor, opencode and grok: ACP agents, where their CLIs are installed and
-// logged in (see "ACP agents")
-type Provider = "claude" | "codex" | "cursor" | "opencode" | "grok"
+// cursor, opencode, grok and antigravity (Gemini on a Google plan): ACP
+// agents, where their CLIs are installed and logged in (see "ACP agents")
+type Provider = "claude" | "codex" | "cursor" | "opencode" | "grok" | "antigravity"
 
 // What a provider is called and can do, from `hello`. A client asks this
 // rather than comparing provider names, so a provider it has never heard of
@@ -383,6 +383,8 @@ type ThreadSummary = {
                         // nest under it in the sidebar (Nested threads)
   asked?: string        // Mike's last message to it, one line, <= 140 chars
                         // (What Mike last asked)
+  request?: string      // Mike's first message to it, one line, <= 200
+                        // chars (What Mike first asked)
   keywords?: string     // the librarian's search words, lowercase and
                         // space-separated, <= 200 chars (Search)
   woke?: { at: string, since?: string } // came back from hibernating by
@@ -862,7 +864,7 @@ type Settings = {
                         // from an older runner: clients show no switch
   fullSync: boolean     // full sync, as runner.json's sync.full says; it
                         // takes effect when the runner next starts
-                        // (docs/full-convex.md; `tb settings full on|off`)
+                        // (docs/convex-backend.md, "Full sync"; `tb settings full on|off`)
   models: {
     pool: string | null      // the pool whose Claude logins answer small
                              // jobs; "claude" by default, null: none, so
@@ -980,6 +982,33 @@ names the pickable options passed over (`Passed over: B. <title>; C.
 later offer one as a new follow-up. The Mac, phone and GPUI apps read that
 wording back for Mike's bubble (`ReviewAnswer`), leaving the passed-over
 paragraph out, so change them with it.
+
+As a page beside the thread (the `reviewPage` experiment; Mike, 20 Nov
+2026): he went into the window for the pictures and back out to the thread
+to read about them, as the window drew each option's words at 12pt grey in
+a column 270pt wide, and agents wrote the options out again in their reply.
+With it on, the GPUI app opens this Mac's reviews as a page in the side
+pane: the note, then each option with its words at the thread's reading
+size and its shots under them, made by the app from the review
+(`desktop/core/src/review_page.rs`) and shown sealed, scripts off, reading
+only the review's own folder. Nothing changes in these RPCs. A tick on the
+page saves the draft's picks with `reviews.save`, and they show as chips
+over the thread's message box, which is the reply box: sending it calls
+`reviews.respond` with the picks as the page shows them, the box's words as
+`reply` and its pictures as `images` (they're in `inbox/`, as a reply's
+are), so the answer is the same one the window sends, taken whole or not at
+all. Ticks alone can be sent. A message starting with `/`, or sent with
+answers picked on a card of asks, is an ordinary message, and like one sent
+with nothing ticked it supersedes the review, as before. (A first version had the
+runner turn a plain `threads.send` into the answer; Codex and Gemini's
+reviews found it could be sent twice after a restart, lose its pictures and
+swallow a command.) A picture on the page opens the review window at that
+shot, as a closer look: the stage across the window with that option's
+words under it, and no column down the right. The pane opens 640pt wide for
+a review, 920pt when a shot is a wide design (1000px or more across and
+wider than tall), keeps the transcript 420pt, and goes back when the page
+closes unless the divider was dragged meanwhile. The phone and the website
+keep their own sheets.
 
 Reply pictures: a picture pasted or dropped in the window's reply box is a
 chip, as in the thread's box, imported with `media.import` and sent in the
@@ -1301,7 +1330,7 @@ the summary and then the reply.
 | `hello` | `{ client: string, version: string, build?: { commit, short, tree }, pid?: number }` (`build`: the Mac apps' own builds, see App restarts; a draining runner's link to the primary says `client: "threadbear-drain"` with its `pid`, for the log) | `{ runnerVersion, protocol: 1, accounts: Account[], providers?: ProviderInfo[], pools?: Pool[], defaults: { cwd, accountId, poolId?, model?, models?: { claude?, codex? }, efforts?: { claude?: EffortLevel, codex?: EffortLevel }, permissionMode?: "full" \| "ask" \| "auto" }, clis?: CliStatus[], updates?: RunnerUpdates, experiments?: string[] }`. `providers` is what each provider this runner knows is called and can do, in its own order (`ProviderInfo` above; absent from older runners, when a client uses what it knows of Claude and Codex). `experiments` is the ids of the experiments on for this runner (docs/experiments.md), read at each `hello`, so the app shows what belongs to one (the Projects page's decisions for `projectDecisions`) from its next connect. `updates` is under Runner updates; `pools` and `defaults.poolId` under Pools. `defaults.accountId` is the account a `threads.create` with no `accountId` uses: the one with the most room among the last-used account's provider (skipping blocked ones, ones under 1% and ones with a note), worked out again as usage changes; a client keeps its own copy of the rule rather than asking again. `defaults.models[provider]` is the model a new thread on that provider gets when it names none (`runner.json`'s `defaults.models`; a dev runner sets the cheapest); `defaults.model` is the same for Claude, kept for older apps. Absent means the account's own default (`accounts[].defaultModel` names it, when known). `defaults.efforts[provider]` likewise for effort; absent means the model's own level. `defaults.permissionMode` is the mode a `threads.create` with none starts on, and the one the app's new-thread composer starts on and goes back to after each send (`runner.json`'s `defaults.permissionMode`, read at startup; `"plan"` or anything else there is ignored). Absent means `"full"`: setup writes `"auto"` into the `runner.json` it makes for a new install, and an install from before has none. A client that doesn't know the runner's (an older runner, or another runner reached through the backend) starts on `"full"`. `runnerVersion` is `<package version>+<release id>` when the runner runs from a release, else `<package version>+source` `client` is `threadbear-mac` for the Swift app and `threadbear-desktop` for the GPUI one; either counts as the app being open (the GPUI one not for a browser panel, which only the Swift app has) |
 | `threads.list` | `{ include?: ("inbox" \| "snoozed" \| "archived")[], ids?: string[] }` (default `["inbox"]`; a value the runner doesn't know is left out; `ids` keeps only those threads, unknown ones left out; an older runner ignores it, so pick yours out of the answer) | `{ threads: ThreadSummary[] }` newest activity first |
 | `threads.search` | `{ query: string, limit?: number }` | `{ threads: ThreadSummary[] }` matches title, preview and `keywords` across all threads, archived included (Search) |
-| `threads.create` | `{ text: string, images?: ImageRef[], cwd?: string, accountId?: string, poolId?: string, model?: string, effort?: EffortLevel, permissionMode?: "full" \| "ask", title?: string, worktree?: boolean, startedBy?: { kind, label, icon?, threadId?, why? }, detached?: true, projectIds?: string[], serviceId?: string, warmId?: string }` | `{ thread: ThreadSummary }` (the first turn starts straight away). `warmId` is one `threads.warm` gave this connection: the thread is made under it, and takes the CLI started for it when its settings still match (see Warm start below). `serviceId` starts it on a virtual runner instead (Virtual runners, "Starting from the Mac"). `confined: true` is refused (see Sandboxed threads (taken out)). `projectIds` (New Thread on a project's page) puts it in those projects before its first turn, pinned as Mike's, so that turn already has their brief; an unknown project is `-32602` and makes no thread. In a repo that asks for worktrees (see Worktrees) the thread gets one of its own before its first turn; `worktree: false` starts it in the folder as it is. The thread's `provider` is its account's. With no `model`, the thread gets `defaults.models[provider]` from `hello`, or `defaults.model` for Claude, or else the account's own default. With no `effort`, `defaults.efforts[provider]`, or else the model's own level. With no `permissionMode`, `defaults.permissionMode`, or else `"full"`; the runner's own threads (bringing in releases, fixing a failed update, a note about this Mac) always name `"full"`. See "Models and effort across providers" |
+| `threads.create` | `{ text: string, images?: ImageRef[], cwd?: string, accountId?: string, poolId?: string, provider?: string, model?: string, effort?: EffortLevel, permissionMode?: "full" \| "ask", title?: string, worktree?: boolean, startedBy?: { kind, label, icon?, threadId?, why? }, detached?: true, projectIds?: string[], serviceId?: string, warmId?: string }` | `{ thread: ThreadSummary }` (the first turn starts straight away). `warmId` is one `threads.warm` gave this connection: the thread is made under it, and takes the CLI started for it when its settings still match (see Warm start below). `serviceId` starts it on a virtual runner instead (Virtual runners, "Starting from the Mac"). `confined: true` is refused (see Sandboxed threads (taken out)). `projectIds` (New Thread on a project's page) puts it in those projects before its first turn, pinned as Mike's, so that turn already has their brief; an unknown project is `-32602` and makes no thread. In a repo that asks for worktrees (see Worktrees) the thread gets one of its own before its first turn; `worktree: false` starts it in the folder as it is. The thread's `provider` is its account's. `provider` with a `poolId` says which of a mixed pool's providers to start on (the one the model picker's pick was under, as an OpenCode model id can look like a Codex one); without one, the named model's provider, else the pool's first. With no `model`, the thread gets `defaults.models[provider]` from `hello`, or `defaults.model` for Claude, or else the account's own default. With no `effort`, `defaults.efforts[provider]`, or else the model's own level. With no `permissionMode`, `defaults.permissionMode`, or else `"full"`; the runner's own threads (bringing in releases, fixing a failed update, a note about this Mac) always name `"full"`. See "Models and effort across providers" |
 | `cloudTokens.make`, `cloudTokens.set`, `cloudTokens.useMac`, `cloudTokens.list` | `{ login }`; `{ login, token }`; `{ login }`; `{}` | A virtual runner's cloud token for a Claude login (Virtual runners, "Cloud tokens on the Mac"): made with `claude setup-token` here (up to 10 minutes, waiting on Mike in the browser), pasted, or this Mac's year-long token for that login. `{}` once set; `list` answers `{ tokens: { login, madeAt, setAt, state }[] }`, never a token |
 | `threads.samples` | `{ cwd: string, remove?: boolean }` | `{ threads: ThreadSummary[] }`. The app's first-run tour's sample threads (`runner/src/samples.ts`): made up exchanges written as finished turns with no CLI, in `cwd` (the app's `~/ThreadbearThreads/Welcome`, where it writes an example patch), with `sample: true`; the first needs you, with a card of asks, and one is left unread. Asking again deletes any there are and makes them afresh (writing the patch again if it's gone, and trusting it as written). `remove: true` deletes them all, archived and hibernating ones too, and returns none. `threads.send` to a sample is `-32602` |
 | `threads.send` | `{ threadId, text, images?: ImageRef[], answers?: AskAnswer[], origin?: "phone", runnerId?: string \| null }` | `{ turnId }`. `runnerId` is the runner the client shows the thread on (`null` for this Mac's own): given, the primary refuses the message with `-32031` when it would reach any other runner (a thread still on the runner it's moving from, say), rather than passing it on; absent, it's routed as before, except that a message for another runner's thread is refused the same way while this runner knows of a move of it under way (an older app may have shown it as already moved). `text` can place the `images` among its words with `[Picture N]` markers (Pictures in a message). `origin: "phone"` is only for a phone command the primary passes on to a draining runner (Sync, "Commands"), so the message keeps its origin there; any other `origin` is `-32602`. If a turn is running and its CLI is live, the message goes into that turn straight away (a `user.message` under the running `turnId`, which is returned): the agent takes it at its next step, or right after its reply if that was already finishing, and the turn doesn't complete until it has been answered. If the thread was moved to another login (usually another provider) during the running turn, a message from Mike (or the phone) doesn't steer into the old CLI: the turn is stopped (`system.note` "Stopped here so <model> can take over.") and the message starts the next turn on the new login, with the handoff, as T3 Code does. If the agent is waiting on a card for its own tool call (an approval or a question, with an `itemId`), a message from Mike declines that card first (`approval.resolved` with `deny` and a `message` telling the agent he wrote instead), as the CLI reads nothing else until the card is answered; a background subagent's card is left open. Otherwise (the CLI is still starting or leaving, messages are already waiting, a move or fresh CLI is due on the next turn, Stop has been pressed, or the turn was opened only for a card) the message is queued and starts its own turn when the running one ends |
@@ -1332,7 +1361,7 @@ the summary and then the reply.
 | `panels.convexLogin` | `{ threadId, panelId, check?: boolean, force?: boolean }` | `{ state: "idle" \| "waiting" \| "done" \| "failed", url?, code?, message? }`. Signs the runner's Convex CLI in (`convex login --no-open --login-flow poll`), for a panel that got `-32040` (or `-32041`, with `force`, to switch accounts). Answers once the CLI prints its device page: `url` to open in the browser on the Mac the person is at (any browser can approve it, so a remote runner's sign-in works from here), `code` what that page shows. A call while one is waiting joins it. `check` only reports: poll it until `done` (then the deployment list is fetched afresh) or `failed` (`message` says why, or that it wasn't approved within the code's five minutes) |
 | `threads.commands` | `{ threadId }` | `{ commands: SlashCommand[] }`: what the composer's picker offers for the thread (see Slash commands) |
 | `threads.contextUsage` | `{ threadId }` | `{ usage?: ContextUsage, live: boolean, note?: string }`: what fills the thread's context, in Claude's own words, for the composer ring's popover (see Context breakdown). Asked of the thread's running CLI; never starts one. Fast (about a second) |
-| `threads.warm` | `{ cwd?, accountId?, poolId?, model?, effort?, permissionMode?, worktree?, projectIds? }` (what the new-thread page's `threads.create` would send, without the words), or `{ cancel: true }` | `{ warmId?: string }`: starts a CLI for the new thread being written, so its first message doesn't wait for one to boot (see Warm start below). No `warmId` when this runner doesn't (the `warmStart` experiment off, a folder that asks for a worktree or isn't there, a project, a provider other than Claude). `cancel` stops this connection's. Refused to a thread's own connection |
+| `threads.warm` | `{ cwd?, accountId?, poolId?, provider?, model?, effort?, permissionMode?, worktree?, projectIds? }` (what the new-thread page's `threads.create` would send, without the words), or `{ cancel: true }` | `{ warmId?: string }`: starts a CLI for the new thread being written, so its first message doesn't wait for one to boot (see Warm start below). No `warmId` when this runner doesn't (the `warmStart` experiment off, a folder that asks for a worktree or isn't there, a project, a provider other than Claude). `cancel` stops this connection's. Refused to a thread's own connection |
 | `folders.commands` | `{ cwd?: string, accountId?: string, permissionMode?: PermissionMode }` | `{ commands: SlashCommand[] }`: the same list for a new thread's box, before the thread exists: the login and folder it would start on, each defaulting as `threads.create` does. `-32010` for an unknown login |
 | `threads.highlights` | `{ threadId }` | `ThreadHighlights` (see Highlights): what the thread has made, shared and pinned, read from its events since the last call and kept with the thread |
 | `threads.explain` | `{ threadId, selection: string, message?: string, question?: string, earlier?: { question?: string, answer: string }[] }` | `{ answer: string, model: string }`. Explains words Mike selected in the transcript, on the small model (see Explain). `message` is the whole message they came from, as the app shows it; `earlier` and `question` are a follow-up. Writes nothing to the thread. `-32000` with the reason when no model answers |
@@ -1460,16 +1489,21 @@ Agents that speak the [Agent Client Protocol](https://agentclientprotocol.com)
 (runner/src/adapters/acp/) run as one process per live thread, over stdio.
 Where one's CLI isn't installed and logged in, no account or pool of its
 appears. `runner.json`'s `cursorPath`,
-`opencodePath` and `grokPath` set a binary by hand; otherwise each is found
-where it installs.
+`opencodePath`, `grokPath` and `antigravityPath` set a binary by hand; otherwise each is found
+where it installs (Antigravity: an `agy_acp_server.par` on the PATH).
 
-- **One login each**, per machine, ids `opencode-main`, `cursor-main` and
-  `grok-main` (signed in: `~/.grok/auth.json` exists, never opened). No
+- **One login each**, per machine, ids `opencode-main`, `cursor-main`,
+  `grok-main` (signed in: `~/.grok/auth.json` exists, never opened) and
+  `antigravity-main` (signed in: `$GEMINI_HOME/antigravity-acp/acp_token.json`,
+  `~/.gemini` by default, exists, never opened). No
   usage readings, so a pool can't move a thread by room.
 - **Which program.** The process must say it's that agent in `initialize`, or
   the thread doesn't start. `agent` is a generic name: a file only counts as
   Cursor's by where it really lives (`~/.local/share/cursor-agent/...`), and
-  only as Grok's when that's named `grok` or `grok-<version>...`.
+  only as Grok's when that's named `grok` or `grok-<version>...`. Antigravity's
+  `agy_acp_server.par` and the `localharness_external` beside it must both be
+  signed by Google (team `EQHXZ8M8AV`, checked with `codesign` on a Mac), and
+  it must call itself `antigravity-acp`.
 - **Asking.** Every tool comes to the runner first. OpenCode gets `*: ask` as
   inline config, with `OPENCODE_DISABLE_PROJECT_CONFIG=1` (and 2's
   `OPENCODE_CONFIG_PROJECT_DISABLE=1`), `OPENCODE_CONFIG` blanked, a config
@@ -1538,6 +1572,33 @@ where it installs.
   `use_tool` naming `<server>__<tool>`: one of the session's own
   `threadbear__` tools is allowed as it comes, as the MCP server gates it. A
   rejected call ends Grok's turn (`stopReason: "cancelled"`).
+- **Antigravity** (Google's `antigravity-acp`, shown as Gemini) asks before
+  every tool in its `default` mode, so it's never moved off it (`auto_edit`
+  and `yolo` would approve by themselves), and each request is answered from
+  the thread's mode. A read whose files are all inside the thread's folder
+  (as the disk has them, links followed) goes ahead without a card. It writes
+  `skills/system/run-workflow/SKILL.md` into the folder its session opens in,
+  so each session (new or resumed) opens in an empty temp folder of its own,
+  removed when the session ends, with the thread's folder in
+  `additionalDirectories`, and the first message says where the work is. Its
+  shell tool's `CommandLine` and `Cwd` are read as `command` and `cwd`, and
+  its MCP calls say `_meta.mcp: { server, tool }`. Keys for Google's API in
+  the runner's environment are blanked, so its Google sign-in is what's used.
+  It has no updater, so Update does nothing for it.
+- **Cards for ACP tools.** Every frame of a tool call (its updates and its
+  permission requests) is kept by id for the session, and a call is judged
+  on all of them: what it said earlier can't be washed out by a later
+  frame. Only two cards are short: a plain shell command whose single
+  folder is known (the phone may allow it) and a plain edit of files inside
+  the folder (every frame a plain edit, every path spelled whole, no
+  `..`, `~`, dangling link or unreadable patch header). Every other card
+  shows which tool it is, its arguments as sent, whatever earlier frames
+  said differently and every file it names as spelled; only the Mac allows
+  it. A saved command rule needs every frame to agree and no files named
+  beside the command; the edit rule covers only files inside the folder.
+  Another server's MCP tool never counts as a local command or edit, and
+  Threadbear's own MCP tools go ahead unasked only when every frame that
+  carried anything named that tool.
 - **Plan first** uses the agent's plan mode, and the last reply of a turn is
   proposed as the plan.
 - **The threadbear tools** reach the agent as an MCP server over HTTP on
@@ -3224,6 +3285,21 @@ went back to the project on 4 Nov. A thread's row in the backend carries
 `asked` too, from API 31, and so does a `threadIndex` row, from API 32, so
 a Mac's tooltip has it for another runner's threads. The phone doesn't
 show it.
+
+## What Mike first asked
+
+A thread's summary carries `request` too: the first message Mike wrote to
+it, as one line of at most 200 characters, by the same rules as `asked`
+(not the runner's own messages, a schedule's or another agent's; a design
+review's reply as his words). Once set it stays, so it says what the thread
+is for while `asked` follows the conversation. It's absent until he's sent
+something. A thread from a runner before it learns it from the first 300
+events of its log when the runner starts, unless it's archived; a thread
+whose first message of his is past those has none, and a reader shows its
+title instead. The Mac app's Feed (experiment `feed`) heads each thread's
+card with it. A `threadIndex` row carries it from backend API 96, so the
+Feed has it for another runner's threads; the phone's thread rows don't
+(the phone has no Feed).
 
 ## Needs you
 
@@ -6280,7 +6356,7 @@ kept in `schedules.json` in the data dir.
 - **Runners.** With sync on and a backend of API 9 or later, schedules
   live in the backend's `schedules` table rather than `schedules.json`,
   so every runner sees one list and a schedule can be made for another
-  runner (step 6, docs/step6-plan.md). Each row names its `runnerId`, and
+  runner (step 6, docs/archive/step6-plan.md). Each row names its `runnerId`, and
   only that runner sends it. The runner keeps a live subscription to the
   table (`sync:schedules`) and a copy in `schedules.json` (`version: 2`)
   for when the backend can't be reached. Its own timer finds a due run,
@@ -6383,9 +6459,67 @@ kept in `schedules.json` in the data dir.
   minutes"). `schedule_message` takes a `runner` (a name or id from
   `runners.list`); left out, the schedule runs on the agent's own runner.
 
+## Recipes
+
+Behind the `recipes` experiment. A recipe is a technique someone found worth
+keeping (a morning brief, a nightly look back, an email watcher), written so
+an agent can set it up for anyone: one `RECIPE.md`, with an optional header
+picture beside it. The format is in `runner/src/recipes/FORMAT.md`. The ones
+that come with Threadbear are `runner/src/recipes/<id>/`; the user's own are
+`<recipes folder>/<id>/` (`runner.json`'s `recipes.folder`, default
+`~/ThreadbearThreads/recipes`), and one of theirs with a built-in's id is used
+in its place. That folder is also where a recipe's working files go once it's
+set up (its `TASK.md`, its `memory.md`), so a subfolder without a `RECIPE.md`
+is just that and isn't listed.
+
+What the runner remembers about each, in `recipes.json` in the data dir:
+whether it's on, the thread that set it up, and the schedules that are its.
+A schedule made by its setup thread (`createdBy`) becomes its own when the
+runner next looks, so the setup agent needs no tool of its own. A recipe with
+`experiment: <id>` is on while that experiment is: its switch is the
+experiment's switch (`settings.update`'s `experiments`).
+
+`RecipeSummary`:
+
+```
+{ id, name, icon,            // icon: an emoji
+  description,               // one line, for its card
+  by?,                       // who wrote it
+  source: "builtin" | "yours",
+  experiment?,               // the experiment it switches
+  when?,                     // how often, in words: "Every day at 6:30"
+  color?,                    // "#rrggbb", the header's colour when it has no picture
+  header?,                   // absolute path of its header picture on this Mac
+  state: "add" | "settingUp" | "on" | "off",
+  setupThreadId?,
+  schedules: { id, title, paused, nextRunAt?, whenText }[],
+  stats: { runs: number, neededYou: number, seen: number, lastRunAt?, lastHeadline? } }   // last 30 days
+```
+
+`state` is `add` until it's added; `settingUp` from `recipes.add` until it
+has a schedule (or, for an experiment's, until that's on); then `on` or `off`.
+`stats` count the threads its schedules started in the last 30 days: those
+that ended needing the user, and those they've read (`lastSeenSeq` at
+`lastSeq`).
+
+| Method | Params | Result |
+|---|---|---|
+| `recipes.list` | `{}` | `{ recipes: RecipeSummary[] }`, on first, then the rest by name |
+| `recipes.get` | `{ id }` | `{ recipe: RecipeSummary & { about, example?, file, runs: RecipeRun[] } }`. `about` and `example` are Markdown (the file's sections); `file` is the `RECIPE.md` path. `RecipeRun` is `{ threadId, title, at, headline?, needsYou, seen, archived }`, the threads its schedules started in the last 30 days, newest first, 60 at most |
+| `recipes.add` | `{ id }` | `{ threadId, thread }` (`thread` its `ThreadSummary`, so a client opens it at once): starts a thread in `<recipes folder>/<id>` (made if need be), on the default pool and mode, whose message points its agent at the recipe's file and has it set the recipe up with the user. The recipe is `settingUp` from now |
+| `recipes.setOn` | `{ id, on }` | `{ recipe }`. Off pauses each of its schedules (and turns its experiment off); on resumes them (and turns it on). A recipe still setting up just records the choice |
+| `recipes.remove` | `{ id }` | `{ removed: true }`: deletes its schedules, turns its experiment off and forgets it, so it's `add` again. Its files stay |
+| `recipes.create` | `{ text?, fromThreadId?, editId? }` | `{ threadId, thread }`: starts a thread in the recipes folder whose agent writes a new recipe with the user (from `text`, or from what went well in `fromThreadId`), and a header picture if it can make one. A new recipe shows as `add` until it's added. With `editId` the agent changes that recipe instead, writing a built-in's changed copy into the recipes folder as the user's own |
+
+`recipes.updated` (notification, no params) says the list has changed: a
+recipe's file, its state, its schedules or the threads they started. The
+runner looks every 30 seconds and at once after its own changes; a client
+fetches `recipes.list` again (and `recipes.get` for a recipe it shows). With
+the experiment off every method fails with `-32601`.
+
 ## Other runners' threads
 
-Step 6 part 2 (docs/step6-plan.md). The Mac app lists every runner's
+Step 6 part 2 (docs/archive/step6-plan.md). The Mac app lists every runner's
 threads: this runner's from this runner as always, the others' from the
 backend. It opens them through its own runner and the backend ("Other
 runners' threads through the backend", below). Runners never talk to each
@@ -6828,7 +6962,46 @@ runner that's this one is the usual create.
 - **Reporting back.** The started thread is told the asking thread's id.
   The main Mac's agents can `send_message` to another runner's thread by
   its full id (through the relay); a runner key's agents can't message the
-  main Mac's threads, so the asking thread hears only from them.
+  main Mac's threads. So for a thread the main Mac starts there, its runner
+  passes the replies back itself (`runner/src/far-reports.ts`, added 20 Nov
+  2026, after a thread on the Pixel couldn't report to the M5 thread that
+  started it): the thread's first line is `[Started by thread <id> on
+  <name>. Each reply you end a turn with goes back to that thread, so put
+  your report in your reply.]`, and the main Mac's runner keeps it in
+  `far-reports.json` with its starter (a thread already there keeps its
+  first starter). Every 15 seconds, on a timer of its own, and not while
+  sync is off or the runner is draining, it reads each such thread's row
+  (`relay:remoteThread`) and newest 100 message rows
+  (`relay:remoteMessages`) straight from the backend: the sidebar's list
+  is only watched while an app is connected, and the relay knows a thread
+  only once that list has it. A thread quiet for half an hour is read
+  every five minutes. The turns (rows' `turn`) after the last one passed
+  on, in order, each go to the starter, the newest only once it isn't
+  running and a second look finds the same reply (the row can say the
+  turn ended before its last reply reaches the backend). If one of the
+  last 20 turns passed on later shows a different reply (more of it
+  arrived, even with the next turn's rows), that goes again, saying so.
+  A turn's reply is its last agent words, past the MCP tool calls after
+  them (end_turn's, a pin: every threadbear tool's row has `toolKind`
+  `mcp`), back to a message sent into the running turn; end_turn's
+  summary stands in when there are none, as words before another kind of
+  tool call (a command, a read, an edit) are narration. It goes queued, as an agent's
+  message: `[Sent by the agent in the thread "<title>" (<id8>)]`, then
+  `From <runner>, where this thread started it. Its reply as its turn
+  ended, passed on by this Mac's runner (thread <id>):` and the reply. The
+  title and runner name lose quotes, brackets and newlines, and the reply
+  is cut at 20,000 characters. The record is saved after each send, and
+  a look that finds the other runner of a handover passed on more
+  meanwhile writes nothing. One moved to the main Mac is let go (its own
+  `send_message` reaches the starter); one moved to another runner is
+  followed there. A starter that
+  isn't on this runner (a handover's other runner has it) waits, and one
+  gone a day is taken as deleted; a send that fails is tried at the next
+  look. At most 40 go per thread a day, as each wakes the starter. A
+  thread gone from the backend, or quiet, for 30 days is forgotten. That
+  thread's `send_message` to its starter (8 characters of the id or
+  more), which its runner can't find, is refused saying the reply goes
+  back by itself.
 
 What a tampered runner can do with this is put a card in front of Mike:
 the most it can start is what he read and allowed.
@@ -6840,7 +7013,7 @@ In the backend a request is a state machine (`convex/requestMachine.ts`,
 
 ## Moving a thread to another runner
 
-Added 8 Nov 2026 (docs/move-plan.md) as the experiment `moveToRunner`, on
+Added 8 Nov 2026 (docs/archive/move-plan.md) as the experiment `moveToRunner`, on
 for everyone from 12 Nov (a runner from between those dates takes part only
 with it on). The thread itself moves: the same id, its whole
 event log, pictures and Highlights, its Claude session, and the git work in
@@ -7434,8 +7607,8 @@ the mirror back as state. The Mac app doesn't use it.
   scrubbed, so one whose text holds a secret runs with `[REDACTED]`. Pictures
   aren't scrubbed. `src/withhold.ts` says which tool calls' output must never
   upload.
-- **Full sync** (API 52, docs/full-convex.md step 4). `sync.full: true` in
-  `runner.json`, off by default and never offered (docs/full-convex.md step 6); off, none of this runs. Each finished tool goes up
+- **Full sync** (API 52, docs/archive/full-convex.md step 4). `sync.full: true` in
+  `runner.json`, off by default and never offered (docs/archive/full-convex.md step 6); off, none of this runs. Each finished tool goes up
   as one `eventBodies` row under its call's seq, the same seq as its `messages` row
   (`sync:appendBodies`, at most 50 rows or about 512 KB a mutation, behind the
   mirror's own writes): `text`, `ok`, `truncated`, `input` and `diffs` as JSON text,

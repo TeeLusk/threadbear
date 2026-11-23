@@ -48,7 +48,7 @@ export const handoversPart = {
       // (readyToHandOver): the new runner would wake it. And one going back
       // to an earlier message: letting it go mid-edit saved the record from
       // before the cut, after the files had been put back (13 Nov 2026).
-      keep: new Set([...keep, ...[...this.threads.values()].filter((st) => st.rt.cleaning || st.rt.preparing || st.rt.hooksRunning || st.rt.editing || st.rec.wakeWhen?.pending).map((st) => st.rec.id)].filter((id) => this.threads.has(id))),
+      keep: new Set([...keep, ...[...this.threads.values()].filter((st) => st.rt.cleaning !== undefined || st.rt.preparing !== undefined || st.rt.hooksRunning || st.rt.editing || st.rec.wakeWhen?.pending).map((st) => st.rec.id)].filter((id) => this.threads.has(id))),
       going: new Set(),
       gone: new Set(),
       onHandedOver: opts.onHandedOver,
@@ -261,6 +261,7 @@ export const handoversPart = {
     // recovery, not the handover (Runner.recoveryFailed).
     try {
       if (rec.asked === undefined && !rec.archivedAt) this.backfillAsked(rec);
+      if (rec.request === undefined && !rec.archivedAt) this.backfillRequest(rec);
       this.recoverReviews(st);
       // Handed over before its worktree cleanup finished (letGo's limit).
       void this.settleLostCleanups([st], false);

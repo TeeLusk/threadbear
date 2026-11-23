@@ -23,6 +23,7 @@ on:
     branches: [main]
     paths:
       - desktop/**
+      - rust-toolchain.toml
       - runner/src/protocol.ts
       - runner/src/rpc-auth.ts
       - runner/src/reviews.ts
@@ -40,6 +41,7 @@ on:
   pull_request:
     paths:
       - desktop/**
+      - rust-toolchain.toml
       - runner/src/protocol.ts
       - runner/src/rpc-auth.ts
       - runner/src/reviews.ts
@@ -112,10 +114,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      # The stable toolchain, from a pinned commit of the action that installs it.
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable, 15 Nov 2026
-        with:
-          toolchain: stable
+      # The toolchain rust-toolchain.toml pins (rustfmt and clippy with it), as
+      # the check hosts and tb land use, so a format or lint result is the
+      # same here. GitHub's images have rustup; with no argument it installs
+      # the file's toolchain.
+      - name: Rust toolchain
+        run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop
@@ -132,9 +136,12 @@ jobs:
       - name: The specs line up with their steps
         working-directory: features
         run: node verify-pairing.mjs
+      - name: The specs' steps typecheck
+        working-directory: features
+        run: npm run typecheck
       - name: Rust tests (with the mock runner)
         if: ${{ !matrix.specsOnly }}
-        run: cargo test --manifest-path desktop/Cargo.toml
+        run: cargo test --locked --manifest-path desktop/Cargo.toml
       - name: Native text bridge contract
         if: runner.os == 'macOS' && !matrix.specsOnly
         run: bash desktop/scripts/test-native-text.sh
@@ -173,7 +180,7 @@ jobs:
         run: echo "TB_WEB_RUNTIME_ARCHIVE=$(desktop/scripts/web-runtime-archive.sh ~/web-runtime-archive)" >> "$GITHUB_ENV"
       - name: Behaviour specs
         run: |
-          cargo build --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation
+          cargo build --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation
           cd features
           TB_APP=gpui TB_RETRY=1 TB_SHARD=${{ matrix.shard }} node_modules/.bin/cucumber-js
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -184,7 +191,7 @@ jobs:
           if-no-files-found: ignore
       - name: Build the GPUI app
         if: ${{ !matrix.specsOnly }}
-        run: cargo build --release --manifest-path desktop/Cargo.toml -p threadbear-gpui
+        run: cargo build --locked --release --manifest-path desktop/Cargo.toml -p threadbear-gpui
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ !matrix.specsOnly }}
         with:

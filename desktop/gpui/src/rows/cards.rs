@@ -850,13 +850,72 @@ impl ThreadPane {
         let open_title = if review.is_pending() { format!("Compare {} images", review.options.len()) } else { "Open review".to_owned() };
         let open_tip = if review.is_pending() { "Open the images side by side to pick and reply" } else { "Open the review to look at the images and what was sent" };
         let opened = review.clone();
-        let content = v_flex()
-            .child(h_flex().items_center().gap(px(6.)).child(div().flex_none().w(px(18.)).child(icon("rectangle.on.rectangle", 14., secondary))).child(div().min_w_0().truncate().text_size(px(size::WORK)).line_height(px(22.)).font_weight(FontWeight::SEMIBOLD).text_color(label).child(review.title.clone())))
-            .child(div().mt(px(4.)).text_size(px(size::DETAIL)).line_height(px(20.)).text_color(quiet).child(detail))
-            // Its window (review_window.rs).
-            .child(h_flex().mt(px(10.)).child(pill(("open-review", ix), &open_title, false, true, None, cx).min_w(px(140.)).tip(open_tip).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_review(opened.clone(), window, cx))).test_support()));
+        let head = v_flex()
+            .child(h_flex().items_center().gap(px(6.)).child(div().flex_none().w(px(18.)).child(icon("rectangle.on.rectangle", 14., secondary))).child(div().min_w_0().truncate().text_size(px(size::WORK)).line_height(px(22.)).font_weight(FontWeight::SEMIBOLD).text_color(label).child(review.title.clone())));
+        // The reviewPage experiment: the options themselves on the card, each
+        // a small picture with its name, and a click on one opens the page
+        // beside the thread (review_pane.rs) in place of the window and its
+        // button. Another Mac's pictures aren't here to show.
+        let content = if crate::review_pane::is_on(cx) && self.summary.runner_id.is_none() {
+            let picked_ids = review.response.as_ref().map(|r| r.picked_ids.clone()).unwrap_or_default();
+            let mut tiles = h_flex().mt(px(10.)).flex_wrap().items_start().gap_x(px(12.)).gap_y(px(10.));
+            for (index, option) in review.options.iter().enumerate() {
+                let (opened, tip) = (opened.clone(), if review.is_pending() { format!("Open {} beside the thread to read, pick and reply", option.title) } else { format!("Open the review at {}", option.title) });
+                let name = h_flex()
+                    .mt(px(6.))
+                    .w(px(REVIEW_TILE.0))
+                    .gap(px(5.))
+                    .items_center()
+                    .text_size(px(size::DETAIL))
+                    .line_height(px(style::natural_line(size::DETAIL)))
+                    .text_color(label)
+                    .when(picked_ids.contains(&option.id), |s| s.child(gpui_kit::component::Icon::from(gpui_kit::assets::IconName::Check).with_size(px(11.)).text_color(style::control_accent(cx))))
+                    .child(div().min_w_0().truncate().child(option.title.clone()))
+                    .when(review.recommended.as_deref() == Some(option.id.as_str()), |s| s.child(crate::icons::symbol("star.fill").with_size(px(10.)).text_color(style::recommended_star(cx))));
+                tiles = tiles.child(
+                    v_flex()
+                        .id(("review-tile", ix * 16 + index))
+                        .role(Role::Button)
+                        .aria_label(SharedString::from(option.title.clone()))
+                        .flex_none()
+                        .cursor_pointer()
+                        .tip(tip)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_review(opened.clone(), window, cx)))
+                        .test_support()
+                        .child(review_tile(&option.image, cx))
+                        .child(name),
+                );
+            }
+            head.child(div().mt(px(4.)).text_size(px(size::DETAIL)).line_height(px(20.)).text_color(quiet).child(state)).child(tiles)
+        } else {
+            head.child(div().mt(px(4.)).text_size(px(size::DETAIL)).line_height(px(20.)).text_color(quiet).child(detail))
+                // Its window (review_window.rs).
+                .child(h_flex().mt(px(10.)).child(pill(("open-review", ix), &open_title, false, true, None, cx).min_w(px(140.)).tip(open_tip).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_review(opened.clone(), window, cx))).test_support()))
+        };
         row_wrap(row, div().py(px(ROW_TOP)).child(card_frame(content, accent, cx)))
     }
+}
+
+/// An option's small picture on its review's card: this wide and tall, so
+/// two fit a row beside a review's page, when the transcript is at its
+/// narrowest, and four when it has its full width.
+const REVIEW_TILE: (f32, f32) = (150., 90.);
+
+/// The picture cut to the tile from its top left corner, where a mockup's
+/// name and navigation are, scaled to fill it.
+fn review_tile(image: &threadbear_core::reducer::ImageRef, cx: &App) -> Div {
+    let (w, h) = (image.width.filter(|w| *w > 0).unwrap_or(1600) as f32, image.height.filter(|h| *h > 0).unwrap_or(1000) as f32);
+    let scale = (REVIEW_TILE.0 / w).max(REVIEW_TILE.1 / h);
+    div()
+        .flex_none()
+        .w(px(REVIEW_TILE.0))
+        .h(px(REVIEW_TILE.1))
+        .rounded(px(6.))
+        .overflow_hidden()
+        .border_1()
+        .border_color(style::hairline(cx))
+        .bg(style::primary_opacity(cx, 0.08))
+        .child(img(crate::rows::markdown::file_picture(&image.path)).w(px(w * scale)).h(px(h * scale)).object_fit(ObjectFit::Fill))
 }
 
 /// Plan text goes through the same preparation as a reply's.

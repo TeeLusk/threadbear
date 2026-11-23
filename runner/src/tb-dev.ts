@@ -3,6 +3,7 @@
 // restarts, a thread as plain text, the runner log, fixture exports for the
 // mock runner, and raw calls. cli.ts hands these commands over; the
 // formatting and export functions are pure enough to test on their own.
+import { formatArchive } from './agent-archive.ts';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -492,6 +493,7 @@ export function formatStatus(s: RunnerStatus, threads: ThreadSummary[], now: num
   if (s.upstream?.held) lines.push(heldLine(s.upstream.held));
   if (s.sync) lines.push(formatSync(s.sync, now));
   if (s.sync?.scrub) lines.push(...formatSecrets(s.sync.scrub, s.secretCheck, now, s.sync.full));
+  if (s.archive) lines.push(formatArchive(s.archive, now, duration));
   // Releases never touch the LaunchAgent (launch.mjs, the plist, Threadbear
   // Runner.app); only Mike's install-runner.sh does.
   if (u?.launcherChanged) lines.push(`${u.launcherReason ?? 'launch.mjs on main differs from the installed one.'} The runner stages it by itself for the next login; Update it in the app's Updates panel tries again after a failure.`);

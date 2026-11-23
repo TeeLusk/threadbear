@@ -126,7 +126,7 @@ pub(crate) fn receive_event(params: &Value, cx: &mut App) {
 /// it updates itself several times a day and is gone a few seconds each time,
 /// which isn't worth an error or a second press of Send. Trying again is safe:
 /// an identical answer to a review already answered returns the first one.
-async fn riding_out(client: Arc<Client>, method: &'static str, params: Value, cx: &mut AsyncApp) -> Result<Value, RpcError> {
+pub(crate) async fn riding_out(client: Arc<Client>, method: &'static str, params: Value, cx: &mut AsyncApp) -> Result<Value, RpcError> {
     let deadline = Instant::now() + Duration::from_millis(rules::RECONNECT_WAIT_MS);
     loop {
         match call(client.clone(), method, params.clone()).await {
@@ -153,10 +153,32 @@ fn bind_keys(cx: &mut App) {
 }
 
 impl Threadbear {
-    /// `openReview`: the review in a window of its own, most of the screen
-    /// (Mike, 30 Oct: beside the thread as a tab the images were too small to
-    /// compare), or the one already open on it brought forward with this copy.
+    /// `openReview`: the review's card, a `review:` link, or the bar over a
+    /// thread with reviews waiting. With the reviewPage experiment on, a
+    /// review of the thread on show opens as a page in the pane beside it
+    /// (review_pane.rs); anything else in its window, as before.
     pub(crate) fn open_review(&mut self, thread_id: &str, review: DesignReview, window: &mut Window, cx: &mut Context<Self>) {
+        let here = self.threads.get(thread_id).is_some_and(|t| t.runner_id.is_none());
+        if !(crate::review_pane::is_on(cx) && here) {
+            return self.open_review_window(thread_id, review, None, window, cx);
+        }
+        // Once this update is over: the pane reads the app for its thread.
+        let (app, side, main, thread_id) = (cx.entity().downgrade(), self.side.clone(), window.window_handle(), thread_id.to_owned());
+        cx.defer(move |cx| {
+            if side.update(cx, |side, cx| side.open_review_page(&thread_id, review.clone(), cx)) {
+                return;
+            }
+            let Some(app) = app.upgrade() else { return };
+            let _ = main.update(cx, |_, window, cx| app.update(cx, |app, cx| app.open_review_window(&thread_id, review, None, window, cx)));
+        });
+    }
+
+    /// The review in a window of its own, most of the screen (Mike, 30 Oct:
+    /// beside the thread as a tab the images were too small to compare), or
+    /// the one already open on it brought forward with this copy. `at`: the
+    /// option and shot to show big, for a picture clicked on the review's
+    /// page.
+    pub(crate) fn open_review_window(&mut self, thread_id: &str, review: DesignReview, at: Option<(usize, usize)>, window: &mut Window, cx: &mut Context<Self>) {
         // Another Mac's review: its pictures and pages are files on that Mac,
         // read here they'd be whatever this Mac has at those paths, and its
         // answers would go to this Mac's runner, which hasn't got it.
@@ -170,7 +192,13 @@ impl Threadbear {
             let fresh = review.clone();
             let alive = handle
                 .update(cx, |_, window, cx| {
-                    view.update(cx, |v, cx| v.receive(fresh, cx));
+                    view.update(cx, |v, cx| {
+                        v.receive(fresh, cx);
+                        if let Some((option, shot)) = at {
+                            v.closer_look = true;
+                            v.enlarge(option, shot, cx);
+                        }
+                    });
                     if !scripted() {
                         window.activate_window();
                     }
@@ -219,7 +247,16 @@ impl Threadbear {
                     ..Default::default()
                 },
                 cx,
-                move |window, cx| cx.new(|cx| ReviewWindow::new(parts, review, window, cx)),
+                move |window, cx| {
+                    cx.new(|cx| {
+                        let mut opened = ReviewWindow::new(parts, review, window, cx);
+                        if let Some((option, shot)) = at {
+                            opened.closer_look = true;
+                            opened.enlarge(option, shot, cx);
+                        }
+                        opened
+                    })
+                },
             );
             match opened {
                 Ok((handle, view)) => {
@@ -312,6 +349,12 @@ pub(crate) struct ReviewWindow {
     rail_scroll: ScrollHandle,
     /// The option the rail last scrolled to, so it follows the stage.
     rail_follows: Option<usize>,
+    /// Opened from the review's page beside the thread for a closer look at
+    /// a picture (the reviewPage experiment, review_pane.rs): the stage
+    /// across the whole window with the option's words under it, and no
+    /// column down the right, as the page has the options and the thread's
+    /// message box is the reply box.
+    pub(crate) closer_look: bool,
     closed: bool,
     _poll: Task<()>,
     _subs: Vec<Subscription>,
@@ -394,6 +437,7 @@ impl ReviewWindow {
             more_open: false,
             rail_scroll: ScrollHandle::new(),
             rail_follows: None,
+            closer_look: false,
             closed: false,
             _poll: poll,
             _subs: subs,
@@ -1052,6 +1096,15 @@ impl Render for ReviewWindow {
         let error = self.session.error.clone();
         let body = if self.session.review().options.is_empty() {
             self.render_empty(cx)
+        } else if self.closer_look {
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .child(h_flex().flex_1().min_h_0().w_full().child(self.render_stage(window, cx)))
+                .child(div().flex_none().w_full().h(gpui_kit::px(1.)).bg(style::hairline(cx)))
+                .child(self.render_words(cx))
+                .into_any_element()
         } else {
             h_flex()
                 .flex_1()
@@ -1397,6 +1450,8 @@ impl ReviewWindow {
             "status": s.review().status,
             "revision": s.review().revision,
             "mode": s.mode.name(),
+            // A closer look from the review's page (review_pane.rs).
+            "closerLook": self.closer_look,
             "actual": s.zoomed,
             "pickedId": draft.picked_id().unwrap_or(""),
             "pickedIds": draft.picked_ids,

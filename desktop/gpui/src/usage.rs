@@ -1,17 +1,19 @@
 // The Usage panel and the activity bar's honey pot, a port of the Swift app's
 // UsagePanel.swift and HoneyPot.swift. At the top of the panel, what's been
 // spent: today's tokens, the last hour's and the week's, and a chart by the
-// hour or the day with each login its own colour. Then a card per pool, each
-// login in it with its 5-hour and weekly room, how fast the week is going and
-// whether it lasts, and a model's own week (Fable's), which a Settings card
-// at the foot can hide. The numbers and words are worked out in
+// hour or the day with each login its own colour. Then a card per pool with a
+// row for each login in it: a ring with its week's room, its logo and name,
+// and one line saying whether it lasts. A click opens a row to its week's
+// chart, its 5-hour window, a model's own week (Fable's, which Settings can
+// hide) and its buttons. The numbers and words are worked out in
 // threadbear_core::usage; this draws them.
 //
 // The limits come with the runner's logins (hello, then `accounts.updated`
 // and `pools.updated`); the tokens and the readings over time from
 // `usage.stats`, asked for when the panel opens and once a minute while it's
 // on screen. Nothing here sends anything to the runner, so the only clicks
-// (the icon, the chart's range, the Settings switch) show at once.
+// (the icon, the chart's range, a login's row, the Settings switch) show at
+// once.
 use crate::app::Threadbear;
 use crate::{call, icons, now_ms, shell, style};
 use gpui_kit::base::TestSupportExt as _;
@@ -54,6 +56,9 @@ pub(crate) struct UsageState {
     /// Logins a Find work for it is on its way for (`find_work`): their
     /// button spins and takes no clicks until the runner answers.
     pub(crate) finding_work: HashSet<String>,
+    /// The logins' rows that are open to their charts and buttons, by pool
+    /// and login (`row_key`). Not remembered: the panel opens shut.
+    pub(crate) open: HashSet<String>,
     /// Asking while the panel's on screen.
     poll: Option<Task<()>>,
     /// The chart's slot under the pointer.
@@ -105,6 +110,7 @@ impl UsageState {
             range: range.and_then(Range::from_name).unwrap_or_default(),
             show_model_weeks: show_model_weeks.unwrap_or(true),
             finding_work: HashSet::new(),
+            open: HashSet::new(),
             poll: None,
             hovered: None,
             plot: Rc::new(Cell::new(None)),
@@ -168,6 +174,15 @@ impl Threadbear {
         self.usage.hovered = None;
         self.settings.saved.usage_chart_range = Some(range.name().to_owned());
         self.save_settings_soon(cx);
+        cx.notify();
+    }
+
+    /// A login's row in the panel, opened or shut at once. Nothing goes to
+    /// the runner.
+    pub(crate) fn toggle_usage_row(&mut self, key: &str, cx: &mut Context<Self>) {
+        if !self.usage.open.remove(key) {
+            self.usage.open.insert(key.to_owned());
+        }
         cx.notify();
     }
 
@@ -247,9 +262,9 @@ impl Threadbear {
         // Its settings (whether to show a model's own week, and the spare
         // week nudges) are in Settings › General › Usage since 18 Nov: Mike
         // didn't like them dumped at the foot of the panel.
-        let finding = &self.usage.finding_work;
+        let (open, finding) = (&self.usage.open, &self.usage.finding_work);
         for card in rules::cards_named(&self.logins.pools, accounts, stats, self.usage.show_model_weeks, now, &zone, |p| self.logins.provider_title(p)) {
-            column = column.child(pool_card(&card, accounts, finding, content, dark, now, &p, cx));
+            column = column.child(pool_card(&card, accounts, open, finding, content, dark, now, &p, cx));
         }
         if let Some(footer) = rules::footer(accounts, now, &zone) {
             column = column.child(div().text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).child(footer));
@@ -318,6 +333,7 @@ impl Threadbear {
                 "today": card.today.as_ref().map(|t| &t.0),
                 "logins": card.sections.iter().flat_map(|section| section.logins.iter().map(move |l| json!({
                     "name": l.name,
+                    "open": self.usage.open.contains(&row_key(&card.id, &l.id)),
                     "provider": section.title,
                     "note": l.note,
                     "today": l.today.as_ref().map(|t| &t.0),
@@ -701,11 +717,12 @@ fn hover_note(chart: &Chart, slot: i64, accounts: &[Account], dark: bool, now: i
         .into_any_element()
 }
 
-/// `PoolCard`: the pool's icon, name and what it's spent today, then a card
-/// for each login in it (option B of the 17 Nov review). Each card carries
-/// its provider's logo, so a pool that mixes providers no longer names them
-/// over its logins.
-fn pool_card(card: &Card, accounts: &[Account], finding: &HashSet<String>, content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
+/// `PoolCard`: the pool's icon, name and what it's spent today, then one
+/// card with a row for each login in it (option A of Mike's 20 Nov review:
+/// the per-login cards and their charts took a screen for two or three
+/// logins). A row opens to its charts and buttons when clicked.
+#[allow(clippy::too_many_arguments)]
+fn pool_card(card: &Card, accounts: &[Account], open: &HashSet<String>, finding: &HashSet<String>, content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
     let header = h_flex()
         .gap(px(7.))
         .px(px(2.))
@@ -713,13 +730,20 @@ fn pool_card(card: &Card, accounts: &[Account], finding: &HashSet<String>, conte
         .child(div().text_size(px(13.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).truncate().child(card.title.clone()))
         .child(div().flex_1())
         .children(card.today.as_ref().map(|(words, tip)| today_words(SharedString::from(format!("usage-card-today-{}", card.id)), words, tip, p)));
-    let mut column = v_flex().gap(px(8.)).child(header);
+    let mut rows = v_flex().w_full().gap(px(2.)).p(px(4.));
     for (s, section) in card.sections.iter().enumerate() {
         for login in &section.logins {
-            column = column.child(login_row(&format!("{}-{s}", card.id), login, accounts, finding.contains(&login.id), content, dark, now, p, cx));
+            let key = row_key(&card.id, &login.id);
+            rows = rows.child(login_row(&format!("{}-{s}", card.id), &key, login, accounts, open.contains(&key), finding.contains(&login.id), content, dark, now, p, cx));
         }
     }
-    column.into_any_element()
+    v_flex().gap(px(8.)).child(header).child(card_box(rows, p)).into_any_element()
+}
+
+/// A login's row in a pool's card, for remembering it's open: a login can
+/// be in more than one pool.
+fn row_key(card: &str, login: &str) -> String {
+    format!("{card}/{login}")
 }
 
 fn icon(symbol: &str, size: f32, colour: Hsla) -> Icon {
@@ -742,15 +766,18 @@ fn tone_colour(tone: Tone, p: &Palette) -> (Hsla, bool) {
     }
 }
 
-/// `LoginRow`, as a card of its own: its provider's logo, its name and one
-/// line saying how it stands, a ring with the week's room at the right, then
-/// the week's chart, a model's own week, and at the foot the 5-hour window as
-/// a chip and what it's spent today. A login with no reading is just the top
-/// line, saying why, with a dashed ring.
-fn login_row(key: &str, login: &LoginRow, accounts: &[Account], finding: bool, content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
+/// `LoginRow`, as one row of its pool's card: a ring with the week's room,
+/// the provider's logo and the login's name, one line saying how it stands,
+/// and what it's spent today. Clicked, it opens to the week's chart, a
+/// model's own week, the 5-hour window, Find work for it and the token
+/// buttons. A sign-in that's ending or gone stays in sight when it's shut,
+/// as that's the one thing that needs doing before a job fails overnight.
+#[allow(clippy::too_many_arguments)]
+fn login_row(key: &str, open_key: &str, login: &LoginRow, accounts: &[Account], open: bool, finding: bool, content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
     let colour = login_colour(&login.id, accounts, dark);
     let id = |part: &str| SharedString::from(format!("usage-{key}-{}-{part}", login.id));
     let name = crate::highlights::tipped_as(h_flex().id(id("name")).gap(px(6.)).items_center().min_w_0(), login.tip.clone(), gpui_kit::Role::GenericContainer)
+        .child(icons::provider_mark(&login.provider).with_size(px(13.)).text_color(p.secondary))
         .child(div().min_w_0().text_size(px(12.5)).line_height(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(p.fg).truncate().child(login.name.clone()))
         .children(login.note.as_ref().map(|note| div().min_w_0().text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).truncate().child(note.clone())));
     let line: Option<AnyElement> = if let Some(unknown) = &login.unknown {
@@ -763,12 +790,36 @@ fn login_row(key: &str, login: &LoginRow, accounts: &[Account], finding: bool, c
     };
     let ring_tip = login.meters.iter().find(|m| m.kind == "weekly").map(|m| m.tip.clone()).or_else(|| login.unknown.as_ref().map(|u| u.tip.clone())).unwrap_or_default();
     let ring = crate::highlights::tipped_as(div().id(id("ring")).flex_none().size(px(RING)), ring_tip, gpui_kit::Role::GenericContainer).child(room_ring(login.ring, if login.ring.is_some_and(|r| r < 1.) { p.red } else { colour }, p));
-    let header = h_flex()
+    // Its own spend, without the "today" the pool's header already says.
+    let today = login.today.as_ref().map(|(words, tip)| today_words(id("today"), words.trim_end_matches(" today"), tip, p));
+    // Confetti pops from its name as it signs back in or a new token lands
+    // (confetti.rs), open or not.
+    let who = div()
+        .relative()
+        .min_w_0()
+        .child(name)
+        .child(crate::confetti::anchor(format!("signed-in:{}", login.id)))
+        .child(crate::confetti::anchor(format!("token:{}", login.id)));
+    let toggle = open_key.to_owned();
+    let hover = p.bar_track;
+    let row = h_flex()
+        .id(id("row"))
+        .role(gpui_kit::Role::Button)
+        .aria_expanded(open)
+        .aria_label(SharedString::from(login.name.clone()))
+        .w_full()
         .gap(px(10.))
         .items_center()
-        .child(icons::provider_mark(&login.provider).with_size(px(18.)).text_color(p.secondary))
-        .child(v_flex().flex_1().min_w_0().gap(px(1.)).child(div().relative().min_w_0().child(name).child(crate::confetti::anchor(format!("signed-in:{}", login.id)))).children(line))
-        .child(ring);
+        .px(px(8.))
+        .py(px(7.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_usage_row(&toggle, cx)))
+        .child(ring)
+        .child(v_flex().flex_1().min_w_0().gap(px(1.)).child(who).children(line))
+        .children(today)
+        .child(icon(if open { "chevron.down" } else { "chevron.right" }, 10., p.tertiary));
     // Signed out, or its sign-in ending within days: say so, with the same
     // Sign in… as the thread's signed-out line (header.rs), so a scheduled
     // job on it doesn't fail overnight (14 Nov).
@@ -783,74 +834,74 @@ fn login_row(key: &str, login: &LoginRow, accounts: &[Account], finding: bool, c
     });
     // Year-long token…: a Claude sign-in lasts 28 days, a token from
     // `claude setup-token` a year (Mike, 17 Nov: opt in per login). Offered
-    // on every Claude login without one, and on a token login near its end.
-    let token = (login.can_token && (login.year_token.is_none() || due)).then(|| {
+    // on every Claude login without one, and on a token login near its end;
+    // the offer on one that isn't due waits in the open row.
+    let token = (login.can_token && (login.year_token.is_none() || due) && (open || due)).then(|| {
         let account = login.id.clone();
         let label = if login.year_token.is_some() { "New token…" } else { "Year-long token…" };
         small("token", "Opens Terminal on claude setup-token for this login: one sign-in, then it runs on that token for a year instead of signing in every 28 days. claude.ai's own connectors and Remote Control don't work on it")
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.make_year_token(&account, cx)))
             .child(label)
     });
-    // Confetti pops from here as a new token lands (confetti.rs).
-    let quiet = login.year_token.clone().filter(|_| !due).map(|words| div().relative().text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).child(words).child(crate::confetti::anchor(format!("token:{}", login.id))));
-    let sign_in = (sign_in.is_some() || token.is_some() || quiet.is_some()).then(|| h_flex().gap(px(8.)).items_center().children(ending).children(quiet).child(div().flex_1()).children(sign_in).children(token));
-    // The week's chart on its own: the ring says what's left and the line
-    // above what to do, so it needs no title. A model's own week keeps its
-    // meter's title, number and verdict.
-    let week = login.meters.iter().find(|m| m.kind == "weekly").map(|m| {
-        let chart = m.week_chart(now, &Local);
-        let (grid, plot, labels, orange) = (p.grid, p.plot, p.secondary, p.orange);
-        crate::highlights::tipped_as(div().id(id("week")).w_full(), m.tip.clone(), gpui_kit::Role::GenericContainer)
-            .child(canvas(|_, _, _| (), move |bounds, _, window, cx| paint_week(&chart, colour, grid, plot, labels, orange, bounds, window, cx)).w_full().h(px(58.)))
-    });
-    let others: Vec<Meter> = login.meters.iter().filter(|m| m.kind != "weekly" && m.kind != "five_hour").cloned().collect();
-    let others = (!others.is_empty()).then(|| meters_layout(&id(""), &others, colour, content - style::zoomed(24.), now, p));
-    let chip = login.five_hour.as_ref().map(|c| {
-        let text = match c.tone {
-            Tone::Out => p.red,
-            Tone::Short => p.orange,
-            _ => p.secondary,
-        };
-        crate::highlights::tipped_as(div().id(id("five-hour")).flex_none().px(px(7.)).py(px(1.)).rounded(px(8.)).bg(p.bar_track).text_size(px(11.)).line_height(px(15.)).font_features(tabular()).text_color(text), c.tip.clone(), gpui_kit::Role::GenericContainer).child(c.text.clone())
-    });
-    let today = login.today.as_ref().map(|(words, tip)| today_words(id("today"), words, tip, p));
-    // Find work for it, at the foot's right, on a week that will go partly
-    // unused (option C of Mike's 18 Nov review: the action beside the line
-    // that prompts it). It spins until the runner answers, then the thread
-    // opens.
-    // The same chip as Sign in… and Year-long token…, so the card's
-    // actions look alike; while it's on its way it spins, says so and
-    // takes no clicks.
-    let find_work = rules::can_find_work(login).then(|| {
-        let chip = small("find-work", rules::FIND_WORK_TIP);
-        if finding {
-            chip.opacity(0.7)
-                .child(h_flex().gap(px(5.)).items_center().child(crate::spinner::Spinner::new().with_size(px(10.)).color(p.secondary)).child(rules::FINDING_WORK))
-                .into_any_element()
-        } else {
-            let account = login.id.clone();
-            chip.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.find_work(account.clone(), cx))).child(rules::FIND_WORK).into_any_element()
-        }
-    });
-    let foot = (chip.is_some() || today.is_some() || find_work.is_some()).then(|| h_flex().gap(px(8.)).items_center().children(chip).children(today).child(div().flex_1()).children(find_work));
-    let more = (!login.more.is_empty()).then(|| v_flex().gap(px(2.)).text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).children(login.more.iter().map(|line| div().child(line.clone()))));
+    let quiet = login.year_token.clone().filter(|_| !due && open).map(|words| div().text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).child(words));
+    let sign_in = (ending.is_some() || sign_in.is_some() || token.is_some() || quiet.is_some()).then(|| h_flex().gap(px(8.)).items_center().children(ending).children(quiet).child(div().flex_1()).children(sign_in).children(token));
+    let has_below = open || sign_in.is_some();
+    // Under the row, lined up with its name.
+    let inset = RING + 18.;
+    let mut below = v_flex().gap(px(8.)).pl(px(inset)).pr(px(8.)).children(sign_in);
+    if open {
+        // The week's chart on its own: the ring says what's left and the
+        // line above what to do, so it needs no title. A model's own week
+        // keeps its meter's title, number and verdict.
+        let week = login.meters.iter().find(|m| m.kind == "weekly").map(|m| {
+            let chart = m.week_chart(now, &Local);
+            let (grid, plot, labels, orange) = (p.grid, p.plot, p.secondary, p.orange);
+            crate::highlights::tipped_as(div().id(id("week")).w_full(), m.tip.clone(), gpui_kit::Role::GenericContainer)
+                .child(canvas(|_, _, _| (), move |bounds, _, window, cx| paint_week(&chart, colour, grid, plot, labels, orange, bounds, window, cx)).w_full().h(px(58.)))
+        });
+        let others: Vec<Meter> = login.meters.iter().filter(|m| m.kind != "weekly" && m.kind != "five_hour").cloned().collect();
+        let others = (!others.is_empty()).then(|| meters_layout(&id(""), &others, colour, content - style::zoomed(inset + 16.), now, p));
+        let chip = login.five_hour.as_ref().map(|c| {
+            let text = match c.tone {
+                Tone::Out => p.red,
+                Tone::Short => p.orange,
+                _ => p.secondary,
+            };
+            crate::highlights::tipped_as(div().id(id("five-hour")).flex_none().px(px(7.)).py(px(1.)).rounded(px(8.)).bg(p.bar_track).text_size(px(11.)).line_height(px(15.)).font_features(tabular()).text_color(text), c.tip.clone(), gpui_kit::Role::GenericContainer).child(c.text.clone())
+        });
+        // Find work for it, on a week that will go partly unused (option C
+        // of Mike's 18 Nov review). It spins until the runner answers, then
+        // the thread opens, and takes no clicks while it's on its way.
+        let find_work = rules::can_find_work(login).then(|| {
+            let chip = small("find-work", rules::FIND_WORK_TIP);
+            if finding {
+                chip.opacity(0.7)
+                    .child(h_flex().gap(px(5.)).items_center().child(crate::spinner::Spinner::new().with_size(px(10.)).color(p.secondary)).child(rules::FINDING_WORK))
+                    .into_any_element()
+            } else {
+                let account = login.id.clone();
+                chip.cursor_pointer().on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.find_work(account.clone(), cx))).child(rules::FIND_WORK).into_any_element()
+            }
+        });
+        let foot = (chip.is_some() || find_work.is_some()).then(|| h_flex().gap(px(8.)).items_center().children(chip).child(div().flex_1()).children(find_work));
+        let more = (!login.more.is_empty()).then(|| v_flex().gap(px(2.)).text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).children(login.more.iter().map(|line| div().child(line.clone()))));
+        below = below.children(week).children(others).children(foot).children(more);
+    }
     // A lapsed plan stays listed, so Mike can see it's still there, but
     // faded: it isn't one to act on.
     let ended = login.status == Some(LoginStatus::PlanEnded);
-    let slim = login.unknown.is_some();
-    card_box(v_flex().w_full().gap(px(8.)).px(px(12.)).py(px(if slim { 8. } else { 10. })), p)
+    v_flex()
+        .w_full()
+        .rounded(px(6.))
+        .when(open, |d| d.bg(p.plot))
         .when(ended, |d| d.opacity(0.5))
-        .child(header)
-        .children(sign_in)
-        .children(week)
-        .children(others)
-        .children(foot)
-        .children(more)
+        .child(row)
+        .when(has_below, |d| d.child(below.pb(px(10.))))
         .into_any_element()
 }
 
 /// The ring's size, as the mockup has it.
-const RING: f32 = 40.;
+const RING: f32 = 34.;
 
 /// The ring at the right of a login's card: the week's room as an arc in the
 /// login's colour (red at nothing left) with the number inside, or a dashed
@@ -1326,6 +1377,18 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) ->
     if let Some(account) = cmd["findWork"].as_str() {
         let account = account.to_owned();
         app.update(cx, |t, cx| t.find_work(account, cx));
+        return Ok(json!("ok"));
+    }
+    // Opens or shuts a login's row in every pool it's in, as a click does.
+    if let Some(account) = cmd["open"].as_str() {
+        let keys: Vec<String> = {
+            let t = app.read(cx);
+            rules::groups(&t.logins.pools, &t.logins.accounts).iter().filter(|g| g.accounts().iter().any(|a| a.id == account)).map(|g| row_key(&g.id, account)).collect()
+        };
+        if keys.is_empty() {
+            return Err(format!("no row for {account}").into());
+        }
+        app.update(cx, |t, cx| keys.iter().for_each(|k| t.toggle_usage_row(k, cx)));
         return Ok(json!("ok"));
     }
     if let Some(on) = cmd["showModelWeeks"].as_bool() {

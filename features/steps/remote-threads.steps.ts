@@ -67,10 +67,11 @@ Then('the move was started with the preview it showed', async function (this: Th
 });
 
 Then('the move was started with the preview it showed, for the folder {string}', async function (this: ThreadbearWorld, folder: string) {
-  let params: { previewId?: unknown; cwd?: unknown } | null = null;
+  type Move = { previewId?: unknown; cwd?: unknown };
+  let params: Move | null = null;
   for (let tries = 0; tries < 50 && !params; tries += 1) {
     const text = await this.app.do({ cmd: 'mock', method: 'lastMove', params: {} });
-    params = ((typeof text === 'string' ? JSON.parse(text) : text) as { params?: typeof params }).params ?? null;
+    params = ((typeof text === 'string' ? JSON.parse(text) : text) as { params?: Move }).params ?? null;
     if (!params) await sleep(100);
   }
   assert.match(String(params?.previewId ?? ''), /^mock-preview-/);

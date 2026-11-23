@@ -252,7 +252,7 @@ const defaults = {
   cwd: '/Users/alex/code/misc', accountId: 'claude-main',
   models: { codex: 'gpt-6-luna' }, efforts: { codex: 'low' }, poolId: 'claude',
 };
-// Pools (docs/pools-plan.md). The built-in ones as the runner works them
+// Pools (docs/archive/pools-plan.md). The built-in ones as the runner works them
 // out from these logins (one per provider of the logins with no note, one
 // per noted login titled from its note), then two of Mike's own: a mixed
 // one, Codex first, and one whose only login is at its limit, so a thread
@@ -474,7 +474,146 @@ function mockExperiments() {
     ...(process.env.TB_MOCK_PRS ? ['inlinePrs'] : []),
     // A live page's card, with TB_MOCK_LIVE_PAGES (addLivePageDemo).
     ...(process.env.TB_MOCK_LIVE_PAGES ? ['livePages'] : []),
+    // The Recipes view, with TB_MOCK_RECIPES (addRecipesDemo).
+    ...(process.env.TB_MOCK_RECIPES ? ['recipes'] : []),
+    // The Feed, with TB_MOCK_FEED (addDemoFeed).
+    ...(process.env.TB_MOCK_FEED ? ['feed'] : []),
+    // Reviews as a page beside the thread, with TB_MOCK_REVIEW_PAGE.
+    ...(process.env.TB_MOCK_REVIEW_PAGE ? ['reviewPage'] : []),
   ];
+}
+
+// TB_MOCK_RECIPES: the recipes experiment on, with recipes in every state
+// (docs/protocol.md, "Recipes"): three on with a month of made-up runs, one
+// off, the rest not added. The ones that come with Threadbear use their
+// header pictures from runner/src/recipes; the rest have colours only.
+const RECIPES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../runner/src/recipes');
+const recipes = new Map();
+function addRecipesDemo() {
+  const day = 86_400_000;
+  const header = (id) => {
+    const file = path.join(RECIPES_DIR, id, 'header.jpg');
+    return fs.existsSync(file) ? { header: file } : {};
+  };
+  const at = (daysAgo, h, m) => {
+    const d = new Date(Date.now() - daysAgo * day);
+    d.setHours(h, m, 0, 0);
+    return d.getTime();
+  };
+  // A run: an archived thread its schedule started, so Open opens it.
+  const run = (recipe, daysAgo, h, m, headline, needsYou, seen) => {
+    const id = `th_recipe_${recipe.id}_${daysAgo}`;
+    const when = new Date(at(daysAgo, h, m)).toISOString();
+    threads.set(id, { summary: {
+      id, title: recipe.name, cwd: `${os.homedir()}/ThreadbearThreads/recipes/${recipe.id}`, accountId: defaults.accountId, provider: 'claude',
+      permissionMode: 'full', status: 'idle', live: false, needsYou: false, createdAt: when, updatedAt: when, lastActivityAt: when,
+      archivedAt: when, preview: headline, lastSeq: 2, lastSeenSeq: seen ? 2 : 0, schedule: { id: `sch_${recipe.id}`, title: recipe.name },
+      startedBy: { kind: 'schedule', label: 'Schedule' },
+    }, events: [], inProgress: new Map(), timers: [] });
+    return { threadId: id, title: recipe.name, at: when, headline, needsYou, seen, archived: true };
+  };
+  const make = (r) => recipes.set(r.id, { source: 'builtin', by: 'Mike', schedules: [], runs: [], ...header(r.id), ...r });
+  make({ id: 'daily-brief', name: 'Daily brief', icon: '☀️', color: '#e8894a', when: 'Every day at 6:30',
+    description: "A short note each morning: today's calendar, the emails that need you, threads waiting on you and a few headlines.",
+    about: 'A very short note each morning so you start the day knowing what needs you. It reads your calendar and the last day of email, lists only what needs you today, then any thread that is waiting on you, then a few headlines. A section with nothing in it is left out, and it stays under ten lines.',
+    example: '**Today**\n- 10:00 dentist, 14:30 call with Sam\n\n**Needs you**\n- Ana asked for the invoice by Friday\n- The flight change wants confirming today\n\n**Waiting on you**\n- "Pick a colour for the Share button" since Wed',
+    state: 'on', schedules: [{ id: 'sch_daily-brief', title: 'Daily brief', paused: false, nextRunAt: new Date(at(-1, 6, 30)).toISOString(), whenText: 'Every day at 6:30' }] });
+  make({ id: 'email-watcher', name: 'Email watcher', icon: '✉️', color: '#4a7bd8', experiment: 'mailWatch', when: 'Every 5 minutes',
+    description: "New emails wake the threads waiting on them, reach the threads they're about, or wait on a twice-daily list.",
+    about: 'Every few minutes the runner looks at your new emails and a small model sorts them against your threads. A reply a thread was waiting on wakes it; an email about a thread\'s work is kept for it; anything else that needs you goes on a list that comes twice a day.',
+    example: '**4 pm list**\n- Ana: invoice for October, wants it by Friday. *Suggest: reply with the PDF.*\n- GitHub: a security advisory on a package you use. *Suggest: start a thread to update it.*',
+    state: 'on' });
+  make({ id: 'nightly-retro', name: 'Nightly retro', icon: '🌙', color: '#3b2f6b', when: 'Every night at 21:30',
+    description: 'Reads what you typed today, finds what you had to correct or repeat, and fixes the instruction that should have caught it.',
+    about: 'Each night it reads the messages you typed to your threads that day, finds where you had to correct an agent, say something twice, or work around a tool, and fixes the memory or instruction that should have caught it. A real bug gets a fix thread of its own.',
+    example: '**Fixed**\n- Agents kept asking you to run builds yourself: added a line to your instructions.\n\n**Started**\n- A fix thread for the sidebar jumping when a reply arrives.',
+    state: 'on', schedules: [{ id: 'sch_nightly-retro', title: 'Nightly retro', paused: false, nextRunAt: new Date(at(0, 21, 30)).toISOString(), whenText: 'Every day at 21:30' }] });
+  make({ id: 'weekly-step-back', name: 'Weekly step back', icon: '🔭', color: '#2f7d6d', when: 'Sundays at 19:00', state: 'off',
+    description: 'Looks across the whole week on a stronger model for friction patched twice and things that stopped earning their keep.',
+    schedules: [{ id: 'sch_weekly-step-back', title: 'Weekly step back', paused: true, whenText: 'Sundays at 19:00' }] });
+  make({ id: 'spare-tokens', name: 'Spare tokens', icon: '🪙', color: '#c9a23a', when: 'Before a login\'s week resets', state: 'add',
+    description: "When a login's week is about to reset with lots unused, suggests work worth doing with it." });
+  make({ id: 'repo-watch', name: 'Repo watch', icon: '🔎', color: '#59606e', when: 'Every morning', state: 'add',
+    description: 'Each morning: new issues, PRs, commits on forks and error reports on a public repo. Takes small sure fixes, asks about the rest.' });
+  make({ id: 'docs-freshness', name: 'Docs freshness', icon: '📚', color: '#8a5fc7', when: 'When main moves', state: 'add',
+    description: "When main moves, checks the README, site and guide still say what's true and fixes what drifted." });
+  make({ id: 'os-updates', name: 'OS updates', icon: '🛠️', color: '#5a8fb0', when: 'Daily, quiet most days', state: 'add',
+    description: 'Keeps every Mac patched. Starts a thread only when an update is waiting, and installs at a safe moment.' });
+  make({ id: 'stay-in-touch', name: 'Stay in touch', icon: '👋', color: '#d86a8c', when: 'Saturdays at 9:00', state: 'add', source: 'yours', by: undefined,
+    description: "Once a week, picks a friend who's overdue and drafts a warm message with a photo. You send it." });
+  // A month of runs for the three that are on.
+  const brief = recipes.get('daily-brief');
+  for (let d = 0; d < 28; d++) {
+    if (d === 3 || d === 11) continue;
+    const needs = d % 3 === 0;
+    brief.runs.push(run(brief, d, 6, 30, needs ? (d % 2 ? '2 emails need you' : '1 email needs you') : 'Nothing urgent', needs, d !== 1));
+  }
+  const retro = recipes.get('nightly-retro');
+  for (let d = 1; d < 15; d++) retro.runs.push(run(retro, d, 21, 30, d % 4 === 0 ? 'Started 1 fix thread' : `Fixed ${(d % 3) + 1} instructions`, d % 4 === 0, true));
+  const mail = recipes.get('email-watcher');
+  mail.runs.push(run(mail, 0, 16, 0, '3 emails to look at', true, false), run(mail, 0, 9, 0, '1 email to look at', false, true), run(mail, 1, 16, 0, 'Nothing new', false, true));
+}
+if (process.env.TB_MOCK_RECIPES) addRecipesDemo();
+
+function recipeSummary(r) {
+  const since = Date.now() - 30 * 86_400_000;
+  const runs = r.runs.filter((x) => Date.parse(x.at) >= since);
+  const last = runs.reduce((a, b) => (!a || Date.parse(b.at) > Date.parse(a.at) ? b : a), undefined);
+  const { about, example, runs: _runs, ...rest } = r;
+  return { ...rest, stats: { runs: runs.length, neededYou: runs.filter((x) => x.needsYou).length, seen: runs.filter((x) => x.seen).length, ...(last ? { lastRunAt: last.at, lastHeadline: last.headline } : {}) } };
+}
+function recipeOrder(a, b) {
+  const rank = { on: 0, settingUp: 1, off: 2, add: 3 };
+  return rank[a.state] - rank[b.state] || a.name.localeCompare(b.name);
+}
+function needRecipe(id) {
+  const r = recipes.get(String(id ?? ''));
+  if (!r) throw rpcError(-32602, `No recipe ${id}`);
+  return r;
+}
+async function recipeRequest(client, method, p) {
+  if (!process.env.TB_MOCK_RECIPES) throw rpcError(-32601, 'Recipes is an experiment that is off');
+  // A moment's wait, as a busy runner's, so the spinners show.
+  await new Promise((r) => setTimeout(r, Number(process.env.TB_MOCK_RECIPES_MS ?? 400)));
+  switch (method) {
+    case 'recipes.list':
+      return { recipes: [...recipes.values()].map(recipeSummary).sort(recipeOrder) };
+    case 'recipes.get': {
+      const r = needRecipe(p.id);
+      return { recipe: { ...recipeSummary(r), about: r.about ?? r.description, ...(r.example ? { example: r.example } : {}), file: path.join(RECIPES_DIR, r.id, 'RECIPE.md'), runs: [...r.runs].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 60) } };
+    }
+    case 'recipes.setOn': {
+      const r = needRecipe(p.id);
+      if (process.env.TB_MOCK_RECIPES_REFUSE) throw rpcError(-32000, 'The runner could not reach your backend to pause its schedule.');
+      if (r.state !== 'add') r.state = r.state === 'settingUp' && p.on ? 'settingUp' : p.on ? 'on' : 'off';
+      r.schedules = r.schedules.map((s) => ({ ...s, paused: !p.on }));
+      broadcast('recipes.updated', {});
+      return { recipe: recipeSummary(r) };
+    }
+    case 'recipes.add': {
+      const r = needRecipe(p.id);
+      const made = await dispatch(client, 'threads.create', { text: `Set up the recipe "${r.name}" with me.`, title: `Set up ${r.name}`, cwd: `${os.homedir()}/ThreadbearThreads/recipes/${r.id}` });
+      r.state = 'settingUp';
+      r.setupThreadId = made.thread.id;
+      broadcast('recipes.updated', {});
+      return { threadId: made.thread.id, thread: made.thread };
+    }
+    case 'recipes.create': {
+      const edit = p.editId ? needRecipe(p.editId) : undefined;
+      const text = edit ? `Change the recipe "${edit.name}" with me.` : p.text || 'Write a new recipe with me.';
+      const made = await dispatch(client, 'threads.create', { text, title: edit ? `Change ${edit.name}` : 'A new recipe', cwd: `${os.homedir()}/ThreadbearThreads/recipes` });
+      return { threadId: made.thread.id, thread: made.thread };
+    }
+    case 'recipes.remove': {
+      const r = needRecipe(p.id);
+      r.state = 'add';
+      r.schedules = [];
+      delete r.setupThreadId;
+      broadcast('recipes.updated', {});
+      return { removed: true };
+    }
+  }
+  throw rpcError(-32601, `Unknown method ${method}`);
 }
 
 // TB_MOCK_LIVE_PAGES=<an .html file>: the livePages experiment on, and
@@ -519,6 +658,9 @@ if (process.env.TB_MOCK_DECISIONS) addDemoDecisions();
 // threads it started, as in mockup sub-A. Only when asked, as it adds rows
 // other specs count.
 if (process.env.TB_MOCK_NESTED) addDemoNested();
+// The Feed (the feed experiment): the threads of mockup r3-c-status, as cards.
+// Only when asked, as it adds rows other specs count.
+if (process.env.TB_MOCK_FEED) addDemoFeed();
 // Parts of a project (docs/protocol.md, Projects, "Parts"): Photo sync as a
 // part of Threadbear, for features/projects.feature.
 if (process.env.TB_MOCK_PARTS) {
@@ -551,7 +693,7 @@ let pendingRestart;
 // a stalled event loop does; `queueMs` answers threads.send at once but
 // starts its turn (and its user.message) that much later, as a message
 // queued behind a running turn is. Both 0 by default.
-let slow = { ms: 0, queueMs: 0 };
+let slow = { ms: 0, queueMs: 0, saveMs: 0 };
 // The runner's own update (protocol "Runner updates"), set by mock.updates.
 let updates = { state: 'idle', oldRunners: [] };
 
@@ -657,6 +799,8 @@ async function handle(client, { id, method, params = {} }) {
   if (slow.ms > 0 && ['threads.send', 'threads.create', 'threads.update'].includes(method)) {
     await new Promise((resolve) => setTimeout(resolve, slow.ms));
   }
+  // `saveMs` holds reviews.save: a tick on a review's page on its way.
+  if (slow.saveMs > 0 && method === 'reviews.save') await new Promise((resolve) => setTimeout(resolve, slow.saveMs));
   const result = await dispatch(caller, method, params);
   if (id !== undefined && id !== null) reply(client, id, result ?? {});
   // Like the real runner: a client that says hello hears about a restart
@@ -1773,6 +1917,14 @@ async function dispatch(client, method, p) {
     // The Connectors gateway (docs/protocol.md, "Connectors"): a made-up
     // one, with a service signed out so the panel and its dot show.
     // mock.connectors changes it.
+    case 'recipes.list':
+    case 'recipes.get':
+    case 'recipes.setOn':
+    case 'recipes.add':
+    case 'recipes.create':
+    case 'recipes.remove':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      return recipeRequest(client, method, p);
     case 'connectors.status':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (p.refresh) connectors = { ...connectors, checkedAt: iso() };
@@ -2083,7 +2235,7 @@ async function dispatch(client, method, p) {
       return { ok: true };
     }
     case 'mock.slow': {
-      slow = { ms: Math.max(0, Number(p.ms ?? 0)), queueMs: Math.max(0, Number(p.queueMs ?? 0)) };
+      slow = { ms: Math.max(0, Number(p.ms ?? 0)), queueMs: Math.max(0, Number(p.queueMs ?? 0)), saveMs: Math.max(0, Number(p.saveMs ?? 0)) };
       return slow;
     }
     case 'mock.restartPending': {
@@ -2543,7 +2695,7 @@ function applyScriptedThreads() {
         if (event.type !== 'review.updated') continue;
         const options = o.review.options.map((option) => ({ reference: false, ...option,
           image: { mediaType: 'image/png', ...option.image, path: path.resolve(dir, option.image.path) } }));
-        event.review = { ...event.review, title: o.review.title, note: o.review.note, options };
+        event.review = keptForReview(id, { ...event.review, title: o.review.title, note: o.review.note, options });
         t.reviews.set(event.review.id, event.review);
       }
       for (const event of t.events) {
@@ -2598,13 +2750,16 @@ async function playScripted(threadId, turnId, started, turn, interrupted) {
 // message carries the turn on there, a moment later so a recording catches
 // each step. `limit: { to }` names the login it moves to (as if its pool
 // held that one too: Codex, for the X series' clip); otherwise the pool's
-// other login with the most room.
+// other login with the most room. `moveMs`: how long the limit's error
+// shows before the move (1.5 s).
 const CARRY_ON_MOVED = 'Your last login hit its usage limit partway through that turn, so this thread has moved to another one. Carry on from where you left off.';
 function limitHit(threadId, turnId, started, limit) {
   const t = threads.get(threadId);
   const s = t.summary;
   const was = accounts.find((a) => a.id === s.accountId);
-  const error = "You've hit your limit · resets Mon 9am";
+  const window = was?.usage?.windows?.find((w) => w.kind === 'weekly') ?? was?.usage?.windows?.[0];
+  const back = window?.resetsAt ? new Date(window.resetsAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }).replace(/:00/, '').replace(/ ([AP]M)$/, (_, m) => ` ${m.toLowerCase()}`) : undefined;
+  const error = `You've hit your limit${back ? ` · resets ${back}` : ''}`;
   persist(threadId, { type: 'error', message: error }, turnId);
   persist(threadId, { type: 'turn.completed', turnId, outcome: 'failed', durationMs: Date.now() - started, error, errorKind: 'usageLimit' }, turnId);
   t.interrupt = undefined;
@@ -2614,14 +2769,12 @@ function limitHit(threadId, turnId, started, limit) {
     ? accounts.find((a) => a.id === limit.to)
     : [...(pool?.accountIds ?? [])].filter((id) => id !== s.accountId).map((id) => accounts.find((a) => a.id === id)).filter((a) => a && roomOf(a) >= 1).sort((a, b) => roomOf(b) - roomOf(a))[0];
   if (!was || !to) return;
-  const window = was.usage?.windows?.find((w) => w.kind === 'weekly') ?? was.usage?.windows?.[0];
   if (was.usage) {
     was.usage.blocked = true;
     for (const w of was.usage.windows ?? []) if (w.kind === 'weekly' || w.kind === 'five_hour') w.remainingPercent = 0;
   }
   broadcast('accounts.updated', { accounts: publicAccounts() });
   const name = window?.kind === 'five_hour' ? '5-hour' : 'weekly';
-  const back = window?.resetsAt ? new Date(window.resetsAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }).replace(/:00/, '').replace(/ ([AP]M)$/, (_, m) => ` ${m.toLowerCase()}`) : undefined;
   t.timers.push(setTimeout(() => {
     if (!threads.has(threadId) || s.archivedAt || t.interrupt) return;
     let note = `Moved to ${to.title}: ${was.title} hit its ${name} limit${back ? `, back at ${back}` : ''}.`;
@@ -2637,9 +2790,9 @@ function limitHit(threadId, turnId, started, limit) {
     persist(threadId, { type: 'system.note', text: note, login: true });
     broadcastSummary(threadId);
     t.timers.push(setTimeout(() => {
-      if (threads.has(threadId) && !s.archivedAt && !t.interrupt) fakeTurn(threadId, CARRY_ON_MOVED, [], undefined, 'runner');
+      if (threads.has(threadId) && !s.archivedAt && !t.interrupt) fakeTurn(threadId, CARRY_ON_MOVED, [], undefined, 'runner', { wakeReason: 'Moved to another login' });
     }, 1500));
-  }, 1500));
+  }, limit.moveMs ?? 1500));
 }
 
 function finishTurn(threadId, turnId, started, outcome, said) {
@@ -3780,6 +3933,113 @@ function addDemoNested() {
   });
 }
 
+/**
+ * TB_MOCK_FEED: the Feed's demo (docs/protocol.md, "What Mike first asked";
+ * runner/src/experiments/feed.md), the cards of the mockup Mike picked on 20
+ * Nov: one he started that needs him with a card of two asks (the agent's
+ * pick starred), one started by another thread asking him something, one
+ * working with a job in the background, one finished with a long
+ * conversation, one a schedule started, and one running a turn. Every thread
+ * carries `request`, its first message of Mike's, as the runner gives it.
+ */
+function addDemoFeed() {
+  const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const cwd = '/Users/mike/dev/me/threadbear';
+  const make = (id, title, minutes, { status = 'idle', said = [], needs, asks, startedBy, schedule, background, unread } = {}) => {
+    const summary = {
+      id, title, cwd, accountId: 'claude-main', provider: 'claude', model: 'claude-opus-5-5', permissionMode: 'full',
+      status, live: status !== 'idle', needsYou: needs === 'you', createdAt: ago(minutes + 90), updatedAt: ago(minutes), lastActivityAt: ago(minutes),
+      preview: '', lastSeq: 0, lastSeenSeq: 0,
+      ...(needs ? { needs } : {}), ...(startedBy ? { startedBy } : {}), ...(schedule ? { schedule } : {}), ...(background ? { background } : {}),
+    };
+    const events = [];
+    const push = (fields, turnId, at) => events.push({ seq: events.length + 1, ts: at, threadId: id, ...(turnId ? { turnId } : {}), ...fields });
+    // `said`: [who, words] in order, "mike" or "agent", each turn a pair.
+    let turn = 0;
+    said.forEach(([who, words], i) => {
+      const at = ago(minutes + (said.length - i) * 7);
+      if (who === 'mike') {
+        turn++;
+        push({ type: 'user.message', text: words, images: [] }, `${id}_t${turn}`, at);
+        push({ type: 'turn.started' }, `${id}_t${turn}`, at);
+      } else {
+        push({ type: 'assistant.text', itemId: `${id}_m${i}`, text: words }, `${id}_t${turn}`, at);
+        const last = i === said.length - 1;
+        if (!(last && status === 'running')) push({ type: 'turn.completed', outcome: 'completed', durationMs: 42_000, ...(last && needs ? { needs } : {}), ...(last && asks ? { asks } : {}) }, `${id}_t${turn}`, at);
+      }
+    });
+    const lastReply = said.filter(([who]) => who === 'agent').at(-1);
+    if (lastReply) summary.preview = lastReply[1].replace(/\s+/g, ' ').slice(0, 140);
+    const firstMine = said.find(([who]) => who === 'mike');
+    if (firstMine && !startedBy) summary.request = firstMine[1].replace(/\s+/g, ' ').slice(0, 200);
+    if (asks) {
+      summary.asks = asks;
+      summary.asksSeq = events.findLast((e) => e.type === 'turn.completed')?.seq ?? events.length;
+    }
+    summary.lastSeq = events.length;
+    summary.lastSeenSeq = unread ? Math.max(0, events.length - 2) : events.length;
+    threads.set(id, { summary, events, inProgress: new Map(), timers: [] });
+    return summary;
+  };
+  make('feed_limit', 'Explain the Claude 5-hour limit', 40, {
+    needs: 'you', unread: true,
+    said: [
+      ['mike', 'Explain the Claude 5-hour limit in the guide and FAQ'],
+      ['agent', 'The guide and FAQ are written. A T3 contributor found a 4th bug caused by the custom label: Claude Code switches off MCP Tasks for a label it doesn\'t recognise.'],
+    ],
+    asks: [{ action: 'Keep holding, or drop the custom label idea?', options: ['Drop the idea', 'Keep holding till 4 Dec'], suggested: 0 }],
+  });
+  make('feed_back_button', 'Browser pane: back button', 9, {
+    needs: 'you', unread: true,
+    startedBy: { kind: 'thread', label: 'Agent', threadId: 'feed_coordinator', threadTitle: 'GPUI Port Coordinator', why: 'building the Browser pane' },
+    said: [
+      ['mike', 'Take this on: the Browser pane\'s back button.'],
+      ['agent', 'Back works when the pane has history. A fresh pane has nowhere to go back to.'],
+    ],
+    asks: [{ action: 'Should Back go to the last page or close the pane when there\'s no history?', options: ['Close the pane', 'Do nothing'], suggested: 0 }],
+  });
+  make('feed_bedtime', 'Bedtime Tube', 20, {
+    said: [
+      ['mike', 'Bedtime Tube hasn\'t put anything on my phone for ages, can you have a look?'],
+      ['agent', 'Found it. Nothing has saved since 8 Nov: the Save step lost its link to VLC\'s folder after VLC moved it, so every download stopped at the last step and the files sat on Bruce. I put the link back and saved the backlog.'],
+      ['mike', 'Can you get Codex and Gemini to try to break it?'],
+      ['agent', 'Codex found a timing gap: if a save is still running when the next fetch starts, the same video can be sent to the phone twice.'],
+      ['agent', 'Gemini found that the new 48 h alert will fire after a quiet spell with no new videos, even though nothing is broken.'],
+      ['mike', 'Fix both'],
+      ['agent', 'Fixed both. A video is sent once, even if two runs overlap, and the alert only counts time when there was something to save.'],
+      ['mike', 'Thanks, and check again tonight?'],
+      ['agent', 'Fixed, and the backlog is on your phone: 50 videos saved, 2 left for tonight. Codex and Gemini each found a hole in the fix; both are closed. I\'ll check again at 6:20 pm.'],
+    ],
+    needs: 'nothing',
+  });
+  make('feed_main_green', 'Keep main green', 6, {
+    said: [
+      ['mike', 'main keeps going red and forks aren\'t getting releases, sort it out'],
+      ['agent', 'The Mac job wasn\'t failing, it was running out of time at 60 min. I split the specs into two jobs and landed it as 2c9638768.'],
+    ],
+    background: [{ kind: 'monitor', description: 'Waiting on the next Desktop run' }],
+  });
+  make('feed_kite', 'Kite watch', 3, {
+    startedBy: { kind: 'schedule', label: 'Schedule' }, schedule: { id: 'sched_kite', title: 'Kite watch' },
+    said: [['agent', 'Port Geographe tomorrow 7 to 10 am: 19 kn WSW, 24\u00b0C.']],
+    needs: 'nothing',
+  });
+  make('feed_hotel', 'San Francisco hotel', 50, {
+    said: [
+      ['mike', 'Find me somewhere near the office for the holiday party week'],
+      ['agent', 'Keep Beck\'s, A$777 under today\'s price.'],
+    ],
+    needs: 'nothing',
+  });
+  make('feed_running', 'Sort the Ramp receipts', 1, {
+    status: 'running',
+    said: [
+      ['mike', 'Can you sort this month\'s Ramp receipts?'],
+      ['agent', 'Reading the receipts in the mail.'],
+    ],
+  });
+}
+
 function addDemoDecisions() {
   const cards = {
     demo_settings_tabs: {
@@ -4355,6 +4615,25 @@ function askedLine(e) {
   return e.text.replace(/\s+/g, ' ').trim().slice(0, 140) || undefined;
 }
 
+// With TB_MOCK_REVIEW_PAGE, a review's pictures as the runner keeps them:
+// copied into a folder of the review's own under the thread's media, which
+// is all its page beside the thread may read (desktop/gpui/src/review_pane.rs).
+function keptForReview(threadId, review) {
+  if (!process.env.TB_MOCK_REVIEW_PAGE) return review;
+  const dir = path.join(dataDir, 'threads', threadId, 'media', 'reviews', review.id);
+  fs.mkdirSync(dir, { recursive: true });
+  const keep = (image) => {
+    const kept = path.join(dir, path.basename(image.path));
+    try {
+      fs.copyFileSync(image.path, kept);
+    } catch {
+      return image;
+    }
+    return { ...image, path: kept };
+  };
+  return { ...review, options: review.options.map((option) => ({ ...option, image: keep(option.image), ...(option.shots ? { shots: option.shots.map((shot) => ({ ...shot, image: keep(shot.image), ...(shot.media ? { media: keep(shot.media) } : {}) })) } : {}) })) };
+}
+
 function loadFixtures() {
   for (const root of fixtureDirs) {
     if (!fs.existsSync(root)) continue;
@@ -4373,7 +4652,10 @@ function loadFixtures() {
         const event = JSON.parse(line);
         event.threadId = summary.id;
         if (event.images) event.images = fixPaths(event.images);
-        if (event.type === 'review.updated') event.review.options = event.review.options.map((option) => ({ ...option, image: fixPaths([option.image])[0] }));
+        if (event.type === 'review.updated') {
+          event.review.options = event.review.options.map((option) => ({ ...option, image: fixPaths([option.image])[0] }));
+          event.review = keptForReview(summary.id, event.review);
+        }
         return event;
       });
       summary.lastSeq = events.at(-1)?.seq ?? 0;

@@ -6,7 +6,6 @@ import assert from 'node:assert/strict';
 import { PATIENCE_MS } from '../helpers/patience.ts';
 import path from 'node:path';
 import fs from 'node:fs';
-import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { makeHarness } from '../helpers/fakes.ts';
 import { RpcServer } from '../../src/rpc.ts';

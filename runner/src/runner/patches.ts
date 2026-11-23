@@ -12,11 +12,10 @@ import { Projects } from '../projects.ts';
 import { threadEnv } from '../restart.ts';
 import { paths } from '../config.ts';
 import { isDirectory } from '../fsutil.ts';
-import { checkReach, commandFiles, commandFilesOutside, isPatchFile, namedPaths, patchHash, scanModule, type ClaudeVerdict, type PatchHash } from '../patch-trust.ts';
+import { checkReach, commandFiles, isPatchFile, type ClaudeVerdict } from '../patch-trust.ts';
 import type { AgentWrite } from '../adapters/types.ts';
 import { CLAUDE_PATCH_ID, claudeCommands, claudeOptions, settingsCommands, settingsNamedPaths, type ClaudeOptions } from '../claude-trust.ts';
 import { canonicalPath, runsAsCodeByName, type CodeWrite } from '../code-writes.ts';
-import { patchCommands, sayValue } from '../patch-commands.ts';
 import type { PatchInfo } from '../protocol.ts';
 import { actionRunProblem, automaticTrust, isInside, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, projectRoots, hookApplies, loadPatchSet, applyLive, hasLive, panelCommand, projectPanels, renderListPanel, renderPanel, toggleListPanel, NoSwitches, runCommand, PATCH_SH_MAX_BYTES, type CommandOutcome, type PanelRender, type PatchSet, type PatchThread, type ProjectFolder, projectPatchFiles } from '../patches.ts';
 import { liveCommandEnv } from '../shell-allowlist.ts';
@@ -742,7 +741,7 @@ export const patchesPart = {
   // it stops every runner at once, and shutting down doesn't wait for a
   // teardown. Each has its own time limit.
   threadsRunningActions(this: Runner): string[] {
-    return [...this.threads.values()].filter((st) => (st.rt.runningActions?.size && !st.rt.deleted) || st.rt.cleaning).map((st) => st.rec.id);
+    return [...this.threads.values()].filter((st) => (st.rt.runningActions?.size && !st.rt.deleted) || st.rt.cleaning !== undefined).map((st) => st.rec.id);
   },
 
   // The threads a restart waits for between turns: one going back to an

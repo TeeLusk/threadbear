@@ -832,6 +832,12 @@ pub(crate) trait AskHost: Sized + 'static {
     fn ask_place(&self, cx: &App) -> (crate::open_gate::Origin, String);
     fn ask_reading_style(&mut self, cx: &App) -> gpui_kit::base::TextViewStyle;
     fn ask_pick_answer(&mut self, ask: usize, option: i64, window: &mut Window, cx: &mut Context<Self>);
+    /// While the card's answer is on its way, where the host shows that on
+    /// the card itself (the Feed's): Some, with this ask's pick, whose
+    /// button spins while every answer takes no clicks. None otherwise.
+    fn ask_sending(&self, _ask: usize, _cx: &App) -> Option<Option<i64>> {
+        None
+    }
     /// When this answer was picked, if that was a click a moment ago: its
     /// button fills and hops, or its row's circle pops. None where a host
     /// doesn't animate its picks.
@@ -876,6 +882,8 @@ pub(crate) trait AskHost: Sized + 'static {
     /// links, and its answers as buttons or rows, with Something else's box.
     fn render_ask(&mut self, index: usize, ask: &Ask, numbered: bool, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let picked = self.ask_pick(index);
+        // Its answer on the way: the pressed one spins, nothing takes a click.
+        let sending = self.ask_sending(index, cx);
         // Picked a moment ago: how long since, while its motion's going.
         let picking = picked.and_then(|p| self.ask_picked_at(index, p)).map(|at| at.elapsed()).filter(|e| *e < threadbear_core::juice::PICK);
         if picking.is_some() {
@@ -961,6 +969,10 @@ pub(crate) trait AskHost: Sized + 'static {
                 };
                 let title = if is_picked { format!("✓ {choice}") } else { choice.clone() };
                 let this = this.clone();
+                if let Some(pressed) = sending {
+                    buttons = buttons.child(sending_button(("answer", index * 100 + n), choice, look, pressed == Some(n as i64), cx));
+                    continue;
+                }
                 let button = match picking.filter(|_| is_picked) {
                     Some(since) => picking_button(("answer", index * 100 + n), &title, "Pick this answer", since, cx),
                     None => card_button(("answer", index * 100 + n), &title, look, "Pick this answer", cx),
@@ -973,18 +985,22 @@ pub(crate) trait AskHost: Sized + 'static {
             }
             let own = picked == Some(OWN_ANSWER);
             let this2 = this.clone();
-            let own_button = match picking.filter(|_| own) {
-                Some(since) => picking_button(("answer-own", index), "✓ Something else", "Answer in your own words", since, cx),
-                None => card_button(("answer-own", index), if own { "✓ Something else" } else { "Something else…" }, if own { ButtonLook::Picked } else { ButtonLook::Plain }, "Answer in your own words", cx),
-            };
-            buttons = buttons.child(own_button.on_click(move |_, window, cx| {
-                if let Some(this) = this2.upgrade() {
-                    this.update(cx, |this, cx| this.ask_pick_answer(index, OWN_ANSWER, window, cx));
-                }
-            }));
+            if let Some(pressed) = sending {
+                buttons = buttons.child(sending_button(("answer-own", index), "Something else", ButtonLook::Plain, pressed == Some(OWN_ANSWER), cx));
+            } else {
+                let own_button = match picking.filter(|_| own) {
+                    Some(since) => picking_button(("answer-own", index), "✓ Something else", "Answer in your own words", since, cx),
+                    None => card_button(("answer-own", index), if own { "✓ Something else" } else { "Something else…" }, if own { ButtonLook::Picked } else { ButtonLook::Plain }, "Answer in your own words", cx),
+                };
+                buttons = buttons.child(own_button.on_click(move |_, window, cx| {
+                    if let Some(this) = this2.upgrade() {
+                        this.update(cx, |this, cx| this.ask_pick_answer(index, OWN_ANSWER, window, cx));
+                    }
+                }));
+            }
             block = block.child(buttons);
         } else {
-            block = block.child(self.render_answer_rows(index, ask, picked, picking, indent, cx));
+            block = block.child(self.render_answer_rows(index, ask, picked, picking, sending, indent, cx));
         }
         if picked == Some(OWN_ANSWER) {
             let input = self.ask_answer_box(index, window, cx);
@@ -1061,7 +1077,8 @@ pub(crate) trait AskHost: Sized + 'static {
 
     /// An ask's answers as rows (RowRenderer.answerRows): a circle, the label,
     /// a star and "Recommended" on the agent's, what it does under it, then "Something else…".
-    fn render_answer_rows(&mut self, index: usize, ask: &Ask, picked: Option<i64>, picking: Option<Duration>, indent: Pixels, cx: &mut Context<Self>) -> AnyElement {
+    #[allow(clippy::too_many_arguments)]
+    fn render_answer_rows(&mut self, index: usize, ask: &Ask, picked: Option<i64>, picking: Option<Duration>, sending: Option<Option<i64>>, indent: Pixels, cx: &mut Context<Self>) -> AnyElement {
         let choices = composer::choices(ask);
         let this = cx.entity().downgrade();
         // As the Swift rows are laid out, a paragraph each (measured against
@@ -1082,6 +1099,14 @@ pub(crate) trait AskHost: Sized + 'static {
             let this = this.clone();
             let label = if own { "Something else…".to_owned() } else { choices[n].clone() };
             let note = (!own).then(|| ask.option_notes.get(n).cloned()).flatten().filter(|s| !s.is_empty());
+            // While its answer's on the way: the pressed row spins in its
+            // circle, and none of them takes a click.
+            let pressed = sending.is_some_and(|p| p == Some(value));
+            let mark = if pressed {
+                div().size(px(16.)).flex().items_center().justify_center().child(crate::spinner::Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(style::control_accent(cx)).with_size(px(14.))).into_any_element()
+            } else {
+                tick_circle(is_picked, picking.filter(|_| is_picked), cx).into_any_element()
+            };
             rows = rows.child(
                 h_flex()
                     .id(("answer-row", index * 100 + n)).role(Role::Button)
@@ -1092,15 +1117,15 @@ pub(crate) trait AskHost: Sized + 'static {
                     .pt(px(if n == 0 { 12. } else { 6. }))
                     .pb(px(if n == last { 12. } else if n == 0 { 8. } else { 7. }))
                     .when(n > 0, |s| s.border_t_1().border_color(style::primary_opacity(cx, 0.055)))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(style::hover_fill(cx)))
-                    .tip(if own { "Answer in your own words" } else { "Pick this answer" })
-                    .on_click(move |_, window, cx| {
-                        if let Some(this) = this.upgrade() {
-                            this.update(cx, |this, cx| this.ask_pick_answer(index, value, window, cx));
-                        }
+                    .when(sending.is_some() && !pressed, |s| s.opacity(0.45))
+                    .when(sending.is_none(), |s| {
+                        s.cursor_pointer().hover(|s| s.bg(style::hover_fill(cx))).tip(if own { "Answer in your own words" } else { "Pick this answer" }).on_click(move |_, window, cx| {
+                            if let Some(this) = this.upgrade() {
+                                this.update(cx, |this, cx| this.ask_pick_answer(index, value, window, cx));
+                            }
+                        })
                     })
-                    .child(div().pt(px(1.)).child(tick_circle(is_picked, picking.filter(|_| is_picked), cx)))
+                    .child(div().pt(px(1.)).child(mark))
                     .child(
                         v_flex()
                             .flex_1()
@@ -1714,6 +1739,11 @@ fn drawn_tick(t: f32, colour: Hsla) -> impl IntoElement {
 }
 
 pub(crate) fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLook, tip: &'static str, cx: &App) -> Stateful<Div> {
+    card_button_box(id, look, tip, cx).cursor_pointer().hover(|s| s.opacity(0.85)).child(title.to_owned())
+}
+
+/// `card_button` with nothing in it yet.
+fn card_button_box(id: impl Into<ElementId>, look: ButtonLook, tip: &'static str, cx: &App) -> Stateful<Div> {
     let (fill, text, edge) = match look {
         ButtonLook::Picked => (style::control_accent(cx), gpui_kit::white(), gpui_kit::transparent_black()),
         ButtonLook::Suggested => (style::button_fill(cx), style::label_text(cx), style::control_accent(cx).opacity(0.8)),
@@ -1735,11 +1765,24 @@ pub(crate) fn card_button(id: impl Into<ElementId>, title: &str, look: ButtonLoo
         .text_color(text)
         .text_size(px(style::size::LABEL))
         .line_height(px(16.))
-        .cursor_pointer()
-        .hover(|s| s.opacity(0.85))
         // No tip where the button shows a card of its own instead.
         .when(!tip.is_empty(), |b| b.tip(tip))
-        .child(title.to_owned())
+}
+
+/// An answer's button while the card's answer is on its way (the Feed's
+/// card): the pressed one in the accent with a spinner before its words,
+/// the rest faded. None of them takes a click till the runner answers.
+pub(crate) fn sending_button(id: impl Into<ElementId>, title: &str, look: ButtonLook, pressed: bool, cx: &App) -> Stateful<Div> {
+    let look = if pressed { ButtonLook::Picked } else { look };
+    let button = card_button_box(id, look, if pressed { "Sending this answer" } else { "Another answer is on its way" }, cx);
+    if pressed {
+        return button
+            .gap(px(6.))
+            .opacity(0.85)
+            .child(crate::spinner::Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(gpui_kit::white()).with_size(px(12.)))
+            .child(title.to_owned());
+    }
+    button.opacity(0.4).child(title.to_owned())
 }
 
 /// When a motion's first frame was drawn: now, the first time it's asked.

@@ -910,6 +910,7 @@ impl Threadbear {
             "scheduled" => crate::shell::SidebarMode::Scheduled,
             "projects" => crate::shell::SidebarMode::Projects,
             "librarian" => crate::shell::SidebarMode::Librarian,
+            "recipes" => crate::shell::SidebarMode::Recipes,
             _ => crate::shell::SidebarMode::Inbox,
         };
         if self.mode != mode {

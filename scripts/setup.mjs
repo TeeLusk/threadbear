@@ -971,7 +971,7 @@ async function runnerJson(url, site) {
   // blocks each action (Claude only; on Codex it's Ask before edits).
   // Picking Full access in the composer, or "full" here, changes it.
   const mode = fresh ? { permissionMode: 'auto' } : {};
-  // Full sync starts off (docs/full-convex.md step 6): setup leaves sync.full
+  // Full sync starts off (docs/archive/full-convex.md step 6): setup leaves sync.full
   // unset, and only the user turns it on.
   const next = { ...json, sync: { ...json.sync, ...(url ? { url } : {}), ...(site ? { site } : {}), name }, defaults: { ...mode, ...json.defaults, cwd } };
   if (JSON.stringify(next) === JSON.stringify(json)) return ok(`${runnerJsonPath} as it was`);

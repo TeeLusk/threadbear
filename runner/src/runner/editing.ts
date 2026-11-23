@@ -6,7 +6,7 @@ import { COPIED_REFUSAL } from '../real-copy.ts';
 import { INSTRUCTIONS_REWOUND } from '../instructions.ts';
 import type { Runner } from '../runner.ts';
 import type { RunnerPart } from './part.ts';
-import type { Account, ImageRef, RewoundFiles } from '../protocol.ts';
+import type { ImageRef, RewoundFiles } from '../protocol.ts';
 import { ErrorCode, RpcError, sentByAgent } from '../protocol.ts';
 import type { RewindResult } from '../adapters/types.ts';
 import type { ThreadRecord } from '../store.ts';

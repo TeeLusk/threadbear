@@ -407,7 +407,7 @@ test("more new files than the backend will hold don't stop the main Mac's memory
 });
 
 test("a pre-existing file whose offer failed is offered on a later pass", async () => {
-  const { backend, m5, bruce, both, owner, other } = pair();
+  const { backend, m5, bruce, owner, other } = pair();
   write(path.join(m5.home, '.claude', 'CLAUDE.md'), 'mike global\n');
   write(path.join(bruce.home, '.claude', 'CLAUDE.md'), "bruce's own\n");
   await owner.tick();

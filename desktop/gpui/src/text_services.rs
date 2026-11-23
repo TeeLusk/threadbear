@@ -18,9 +18,13 @@ use threadbear_core::spelling::{Found, Outcome};
 
 /// The Edit menu's switches for the message box, kept between runs (prefs).
 /// Spelling while typing is on, grammar off, and quotes and dashes off as the
-/// Swift composer had them (`isAutomaticQuoteSubstitutionEnabled = false`);
-/// correction and text replacement follow the Mac's own Keyboard settings
-/// until they're switched here.
+/// Swift composer had them (`isAutomaticQuoteSubstitutionEnabled = false`).
+/// Correction is off until it's switched on here, whatever the Mac's Keyboard
+/// settings say: on 20 Nov it turned Mike's "jank" into "tank", and words
+/// like that (names, commands, slang) are most of what's typed to an agent.
+/// `correct: None` is a file from when it followed the Mac's setting, and
+/// reads as off. Text replacement, which only puts in what the person set up
+/// themselves, still follows the Mac's setting until it's switched here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Checks {
@@ -40,7 +44,7 @@ impl Default for Checks {
 
 impl Checks {
     pub fn correct(&self) -> bool {
-        self.correct.unwrap_or_else(system_correction)
+        self.correct.unwrap_or(false)
     }
     pub fn replace(&self) -> bool {
         self.replace.unwrap_or_else(system_replacement)
@@ -184,7 +188,13 @@ mod mac {
         let checker = checker();
         let language = checker.language();
         let (correction, word) = (NSString::from_str(&outcome.correction), NSString::from_str(&outcome.word));
-        checker.recordResponse_toCorrection_forWord_language_inSpellDocumentWithTag(response, &correction, &word, Some(&language), tag);
+        // Not from the scripted app: the Mac remembers these for good, in
+        // every app. The specs take the same corrections back on every run,
+        // and by 20 Nov Tinker Desk's checker had stopped correcting "teh"
+        // and "recieve" at all, so the specs that type them failed there.
+        if !cfg!(feature = "automation") {
+            checker.recordResponse_toCorrection_forWord_language_inSpellDocumentWithTag(response, &correction, &word, Some(&language), tag);
+        }
         // A word whose correction was put back is what was meant, so it
         // isn't marked either while the app runs.
         if outcome.response == Response::Reverted {
@@ -210,10 +220,6 @@ mod mac {
         VOICE.with(|v| v.isSpeaking())
     }
 
-    pub fn system_correction() -> bool {
-        NSSpellChecker::isAutomaticSpellingCorrectionEnabled()
-    }
-
     pub fn system_replacement() -> bool {
         NSSpellChecker::isAutomaticTextReplacementEnabled()
     }
@@ -234,9 +240,6 @@ mod mac {
     pub fn speak(_: &str) {}
     pub fn stop_speaking() {}
     pub fn speaking() -> bool {
-        false
-    }
-    pub fn system_correction() -> bool {
         false
     }
     pub fn system_replacement() -> bool {
@@ -284,11 +287,6 @@ pub(crate) fn stop_speaking() {
 
 pub(crate) fn speaking() -> bool {
     mac::speaking()
-}
-
-/// Keyboard settings' "Correct spelling automatically".
-pub(crate) fn system_correction() -> bool {
-    mac::system_correction()
 }
 
 /// Whether the Mac's text replacements are on (Keyboard > Text Input).
@@ -409,6 +407,23 @@ pub(crate) fn replace_if_unchanged(source: &SelectionSource, expected: &str, wit
         SelectionSource::TextField {input,range}=>replace!(input,range),
         SelectionSource::Editor {input,range}=>replace!(input,range),
         SelectionSource::Reply=>false,
+    }
+}
+
+#[cfg(test)]
+mod checks_tests {
+    use super::Checks;
+
+    // Mike, 20 Nov: "jank" came out as "tank", because correction followed
+    // the Mac's Keyboard setting, which is on unless someone turns it off.
+    #[test]
+    fn correction_is_off_until_its_switched_on_here() {
+        assert!(!Checks::default().correct());
+        // A prefs file from when `null` meant "as the Mac has it".
+        let saved: Checks = serde_json::from_str(r#"{"spelling":true,"grammar":false,"correct":null,"quotes":false,"dashes":false,"replace":null}"#).unwrap();
+        assert!(!saved.correct());
+        let switched_on: Checks = serde_json::from_str(r#"{"correct":true}"#).unwrap();
+        assert!(switched_on.correct());
     }
 }
 

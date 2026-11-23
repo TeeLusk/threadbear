@@ -153,7 +153,7 @@ if [ "${1:-}" = "--on-host" ]; then
   # each). npm ci only when the lockfile is new.
   # --runner (the runner's self-update) needs only the runner's: a broken
   # lockfile elsewhere mustn't hold the runner back (Codex, 9 Nov).
-  dep_dirs=". runner app/Tools/mock-runner"
+  dep_dirs=". runner app/Tools/mock-runner features"
   case " $* " in *" --runner "*) dep_dirs="runner" ;; esac
   for dir in $dep_dirs; do
     [ -f "$src/$dir/package-lock.json" ] || continue

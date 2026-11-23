@@ -14,7 +14,7 @@ import { CallerGate } from './rpc-gate.ts';
 import { threadOfSocket } from './peer.ts';
 import { threadKey as makeThreadKey } from './rpc-auth.ts';
 import { makePrivate } from './win-acl.ts';
-import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError, readRunnerJson, peekRunnerJson, writeRunnerJson } from './config.ts';
+import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError, peekRunnerJson, expandHome } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { startBorrowSweep } from './runner/worktrees.ts';
 import { win32Helper } from './win32-helper.ts';
@@ -38,12 +38,14 @@ import { StuckJobs } from './stuck-jobs.ts';
 import { FrozenClis } from './frozen-cli.ts';
 import { KeepAwake } from './keep-awake.ts';
 import { experimentOn } from './experiments.ts';
+import { AgentArchive, ARCHIVE_EXPERIMENT } from './agent-archive.ts';
 import { MemorySync } from './memory-sync.ts';
 import { Reinstaller } from './reinstall.ts';
 import { MacScreen } from './mac-screen.ts';
 import { Projects, drainProjectMethods, projectMethods } from './projects.ts';
 import { Librarian, librarianMethods } from './librarian.ts';
 import { ConnectorsMonitor, connectorsMethods } from './connectors.ts';
+import { DEFAULT_RECIPES_FOLDER, RECIPES_EXPERIMENT, Recipes, recipeMethods } from './recipes.ts';
 import { TaskBoards, gatewayCaller, helperHeaders } from './notion-tasks.ts';
 import { createLogger } from './log.ts';
 import { hidIdleMs, isAtMac, screenLocked } from './presence.ts';
@@ -106,6 +108,7 @@ import { ALWAYS_ASK_TOOLS, BROWSERBEAR_LINE, NEVER_ASK_TOOLS, RICH_BLOCKS_LINE, 
 import { CrossRunner } from './cross-runner.ts';
 import { FAILED_SHOWN_MS, MovePreviews, Moves, moveInfoFrom, previewInfo, stillRunner, type ThreadMoving } from './moves.ts';
 import type { RemoteThreads } from './thread-index.ts';
+import { FarReports, ROWS as FAR_ROWS, TICK_MS as FAR_TICK_MS, type FarRow } from './far-reports.ts';
 import { EFFORT_LEVELS, ErrorCode, RpcError, isPermissionMode, type EffortLevel, type PermissionMode } from './protocol.ts';
 
 // Tells launch.mjs this runner calls its listening() hook (release.ts), so
@@ -320,7 +323,7 @@ async function main(): Promise<void> {
   const projectControl = () => projectRouter(projects, () => primaryLink, { draining: () => draining, holds: (threadId) => runner.has(threadId) });
   // Keeps both CLIs current (E). Its hooks call back into the runner and
   // the Restarter, made below; nothing calls them before start().
-  const acpPaths: Record<AcpProvider, string | undefined> = { cursor: cfg.cursorPath, opencode: cfg.opencodePath, grok: cfg.grokPath };
+  const acpPaths: Record<AcpProvider, string | undefined> = { cursor: cfg.cursorPath, opencode: cfg.opencodePath, grok: cfg.grokPath, antigravity: cfg.antigravityPath };
   const acpBinary = (p: AcpProvider) => () => ACP_AGENTS[p].findBinary({ explicit: acpPaths[p], home: os.homedir(), pathEnv: process.env.PATH ?? '' });
   const updates = new CliUpdates({
     cfg,
@@ -560,7 +563,7 @@ async function main(): Promise<void> {
   // Answers to ask_secret go after a day (docs/protocol.md, "Secrets").
   runner.secrets.startSweeping((e) => log.warn('secret sweep failed', { error: String(e) }));
   // Its runner id and name are the mirror's (sync.ts), since that's how other
-  // runners and the backend know this one (step 6, docs/step6-plan.md).
+  // runners and the backend know this one (step 6, docs/archive/step6-plan.md).
   const syncRunnerId = cfg.sync.runnerId ?? ensureRunnerId(cfg.home);
   // When this process started: the heartbeat sends it, and runners.list
   // gives it for this runner too (the app's Runners panel says "up 3h").
@@ -1119,6 +1122,34 @@ async function main(): Promise<void> {
     isPrivate: (cwd) => models.isPrivateFolder(cwd),
   });
   if (!box && !copyOfReal) mailWatch.start();
+  // Agent Archive through Threadbear (agent-archive.ts, docs/agent-archive-plan.md).
+  const agentArchive = new AgentArchive({
+    home: cfg.home,
+    log,
+    on: () => experimentOn(cfg.home, ARCHIVE_EXPERIMENT),
+    records: () => [...runner.threads.values()].map((t) => t.rec),
+    projectTitles: () => new Map(projects.list({ archived: true }).map((p) => [p.id, p.title])),
+    runnerName: () => cfg.sync.name ?? os.hostname(),
+    loginDirs: () => accounts.list(),
+    settings: () => peekRunnerJson(cfg.home).archive,
+  });
+  if (!box && !copyOfReal) agentArchive.start();
+  // Recipes (recipes.ts): the main Mac's techniques worth keeping, each set
+  // up by a thread of its own and switched on and off from the app.
+  const recipes = new Recipes({
+    home: cfg.home,
+    folder: () => expandHome(peekRunnerJson(cfg.home).recipes?.folder || DEFAULT_RECIPES_FOLDER),
+    now: () => realClock.now(),
+    on: () => experimentOn(cfg.home, RECIPES_EXPERIMENT),
+    publish: () => runner.publish({ method: 'recipes.updated', params: {} }),
+    experimentOn: (id) => experimentOn(cfg.home, id),
+    setExperiment: (id, on) => settings.update({ experiments: { [id]: on } }),
+    schedules: { list: () => scheduler.list(), update: (p) => scheduler.update(p), delete: (id) => scheduler.delete(id) },
+    threads: (since) => runner.scheduledSince(since),
+    start: (p) => runner.create({ text: p.text, title: p.title, cwd: p.cwd, worktree: false, startedBy: { kind: 'runner', label: 'Recipes', why: p.title } }).thread,
+    log: (msg) => log.warn(msg),
+  });
+  if (!box && !copyOfReal) recipes.start();
   const upstream = new Upstream({
     home: cfg.home,
     checkout: thisRelease?.checkout,
@@ -1206,13 +1237,13 @@ async function main(): Promise<void> {
     if (n.method === 'thread.updated') updates.threadChanged(n.params.thread.id);
     else if (n.method === 'thread.deleted') updates.threadChanged(n.params.threadId);
   });
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...recipeMethods(recipes), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {
     const draining = peers.status();
     const behind = sync.behindRunners();
-    return { ...(restartStatus(p) as Record<string, unknown>), ...(behind.length ? { behindRunners: behind } : {}), webRuntimeProblem: webRuntimeUpdates.problem(), clis: updates.list(), sync: sync.status(), secretCheck: secretCheck.status(), relay: relay.status(), upstream: upstream.status(), ...(draining.length ? { draining } : {}), ...(macScreen ? { macScreen: macScreen.status() } : {}) };
+    return { ...(restartStatus(p) as Record<string, unknown>), ...(behind.length ? { behindRunners: behind } : {}), webRuntimeProblem: webRuntimeUpdates.problem(), clis: updates.list(), sync: sync.status(), secretCheck: secretCheck.status(), archive: agentArchive.status(), relay: relay.status(), upstream: upstream.status(), ...(draining.length ? { draining } : {}), ...(macScreen ? { macScreen: macScreen.status() } : {}) };
   };
   // tb profile (docs/protocol.md, "runner.profile"): where this runner's CPU goes.
   Object.assign(methods, profileMethods(new SelfProfiler({ dir: path.join(cfg.home, 'profiles'), log })));
@@ -1315,6 +1346,35 @@ async function main(): Promise<void> {
     if (!isPermissionMode(m)) throw new RpcError(ErrorCode.badParams, `Unknown permission mode ${JSON.stringify(m)}, so the thread wasn't started.`);
     return m;
   };
+  // Replies from threads started on other runners for threads here, passed
+  // back to them (far-reports.ts).
+  const farReports = new FarReports({
+    file: path.join(cfg.home, 'far-reports.json'),
+    // Straight from the backend: the relay knows a thread only once the
+    // sidebar's list has it, which after a restart needs an app connected.
+    row: async (threadId) => {
+      const src = sync.relaySource();
+      if (!src) throw new Error('sync is off');
+      return (await src.post('query', 'relay:remoteThread', { key: src.key, threadId })) as { status: string; runnerId?: string; lastActivityAt?: string; title?: string } | null;
+    },
+    rows: async (threadId) => {
+      const src = sync.relaySource();
+      if (!src) throw new Error('sync is off');
+      return ((await src.post('query', 'relay:remoteMessages', { key: src.key, threadId, limit: FAR_ROWS })) as { messages: FarRow[] }).messages;
+    },
+    self: () => syncRunnerId,
+    runnerName: (id) => runnerNames.get(id),
+    has: (id) => runner.has(id),
+    deliver: (starter, text) => {
+      runner.send(starter, text, [], { queue: true });
+    },
+    // Not while sync is off, nor on a draining or stopping runner: its
+    // replacement does it.
+    active: () => !draining && !stopping && !runner.draining && Boolean(sync.relaySource()),
+    log,
+    now: () => Date.now(),
+  });
+  setInterval(() => void farReports.tick(), FAR_TICK_MS).unref();
   const cross = new CrossRunner({
     self: () => ({ id: syncRunnerId, name: cfg.sync.name ?? defaultRunnerName() }),
     backend: () => sync,
@@ -1328,6 +1388,7 @@ async function main(): Promise<void> {
       const r = (await relay.create(runnerId, { ...p })) as { thread: { id: string } };
       return { id: r.thread.id };
     },
+    startedThere: (p) => farReports.add(p),
     card: (threadId, c) => runner.requestCard(threadId, c),
     openCard: async (threadId) => {
       const src = sync.relaySource();
@@ -1718,6 +1779,7 @@ async function main(): Promise<void> {
     usage.stop();
     spareWeek.stop();
     mailWatch.stop();
+    recipes.stop();
     signIn.stop();
     tally.stop();
     webRuntimeUpdates.stop();
@@ -1754,8 +1816,21 @@ async function main(): Promise<void> {
   // must find this one's drain file, a free port and a free lock.
   let drainServer: RpcServer | undefined;
   let primaryHeard = false;
-  const handOver = async (keeps: string[]) => {
+  let mailFirst = false;
+  const handOver = async (busy: string[]) => {
+    if (draining || stopping || mailFirst) return;
+    // The new release looks at mail from here on, not both: a draining
+    // runner can't start threads, so its lists failed (THREADBEAR-2G). A
+    // look under way finishes first, while this runner is still the primary
+    // in every way, and before the new runner is asked for (requestHandover,
+    // below), so the two never look at once. One that hangs is given up
+    // after three minutes, keeping what it had finished.
+    mailFirst = true;
+    await mailWatch.stopAndWait(180_000);
+    mailFirst = false;
     if (draining || stopping) return;
+    // A thread that look started or woke is busy now: it's kept like the rest.
+    const keeps = [...new Set([...busy, ...restarter.busyThreads()])];
     draining = true;
     log.info('starting the handover', { keeps });
     try {

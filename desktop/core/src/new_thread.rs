@@ -843,6 +843,11 @@ impl Draft<'_> {
         if let Some(pool) = self.pool() {
             let provider = self.provider_in(pool);
             out["poolId"] = serde_json::json!(pool.id);
+            // Which of a mixed pool's providers, as the model alone can't
+            // always say (an OpenCode model called gpt-…).
+            if pool_providers(pool, &self.logins.accounts).len() > 1 {
+                out["provider"] = serde_json::json!(provider);
+            }
             let mut model = self.mem.last_models.get(&provider).cloned();
             if model.is_none() && pool_providers(pool, &self.logins.accounts).len() > 1 {
                 model = self.logins.defaults.model_for(&provider).map(str::to_owned).or_else(|| self.logins.account(&self.account_id()).and_then(|a| a.default_model.clone()));

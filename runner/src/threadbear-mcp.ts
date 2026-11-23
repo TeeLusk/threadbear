@@ -45,7 +45,7 @@ import type { ConvexSync } from './sync.ts';
 import type { RemoteThread, RemoteThreads } from './thread-index.ts';
 import { POCKET_ICONS } from './pocket-icons.ts';
 import type { SecretAnswer, SecretRequest } from './runner/approvals.ts';
-import type { StartRequest } from './cross-runner.ts';
+import { starterIn, type StartRequest } from './cross-runner.ts';
 import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN } from './secrets.ts';
 import { cutSafely, firstLineSafely } from './safe-cut.ts';
 import { pickRunner } from './moves.ts';
@@ -59,6 +59,7 @@ type Async<T, K extends keyof T> = { [P in K]: T[P] extends (...a: infer A) => i
 export type ThreadControl = {
   hello: Runner['hello'];
   createReview?: (...args: Parameters<Runner['createReview']>) => Aw<ReturnType<Runner['createReview']>>;
+  experiment?: Runner['experiment'];
   createButton?: (...args: Parameters<Runner['createButton']>) => Aw<ReturnType<Runner['createButton']>>;
   folderPanel?: (...args: Parameters<Runner['folderPanel']>) => ReturnType<Runner['folderPanel']>;
   pin?: (...args: Parameters<Runner['pin']>) => Aw<ReturnType<Runner['pin']>>;
@@ -706,6 +707,13 @@ export function buildThreadbearTools(
   // once, before any card, which shows it: what goes is what was allowed.
   const from = async (): Promise<string> => `${AGENT_MESSAGE_PREFIX}"${(await control.get(selfId)).title.replace(/\s+/g, ' ').trim()}" (${selfId.slice(0, 8)})]\n\n`;
 
+  // This thread's first message, which says who started it from another Mac
+  // (cross-runner.ts startedHeader).
+  const firstMessage = async (): Promise<string> => {
+    const page = await control.events(selfId, { afterSeq: 0, limit: 20 });
+    const e = (page.events as PersistedEvent[]).find((x) => x.type === 'user.message');
+    return e?.type === 'user.message' ? e.text : '';
+  };
 
   const titleOf = async (id: string): Promise<string> => {
     try {
@@ -752,10 +760,10 @@ export function buildThreadbearTools(
           reference: z.boolean().optional().describe('Context to compare against, not to pick.'),
         })).min(1).max(12),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.createReview) throw new Error('This runner does not support image reviews yet.');
         const { review } = await control.createReview(selfId, input);
-        return `Review ${review.id}: ${review.title} (${review.options.length} options). The user can compare them and send their picks and a reply. You can finish this turn; their reply will arrive as a later message. To open it from an end_turn ask, link to review:${review.id}.${oversizeShotsNote(review)}`;
+        return `Review ${review.id}: ${review.title} (${review.options.length} options). The user can compare them and send their picks and a reply. You can finish this turn; their reply will arrive as a later message. To open it from an end_turn ask, link to review:${review.id}.${control.experiment?.('reviewPage') ? REVIEW_PAGE_NOTE : ''}${oversizeShotsNote(review)}`;
       }),
     ),
   ];
@@ -788,7 +796,7 @@ export function buildThreadbearTools(
               panel: z.string().min(1).describe('Its web panel, by id or title.'),
             }).optional(),
           },
-          handle(async ({ title, start, send, panel }, extra) => {
+          handle(async ({ title, start, send, panel }) => {
             if (!control.createButton) throw new Error("This runner can't make buttons.");
             const input: Parameters<Runner['createButton']>[1] = { title };
             if (start) {
@@ -901,7 +909,7 @@ export function buildThreadbearTools(
         note: z.string().max(500).optional().describe('One line on why the user should look at it.'),
         show: z.boolean().optional().describe('Open it in the side pane now.'),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.pin) throw new Error("This runner doesn't keep highlights yet.");
         const { id, scriptsOff, shown } = await control.pin(selfId, input);
         // Older runners (a handover) don't say whether it showed.
@@ -936,7 +944,7 @@ export function buildThreadbearTools(
           .describe('Where a closed panel opens: tab (beside the thread, closing when the user moves on), left, right, top or bottom (along that side of the window), or window (its own). Default: its usual place.'),
         reload: z.boolean().optional().describe("Load a web panel's page afresh, after you've changed it."),
       },
-      handle(async (input, extra) => {
+      handle(async (input) => {
         if (!control.showPanel) throw new Error("This runner can't show panels yet.");
         const { request, shown } = await control.showPanel(selfId, input);
         return shown
@@ -2113,7 +2121,16 @@ export function buildThreadbearTools(
       handle(async ({ threadId, id: alias, text }, extra) => {
         const asked = threadId ?? alias;
         if (!asked) throw new Error('threadId is required. list_threads shows the ids.');
-        const hit = await find(asked);
+        const hit = await find(asked).catch(async (e: unknown) => {
+          // The thread on another Mac that started this one, which this
+          // runner's key may not reach: the main Mac passes this thread's
+          // replies back to it (far-reports.ts).
+          if (!(e instanceof Error && e.message.startsWith('No thread with id')) || asked.length < 8) throw e;
+          const starter = await firstMessage().then(starterIn, () => undefined);
+          if (starter?.startsWith(asked))
+            throw new Error(`Not sent: thread ${starter} started this one from another Mac, which this runner can't message. The reply you end this turn with goes back to it, so put your report in your reply.`);
+          throw e;
+        });
         const id = hit.id;
         if (id === selfId) throw new Error("That's this thread. Just carry on here.");
         // Another runner's thread counts as full access (modeOf), so a
@@ -2329,6 +2346,14 @@ function clip(text: string, max = 2000): string {
 export const SHOT_MAX_SIDE = 16384;
 
 // A line for show_options' answer naming the shots over SHOT_MAX_SIDE.
+// With the reviewPage experiment on, what show_options adds to its answer:
+// the review is a page beside the thread where each option's note sits with
+// its pictures at reading size, so the reply needn't say it all again.
+// Mike, 20 Nov 2026: agents wrote every option out twice, in its note and in
+// the reply, and he read the reply because the window's notes were small.
+// In the tool's answer, not its description, so it costs nothing until used.
+export const REVIEW_PAGE_NOTE = " The user reads each option's note beside its pictures on the review's page, and picks there, so don't list or describe the options again in your reply: say they're up and anything that isn't about one option. An ask that links the review needs no answers of its own.";
+
 export function oversizeShotsNote(review: { options: { id: string; image: ImageRef; shots?: { image: ImageRef }[] }[] }): string {
   const big = review.options.flatMap(option => (option.shots ?? [{ image: option.image }]).map((shot, i) => ({ option: option.id, i, image: shot.image })))
     .filter(({ image }) => (image.width ?? 0) > SHOT_MAX_SIDE || (image.height ?? 0) > SHOT_MAX_SIDE);

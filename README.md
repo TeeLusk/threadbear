@@ -178,9 +178,11 @@ If you're an agent, start here:
   [docs/on-your-mac.md](docs/on-your-mac.md), then follow
   [INSTALL.md](INSTALL.md).
 - **Working on the code:** read [AGENTS.md](AGENTS.md) first for the rules,
-  then [docs/plan.md](docs/plan.md) for how it fits together and
-  [docs/protocol.md](docs/protocol.md), the contract between the runner and
-  the apps.
+  then [runner/README.md](runner/README.md) and
+  [desktop/README.md](desktop/README.md) for how it fits together, and the
+  part of [docs/protocol.md](docs/protocol.md), the contract between the
+  runner and the apps, that you're changing. Finished plans are kept as
+  history in [docs/archive/](docs/archive/).
 - **Sending Mike a change:** [CONTRIBUTING.md](CONTRIBUTING.md) says what
   he takes and how, so read it before you start.
 - **The backend, iPhone app and website:**

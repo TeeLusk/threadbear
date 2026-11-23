@@ -725,6 +725,7 @@ export class RpcServer {
           cwd: optString(p, 'cwd'),
           accountId: optString(p, 'accountId'),
           poolId: optString(p, 'poolId'),
+          ...optPoolProvider(p),
           model: optString(p, 'model'),
           effort: optEffort(p),
           permissionMode: optMode(p),
@@ -750,6 +751,7 @@ export class RpcServer {
           cwd: optString(p, 'cwd'),
           accountId: optString(p, 'accountId'),
           poolId: optString(p, 'poolId'),
+          ...optPoolProvider(p),
           model: optString(p, 'model'),
           effort: optEffort(p),
           permissionMode: optMode(p),
@@ -1180,6 +1182,15 @@ function optMode(p: Record<string, unknown>): PermissionMode | undefined {
   return v;
 }
 
+
+// threads.create's provider: with a poolId, which of a mixed pool's
+// providers the model picker's pick was under, as a model id alone can be
+// claimed by several (an OpenCode model called gpt-…).
+function optPoolProvider(p: Record<string, unknown>): { provider?: Provider } {
+  if (p.provider === undefined || p.poolId === undefined) return {};
+  if (!isProvider(p.provider)) throw bad(`provider must be one of ${PROVIDERS.join(', ')}`);
+  return { provider: p.provider as Provider };
+}
 function optEffort(p: Record<string, unknown>): EffortLevel | undefined {
   const v = p.effort;
   if (v === undefined || v === null) return undefined;

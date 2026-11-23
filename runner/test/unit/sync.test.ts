@@ -727,7 +727,7 @@ test('the uploader never follows a redirect with the bytes, nor posts them in th
 // ------------------------------------------------------------ step 2 and 3
 
 import { BUTTONS_API_VERSION, COMMAND_ATTEMPT_API_VERSION, LOGIN_NOTES_API_VERSION, MESSAGE_CHARS, PLAN_API_VERSION, PLAN_CHARS, toMessageDoc, toolLine, inputSummary, WokeRows, WOKE_BY_API_VERSION, type Command, type MessageDoc } from '../../src/sync.ts';
-import { REMOTE_ALLOW_REFUSED, remoteAllowRefused, remoteCardShowsAll } from '../../src/tools.ts';
+import { remoteAllowRefused, remoteCardShowsAll } from '../../src/tools.ts';
 
 type Fake = { h: ReturnType<typeof makeHarness>; sync: ConvexSync; calls: Call[]; push: (value: unknown) => void; applied: string[]; landed: Call[] };
 

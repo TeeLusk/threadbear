@@ -1,7 +1,7 @@
 // The phone's API (ios/, thread f5247e5b). Every function takes the phone
 // token and throws ConvexError({ kind: "auth" }) for a bad or expired one.
 // Queries read the mirror; mutations only ever add a row to `commands`,
-// which the owning runner applies (step 3 of docs/convex-backend.md) and
+// which the owning runner applies (docs/convex-backend.md, section 5) and
 // marks done or failed. Nothing here touches a runner directly.
 import { ConvexError, v, type Infer } from 'convex/values';
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';

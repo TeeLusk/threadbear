@@ -1,6 +1,7 @@
 // Spelling in the message box, as the Swift app's NSTextView had it: a wavy
 // line under a misspelled word once it's typed (green under grammar, when
-// that's on), the Mac's autocorrection and text replacements as a word ends,
+// that's on), the Mac's autocorrection (once it's switched on in the menu:
+// it starts off) and text replacements as a word ends,
 // and the right-click menu's guesses, Ignore Spelling and Learn Spelling, with
 // Spelling and Grammar, Substitutions, Transformations and Speech under them.
 // The Swift app's menu bar never had those four; its box's right-click menu
@@ -247,8 +248,8 @@ impl Composer {
             app.update(cx, |app, _| {
                 let mut checks = app.new_thread.prefs.text_checks;
                 change(&mut checks);
-                // Correction and replacement follow the Mac's own settings
-                // until they're switched here; then they're this app's.
+                // Replacement follows the Mac's own setting until it's
+                // switched here; then it's this app's. Correction starts off.
                 app.new_thread.prefs.text_checks = checks;
                 crate::prefs::save(&app.new_thread.prefs);
             });

@@ -25,7 +25,8 @@
 #                 desktop/ changed, the public site's build (site/)
 #                 when it or the guide changed, and the GPUI specs'
 #                 pairing check (features/verify-pairing.mjs) when a
-#                 spec, its steps or docs/gpui-port/features.md changed
+#                 spec, its steps or docs/gpui-port/features.md changed,
+#                 and their steps' typecheck when features/ changed
 #   --runner      only the runner's typecheck and unit tests, nothing else
 #                 that --quick adds (Convex, web, app tools, iPhone kit), on
 #                 main too: the runner's self-update runs this (deploy.mjs),
@@ -544,6 +545,17 @@ if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
     step "feature pairing" "$ROOT/features" node verify-pairing.mjs
   else
     skip "feature pairing" "no spec, step file or features.md changed"
+  fi
+  # The specs' steps and tools are TypeScript Node runs as it is, so a type
+  # error in one showed up only when the Desktop workflow ran that spec
+  # (features/tsconfig.json). A few seconds.
+  if needed '^features/|^desktop/scripts/own-folder\.ts$'; then
+    if [ ! -d "$ROOT/features/node_modules" ]; then
+      step "features packages" "$ROOT/features" npm ci --no-audit --no-fund
+    fi
+    step "features typecheck" "$ROOT/features" npm run typecheck
+  else
+    skip "features typecheck" "nothing under features/ changed"
   fi
 fi
 if [ "$APP_ONLY" = 0 ] && [ "$BUILD" = 1 ]; then

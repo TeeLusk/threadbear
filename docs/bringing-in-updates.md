@@ -97,6 +97,32 @@ Always a merge, never a rebase or a cherry-pick: Mike's commits have to
 keep their ids, or the runner never sees this copy as up to date with his
 release again. `tb land` knows not to rebase a branch with a merge on it.
 
+If the release has a format commit this copy doesn't (one listed in its
+`.git-blame-ignore-revs` under `# format-subject:`, like "Format desktop/'s
+Rust with cargo fmt --all, nothing else"), merge with this instead of the
+`git merge` above:
+
+```sh
+scripts/replay-over-format.sh --merge <commit> -m "Bring in Mike's release <date>"
+```
+
+It merges the commit before the format commit first (an ordinary merge, so
+any clash there is a real one), then the format commit itself with this
+copy's tree run through the same formatter as the result, then the release:
+none of the formatting clashes, and Mike's commits keep their ids. A clash
+it stops at is sorted out as below, then `git commit` and run it again. It
+needs the formatter the list names (`cargo fmt` from rustup for the Rust
+one; rustup fetches the pinned toolchain itself). If this checkout doesn't
+have the script yet, run the release's own copy:
+
+```sh
+git show <commit>:runner/src/format-replay.ts > "${TMPDIR:-/tmp}/format-replay.ts"
+node "${TMPDIR:-/tmp}/format-replay.ts" --merge <commit> -m "Bring in Mike's release <date>"
+```
+
+Your own branches made before it then land across it by themselves:
+`tb land` formats their commits the same way on the way.
+
 Where git can't merge, or where the merge is clean but the result doesn't
 make sense, work out what each side was for, from both sides' commit
 messages and diffs, and write code that does both:

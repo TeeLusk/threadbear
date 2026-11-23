@@ -413,7 +413,7 @@ impl Threadbear {
                     SidebarMode::Scheduled => due.push(Intro::Scheduled),
                     SidebarMode::Projects => due.push(Intro::Projects),
                     SidebarMode::Librarian => due.push(Intro::Librarian),
-                    SidebarMode::Inbox => {}
+                    SidebarMode::Inbox | SidebarMode::Recipes | SidebarMode::Feed => {}
                 }
             }
             for (on, w, intro) in [(now.1, was.1, Intro::Usage), (now.2, was.2, Intro::Updates), (now.3, was.3, Intro::Connectors)] {

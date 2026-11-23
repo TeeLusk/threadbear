@@ -859,6 +859,10 @@ export class ThreadRouter implements ThreadControl {
     return e ? e.call('threads.send', { threadId, text, images, ...(opts.answers ? { answers: opts.answers } : {}) }) : this.runner.send(threadId, text, images, opts);
   }
 
+  experiment(id: string): boolean {
+    return this.runner.experiment(id);
+  }
+
   async createReview(threadId: string, input: Parameters<Runner['createReview']>[1]): Promise<ReturnType<Runner['createReview']>> {
     const e = this.away(threadId);
     return e ? e.call('reviews.create', {threadId, ...input}) : this.runner.createReview(threadId, input);

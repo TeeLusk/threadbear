@@ -71,6 +71,19 @@ export const PROVIDER_INFO: Record<Provider, ProviderInfo> = {
     smallJobs: true,
     usageReadings: false,
   },
+  // Gemini on a Google plan, through Google's antigravity-acp. It has no
+  // sign-in command of its own (it signs in over ACP's authenticate).
+  antigravity: {
+    id: 'antigravity',
+    name: 'Gemini',
+    cliName: 'Antigravity',
+    loginCommand: '',
+    effort: 'none',
+    autoMode: 'asks',
+    rewind: false,
+    smallJobs: false,
+    usageReadings: false,
+  },
 };
 
 // One this build has no row for (a record or another runner's hello from a

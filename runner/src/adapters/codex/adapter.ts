@@ -323,7 +323,7 @@ export function codexModelChoices(rows: unknown[]): ModelChoice[] {
   return out;
 }
 
-// Threadbear's two permission modes in Codex's terms (step4-plan.md,
+// Threadbear's two permission modes in Codex's terms (docs/archive/step4-plan.md,
 // "Permission modes"). approvalsReviewer is always sent: another account's
 // config.toml could route approvals to Codex's auto-reviewer instead.
 export function threadPolicy(mode: PermissionMode): Pick<ThreadStartParams, 'approvalPolicy' | 'approvalsReviewer' | 'sandbox'> {
@@ -753,7 +753,9 @@ export class CodexSession implements AgentSession {
       return;
     }
     this.unknown.set(tid, [[method, p]]);
-    this.proc
+    // Nothing below can reject: .catch turns a failed read into false, and
+    // enqueue catches what its handler throws.
+    void this.proc
       .request<{ thread?: { parentThreadId?: unknown } }>('thread/read', { threadId: tid })
       .then((r) => {
         const parent = r?.thread?.parentThreadId;

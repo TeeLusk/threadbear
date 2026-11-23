@@ -150,6 +150,9 @@ export function observe(state: HighlightState, events: Iterable<PersistedEvent>,
         }
         break;
       }
+      default:
+        // Other events show nothing here.
+        break;
     }
   }
   return changed;
@@ -300,7 +303,7 @@ export function linksIn(text: string, ctx: { cwd: string; home: string; isFile: 
     return ' ';
   });
   // `path`
-  rest = rest.replace(/`([^`\n]+)`/g, (whole, inner: string) => {
+  rest = rest.replace(/`([^`\n]+)`/g, (_whole, inner: string) => {
     if (/^(~\/|\/|file:\/\/)/.test(inner) && !/\s/.test(inner)) addPath(inner);
     else if (/^https?:\/\/\S+$/i.test(inner)) addUrl(inner);
     return ' ';

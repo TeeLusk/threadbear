@@ -13,6 +13,7 @@ import { clearStateV } from './clearStates';
 import { boxStateV } from './boxStates';
 import { requiredUnlessStepping } from './stepping';
 import { tokenStateV } from './cloudTokenStates';
+import { installStateV } from './relayInstallStates';
 
 // A thread's sharing, as the runner mirrors it (ThreadShare in
 // docs/protocol.md): "link" is readable by anyone with /s/<slug>; "off"
@@ -486,7 +487,7 @@ export const appSchema = defineSchema({
   // Mac app can list other runners' threads without the busy fields of
   // `threads`: a runner writes a row only when one of these changes, apart
   // from preview and lastActivityAt, which ride along but never cause a
-  // write (docs/step6-plan.md, part 2).
+  // write (docs/archive/step6-plan.md, part 2).
   threadIndex: defineTable({
     runnerId: v.string(),
     threadId: v.string(),
@@ -508,6 +509,8 @@ export const appSchema = defineSchema({
     startedBy: v.optional(v.object({ kind: v.string(), label: v.string(), icon: v.optional(v.string()), threadTitle: v.optional(v.string()), why: v.optional(v.string()) })),
     // What Mike last said to it, one line: the Mac row's "You: ...". Since API 32.
     asked: v.optional(v.string()),
+    // What Mike first asked it, one line: another Mac's Feed card. Since API 96.
+    request: v.optional(v.string()),
     recap: v.optional(v.string()), // the recap box's, gone 11 Nov; kept so old rows load
     keywords: v.optional(v.string()), // the librarian's search words, since API 74
     // Its access mode, so another Mac's composer shows it. Since API 88.
@@ -891,7 +894,7 @@ export const appSchema = defineSchema({
     // The Machines page's counts and lists of requests in a state (viewer.ts).
     .index('by_request_state', ['requestState.kind']),
 
-  // Full sync (API 52, docs/full-convex.md step 4; sync.full in runner.json).
+  // Full sync (API 52, docs/archive/full-convex.md step 4; sync.full in runner.json).
   // One row per tool call, under the seq of its one-line `messages` row, with
   // its output, input, diffs and the reasoning before it. Convex charges a read
   // for the whole document, so these are never in a list read: each is fetched
@@ -912,7 +915,7 @@ export const appSchema = defineSchema({
     diffs: v.optional(v.string()),
     reasoning: v.optional(v.string()),
     images: v.optional(v.number()), // how many pictures the tool handed back (see heldPictures)
-    cut: v.optional(v.boolean()), // shortened to fit (docs/full-convex.md)
+    cut: v.optional(v.boolean()), // shortened to fit (docs/convex-backend.md, "Full sync")
   })
     .index('by_thread_seq', ['threadId', 'seq'])
     .index('by_at', ['at'])
@@ -1351,12 +1354,24 @@ export const appSchema = defineSchema({
     d: v.string(),
     createdAt: v.number(),
   }),
+  // The install saved before relayRegistrations (20 Nov 2026): the first
+  // send after the update takes it over (devices.ts takeRelayInstall) and
+  // deletes it. Nothing writes it now.
   relayInstall: defineTable({
     installId: v.string(),
     installKey: v.string(),
     url: v.string(),
     createdAt: v.number(),
   }),
+
+  // This deployment's install with the push relay, one row per relay
+  // address (push.ts), its lifecycle on a machine (relayInstallMachine.ts):
+  // registering, registered with its id and key, or unregistered.
+  relayRegistrations: defineTable({
+    url: v.string(),
+    installState: installStateV,
+    installStateTimers: machineTimers,
+  }).index('by_url', ['url']),
 
   // Whether pushes are getting through (pushHealth.ts): one row, written
   // by push.ts after each send, read by the owner runner's heartbeat.
@@ -1372,10 +1387,13 @@ export const appSchema = defineSchema({
   // A registration with the push relay in progress (push.ts relayInstall):
   // the nonce sent with it, which the relay posts back to /relay/verify
   // (http.ts) to check the request came from this deployment. Used once,
-  // and gone within minutes either way.
+  // and gone within minutes either way. `attempt` (20 Nov 2026): the
+  // registration it's for (relayInstallStates.ts), which must still hold the
+  // install, with time to spare, for the relay to be told yes.
   relayChecks: defineTable({
     nonce: v.string(),
     createdAt: v.number(),
+    attempt: v.optional(v.string()),
   }).index('by_nonce', ['nonce']),
 
   // Shared memory (API 84, memorySync.ts): the main Mac's global CLAUDE.md

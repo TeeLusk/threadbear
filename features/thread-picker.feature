@@ -1,7 +1,7 @@
 Feature: Mentioning another thread with #
   As someone whose threads build on each other
   I want to type # in the message box and pick one of my threads
-  So its id goes in my message, for the agent to read or message it
+  So a link to it goes in my message, for the agent to read or message it
 
   Background:
     Given the app is connected to a runner with the demo threads
@@ -20,12 +20,12 @@ Feature: Mentioning another thread with #
     Then the thread picker is closed
 
   @thread.picker @swift-pending
-  Scenario: Picking a thread puts its id in the message
+  Scenario: Picking a thread puts a link to it in the message
     When I open the thread "Morning brief"
     And I type "Ask #keep" in the composer
     And the thread picker lists only "Stop Keep Awake asking for my password"
     And I press Return
-    Then the composer says "Ask demo_keep_awake "
+    Then the composer says "Ask [Stop Keep Awake asking for my password](thread:demo_keep_awake) "
     And the thread picker is closed
 
   @thread.picker @swift-pending

@@ -799,8 +799,9 @@ type after the `#` narrows it by title or folder (each word you type has
 to be in one of them), or by the start of a thread's id. Archived threads
 show only once you've typed something, after the rest. Up and Down move,
 Return, Tab or a click picks one, and Esc closes the list. Picking one
-puts the thread's id where the `#word` was, so the agent can read that
-thread or send it a message. A space ends the word, so a Markdown heading
+puts a link to the thread where the `#word` was, like
+`[Fix the deploy](thread:<id>)`, so you can click it and the agent knows
+which thread it is and can read it or send it a message. A space ends the word, so a Markdown heading
 (`# Title`) doesn't open it. It's in the GPUI app only.
 
 ## Hibernate and archive

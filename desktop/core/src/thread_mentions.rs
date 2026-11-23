@@ -1,6 +1,6 @@
 // The # picker in the message box: typing "#" lists Tyler's threads, those
 // whose title, folder or id has what's typed after it, and picking one puts
-// the thread's id where the #word was, so the agent can read_thread or
+// a link to the thread where the #word was, so the agent can read_thread or
 // send_message it. Drawn as the @ tab picker is (tab_mentions.rs); the GPUI
 // picker is desktop/gpui/src/thread_palette.rs.
 use crate::inbox::ThreadSummary;
@@ -82,9 +82,15 @@ pub fn matches(threads: &[Arc<ThreadSummary>], query: &str, current: Option<&str
     found
 }
 
-/// What goes in the message for a picked thread: its id.
+/// What goes in the message for a picked thread: a link with its title,
+/// `[Fix the deploy](thread:<id>)`, which the app draws as a link to it and
+/// tells the agent which thread it is and what it's about.
 pub fn reference(thread: &ThreadSummary) -> String {
-    thread.id.clone()
+    let mut title = shown_title(thread).replace('[', "(").replace(']', ")");
+    if title.chars().count() > 80 {
+        title = title.chars().take(79).collect::<String>() + "…";
+    }
+    format!("[{title}](thread:{})", thread.id)
 }
 
 /// The picker's line when nothing matches.
@@ -167,6 +173,12 @@ mod tests {
         assert_eq!(matches(&all, "", None).len(), 1);
         let found = matches(&all, "picker", None);
         assert_eq!(found.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["new", "old"]);
+    }
+
+    #[test]
+    fn reference_is_a_titled_thread_link() {
+        assert_eq!(reference(&thread("abc-1", "Fix [the] deploy", "/x", "1")), "[Fix (the) deploy](thread:abc-1)");
+        assert_eq!(reference(&thread("abc-2", "  ", "/x", "1")), "[Untitled thread](thread:abc-2)");
     }
 
     #[test]

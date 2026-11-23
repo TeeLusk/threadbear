@@ -1,7 +1,7 @@
 // The # picker over the message box: Tyler's threads, those whose title,
 // folder or id has what's typed after the # (threadbear_core::thread_mentions).
 // Arrows move, Return or Tab or a click picks one, Esc closes it. Picking one
-// puts the thread's id where the #word was, so the agent can read or message
+// puts a link to the thread, with its title, where the #word was, so the agent can read or message
 // that thread. Drawn as the @ tab picker is (tab_palette.rs), which, like the
 // slash palette, goes first.
 use crate::composer::Composer;
@@ -77,7 +77,7 @@ impl Composer {
         true
     }
 
-    /// Puts the thread's id where the #word was, as one undo.
+    /// Puts a link to the thread where the #word was, as one undo.
     pub(crate) fn pick_thread(&mut self, thread: Arc<ThreadSummary>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(query) = self.thread_query(cx) else { return };
         self.thread_picker = Default::default();
@@ -147,7 +147,7 @@ impl Composer {
         let place = if thread.archived_at.is_some() { format!("{folder} · archived") } else { folder };
         let (fg, accent, hover) = (cx.theme().foreground, style::accent(cx).opacity(0.75), style::primary_opacity(cx, 0.05));
         let text = if on { gpui_kit::white() } else { fg };
-        let tip: SharedString = format!("Puts this thread's id ({}) in the message", thread.id).into();
+        let tip: SharedString = format!("Puts a link to this thread ({}) in the message", thread.id).into();
         let picked = thread.clone();
         h_flex()
             .id(SharedString::from(format!("thread-row-{}", thread.id)))

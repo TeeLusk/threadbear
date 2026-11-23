@@ -66,26 +66,20 @@ enum WindowDock {
     }
 
     @MainActor
-    static func makeController(layouts: PanelLayouts) -> DockController {
-        let dock = DockController(layout: repaired(layouts.load(nil) ?? defaultLayout))
-        dock.onChange = { next in
-            ActivityRecorder.shared.panels(next)
-            // To the shared layout or the project's own (PanelLayouts).
-            layouts.save(next)
-        }
-        return dock
-    }
-
-    /// A saved layout, fixed up for this build.
-    static func repaired(_ saved: DockLayout) -> DockLayout {
-        var layout = saved
+    static func makeController(defaults: UserDefaults = .standard) -> DockController {
+        var layout = defaults.data(forKey: layoutKey).flatMap { try? JSONDecoder().decode(DockLayout.self, from: $0) } ?? defaultLayout
         // Without the thread there's nothing to type in: a layout saved
         // that way (or by an older build) gets it back.
         if !layout.contains(main) { layout.add(main, .window(.right)) }
         // Reviews were a dock panel until 30 Oct. No layout was saved with one
         // in, but an older build's might have been, and nothing draws it now.
         if layout.contains("threadbear.review") { layout.close("threadbear.review") }
-        return layout
+        let dock = DockController(layout: layout)
+        dock.onChange = { next in
+            ActivityRecorder.shared.panels(next)
+            defaults.set(try? JSONEncoder().encode(next), forKey: layoutKey)
+        }
+        return dock
     }
 
     /// A pane section's panel, or nil for the sidebar, the main panel and a

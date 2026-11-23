@@ -1,4 +1,4 @@
-// Other runners' threads (docs/protocol.md, "Other runners' threads" and "...
+// Other runners' threads (docs/protocol/runners.md, "Other runners' threads" and "...
 // through the backend"), a port of the parts of RemoteRunners.swift the app
 // needs while it reaches them through this Mac's runner and Convex (the
 // only route since the direct link was removed on 13 Nov 2026). Their rows
@@ -130,7 +130,7 @@ impl Threadbear {
                 pane.update(cx, |p, cx| {
                     p.unsubscribe();
                     p.summary_changed(&kept, cx);
-                    p.connection_back();
+                    p.connection_back(cx);
                 });
             }
         }
@@ -303,9 +303,9 @@ impl Threadbear {
                 .threads
                 .insert(summary.id.clone(), std::sync::Arc::new(summary.clone()));
             // Every row comes again with any one's change: only one that
-            // changed is that runner's word on it (`thread::AWAITING`).
+            // changed is that runner's word on it (`Outbox::sending`).
             if before.as_deref() != Some(&summary) {
-                crate::thread::summary_arrived(&summary.id);
+                crate::thread::summary_arrived(&summary.id, cx);
             }
             if waiting
                 || before

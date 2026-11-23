@@ -318,7 +318,11 @@ fn same_day<Tz: TimeZone>(a: &DateTime<Tz>, b: &DateTime<Tz>) -> bool {
 /// "5:00 am", with its minutes always (`Pools.waitingParts`' clock).
 fn clock<Tz: TimeZone>(d: &DateTime<Tz>) -> String {
     let hour = d.hour();
-    let twelve = if hour % 12 == 0 { 12 } else { hour % 12 };
+    let twelve = if hour.is_multiple_of(12) {
+        12
+    } else {
+        hour % 12
+    };
     format!(
         "{twelve}:{:02} {}",
         d.minute(),
@@ -1285,8 +1289,11 @@ pub fn preview_plain(text: &str) -> String {
         if at_start && (c == '#' || c == '>') {
             let mut run = String::from(c);
             if c == '#' {
-                while chars.peek() == Some(&'#') && run.len() < 6 {
-                    run.push(chars.next().unwrap());
+                while run.len() < 6 {
+                    let Some(hash) = chars.next_if_eq(&'#') else {
+                        break;
+                    };
+                    run.push(hash);
                 }
             }
             if chars.peek().is_some_and(|n| n.is_whitespace()) {
@@ -1945,13 +1952,13 @@ mod tests {
         );
     }
 
-    /// The shared urgency rule (`app/Tests/Fixtures/inbox-urgency-cases.json`):
+    /// The shared urgency rule (`shared/cases/inbox-urgency.json`):
     /// the Mac, the phone and the website read this file too.
     #[test]
     fn urgency_matches_the_shared_cases() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../app/Tests/Fixtures/inbox-urgency-cases.json"
+            "/../../shared/cases/inbox-urgency.json"
         );
         let cases: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

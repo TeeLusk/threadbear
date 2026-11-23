@@ -1,6 +1,6 @@
 // Explain in the pane beside the thread (rich.explain): words Mike selected,
 // what the small model said about them, his follow-ups and a box to ask
-// another (ExplainPane.swift, ExplainModel.swift; docs/protocol.md,
+// another (ExplainPane.swift, ExplainModel.swift; docs/protocol/settings.md,
 // "Explain"). None of it goes into the thread. The session itself is
 // threadbear_core::explain; the selection bar starts one (selection_bar.rs).
 //

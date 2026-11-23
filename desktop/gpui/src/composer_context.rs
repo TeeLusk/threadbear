@@ -346,7 +346,7 @@ fn breakdown_view(breakdown: &ContextBreakdown, note: Option<String>, cx: &App) 
                                     .with_size(px(11.))
                                     .text_color(secondary),
                             )
-                            .tip(note.clone()),
+                            .tip(note),
                     )
                 }),
         );

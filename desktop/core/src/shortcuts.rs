@@ -576,7 +576,7 @@ mod tests {
             "the rest stay at their defaults"
         );
         // Setting it back to the default is no change at all.
-        let mut back = read.clone();
+        let mut back = read;
         back.set(ShortcutCommand::Archive, Some(key("cmd+e")));
         assert!(!back.is_changed(ShortcutCommand::Archive));
     }

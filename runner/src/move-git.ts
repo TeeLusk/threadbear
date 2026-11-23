@@ -1,4 +1,4 @@
-// A moving thread's git work (docs/protocol.md, "Moving a thread to another
+// A moving thread's git work (docs/protocol/moves.md, "Moving a thread to another
 // runner", Git). On the runner it leaves, the branch's commits that
 // `origin` doesn't have, and one more commit of every uncommitted and
 // untracked file, go in a git bundle. On the runner it goes to, the bundle

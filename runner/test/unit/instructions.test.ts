@@ -1,5 +1,5 @@
 // Where Alex's standing instructions are kept, and what makes them count
-// (instructions.ts; docs/protocol.md, "Standing instructions"): only what
+// (instructions.ts; docs/protocol/settings.md, "Standing instructions"): only what
 // instructions.set saved reaches a session, however else the file changes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

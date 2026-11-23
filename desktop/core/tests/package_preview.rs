@@ -1,3 +1,8 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 #![cfg(unix)]
 use std::fs::{self, File};
 use std::os::unix::fs::{symlink, PermissionsExt};
@@ -78,6 +83,7 @@ fn a_package_snapshot_bounds_bytes_and_does_not_wait_on_a_pipe() {
     use std::os::unix::ffi::OsStrExt;
     let pipe =
         std::ffi::CString::new(f.package().join("Index/pipe.iwa").as_os_str().as_bytes()).unwrap();
+    // SAFETY: `pipe` is a NUL-terminated CString that outlives the call.
     assert_eq!(unsafe { libc::mkfifo(pipe.as_ptr(), 0o600) }, 0);
     assert!(private_file::snapshot_package(&checked, &f.cache(), "Brief.pages", 1024).is_err());
     assert_eq!(fs::read_dir(f.cache()).unwrap().count(), 0);
@@ -88,6 +94,8 @@ struct Unlock(std::ffi::CString, u32);
 #[cfg(target_os = "macos")]
 impl Drop for Unlock {
     fn drop(&mut self) {
+        // SAFETY: self.0 is a NUL-terminated CString owned by this value, and
+        // lchflags only reads the path from it.
         unsafe {
             libc::lchflags(self.0.as_ptr(), self.1);
         }
@@ -107,6 +115,8 @@ fn finder_locked_files_can_be_snapshotted_without_inheriting_the_lock() {
         0,
     );
     assert_eq!(
+        // SAFETY: unlock.0 is a NUL-terminated CString that outlives the
+        // call, and lchflags only reads the path from it.
         unsafe { libc::lchflags(unlock.0.as_ptr(), libc::UF_IMMUTABLE) },
         0
     );
@@ -156,6 +166,8 @@ fn a_snapshot_keeps_the_data_and_compression_flag_of_a_ditto_copy() {
         original_flags,
     );
     assert_eq!(
+        // SAFETY: unlock.0 is a NUL-terminated CString that outlives the
+        // call, and lchflags only reads the path from it.
         unsafe { libc::lchflags(unlock.0.as_ptr(), original_flags | libc::UF_IMMUTABLE) },
         0
     );

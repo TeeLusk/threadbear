@@ -13,7 +13,7 @@ import type { SwiftChangesStatus } from './swift-changes.ts';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
-import { keepPictureMarkers } from './reviews.ts';
+import { fitReview, keepPictureMarkers } from './reviews.ts';
 import path from 'node:path';
 import { ConvexKeys, type ConvexKeysOptions } from './convex-keys.ts';
 import crypto from 'node:crypto';
@@ -80,9 +80,9 @@ import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from 
 import type { SignInState } from './sign-in-state.ts';
 import { pickAccount as pickByRoom, type UsageReading } from './usage.ts';
 import { RUNNER_VERSION, expandHome, paths, peekRunnerJson, type Config } from './config.ts';
-import { experimentOn } from './experiments.ts';
 import { limitWhy, loginOk, nextLogin, pickInPool, poolAccounts } from './pools.ts';
-import { copyImageInto, imageRefFor } from './media.ts';
+import { copyImageInto, imageRefFor, importImageInto } from './media.ts';
+import { ImportQuota } from './media-quota.ts';
 import { isDirectory } from './fsutil.ts';
 import { commandFolders } from './tools.ts';
 import { copySessionTranscript, subagentTranscriptPath } from './transcripts.ts';
@@ -92,7 +92,9 @@ import type { Models } from './models/index.ts';
 import { localWhen } from './wake-when.ts';
 import { parseWhen } from './when.ts';
 import { SERVER_NAME } from './threadbear-mcp.ts';
-import { archiveFromTool, bylineFromTool, END_TURN_TOOL, endTurnAccepted, endTurnAddedArchive, endTurnAddedSnooze, snoozeFromTool, waitForFromTool, endTurnAsksForMessage, endTurnIsOneReply, endTurnMessageStands, endTurnOwesReply, endTurnRefusedRepeat, endTurnRefusedUnread, endTurnTaken, endTurnWantsReply, needsFromText, needsFromTool, replyWithoutRepeat, splitReplySection, summaryFromTool, summaryMarkdown, WakeRead } from './needs.ts';
+import { archiveFromTool, bylineFromTool, END_TURN_TOOL, snoozeFromTool, waitForFromTool, WakeRead } from './needs.ts';
+import { dropsStream, replyTurn, turnNeeds, type ReplyEvent, type ReplyMove, type ReplyOut } from './reply-phase.ts';
+import { cliHears, cliOf, cliRuntime, runningSession, STALE, type CliEvent, type CliMove } from './cli-session.ts';
 import type { Needs } from './needs.ts';
 import { asksForAppRestart, MAX_AGE_MS as APP_RESTART_MAX_AGE_MS } from './app-restarts.ts';
 import type { ConnectorsStatus } from './connectors.ts';
@@ -168,7 +170,7 @@ export type Notification =
   | { method: 'drain.handedOver'; params: { threadId: string } }
   | { method: 'drain.usage'; params: { accountId: string; reading: UsageReading } };
 
-// hello's `updates` and runner.updates (docs/protocol.md, "Runner updates").
+// hello's `updates` and runner.updates (docs/protocol/updates.md, "Runner updates").
 export type RunnerUpdates = {
   state: 'off' | 'idle' | 'checking' | 'building' | 'waiting' | 'failed';
   commit?: string;
@@ -261,10 +263,10 @@ export type PendingApproval =
   // client that shows it all counts.
   // title: what it's asking, for telling the agent about a subagent's.
   // itemId and queued: the agent's call and the calls waiting behind it
-  // on the same card (docs/protocol.md, "Queued calls"), by itemId.
+  // on the same card (docs/protocol/threads.md, "Queued calls"), by itemId.
   | { approvalId: string; kind: 'tool'; main: boolean; title?: string; plan?: string; macOnly?: boolean; itemId?: string; queued?: Set<string>; fullAllows?: boolean; resolve: (a: ToolApprovalAnswer) => void }
   | { approvalId: string; kind: 'question'; main: boolean; title?: string; questions: Question[]; resolve: (a: QuestionAnswer) => void }
-  // An agent's ask_secret (docs/protocol.md, "Secrets"). The value never
+  // An agent's ask_secret (docs/protocol/threads.md, "Secrets"). The value never
   // passes through here: secrets.answer writes the file and hands this the
   // paths.
   | { approvalId: string; kind: 'secret'; main: boolean; resolve: (a: SecretAnswer) => void }
@@ -321,6 +323,8 @@ export type Turn = {
   // Folders its shell commands worked in (commandFolders), so the
   // librarian knows the repo a thread in a catch-all folder works on.
   workedIn?: Set<string>;
+  // The reply phase, from endTurn to finalTexts: written only by
+  // reply-phase.ts's replyTurn (Runner.reply), which says how they move.
   // The agent's own end_turn input and last text, for what the turn needs
   // from Mike (needs.ts). Never a sub-agent's.
   endTurn?: Record<string, unknown>;
@@ -358,7 +362,7 @@ export type Turn = {
   // (TranscriptReducer, reply(of:)): a "Done." under them is still a
   // repeat. The bullets' length, while it's owed.
   owedReply?: number;
-  // One reply (docs/protocol.md, "One reply"): the accepted end_turn said
+  // One reply (docs/protocol/needs-you.md, "One reply"): the accepted end_turn said
   // the reply comes next, so the agent's text after it is kept, streamed
   // and marked `final`, the turn's reply. headline: end_turn gave one, and
   // it's the preview. replyNeeds: the reply ended in a "What I need from
@@ -374,11 +378,9 @@ export type Turn = {
   // the next end_turn is that card, not a repeat (needs.ts, REPLY_ASKS).
   cardReopened?: boolean;
   // The reply a one-reply turn wrote after its last end_turn (the texts
-  // marked final, by item: a reply can come as several blocks), and, once a
-  // reopened turn's card is taken, that reply waiting to be written again
-  // under it (onOutput).
+  // marked final, by item: a reply can come as several blocks), written
+  // again under a reopened turn's card once it's taken (onOutput).
   finalTexts?: Map<string, string>;
-  restateReply?: string;
   // ...for a reply that links files that aren't there (needs.ts,
   // missingLinksNudge): that end_turn asks for a whole new reply, which the
   // apps show in the first one's place, as they do after any later card.
@@ -667,6 +669,8 @@ export type RunnerDeps = {
   // Whether the thread is waiting to hear the app restarted onto a new
   // build (wait_for_app_restart), so a done turn hibernates until it has.
   awaitingAppRestart?: (threadId: string) => boolean;
+  // The commit it waits for the app to have (AppRestarts.waitingFor).
+  appRestartWant?: (threadId: string) => { commit?: string; short?: string } | undefined;
   // Whether Mike is at this Mac, as presence last found it (presence.ts);
   // undefined when it hasn't been checked. Only read for phone messages.
   atMac?: () => boolean | undefined;
@@ -835,7 +839,7 @@ export class Runner {
   saveRetryTimer?: TimerHandle;
   snoozeTimer?: TimerHandle;
   stopping = false;
-  // Set while this runner drains after a handover (docs/protocol.md,
+  // Set while this runner drains after a handover (docs/protocol/updates.md,
   // "Handovers"): the threads it still keeps, and who hears when one goes.
   draining?: Drain;
   // The CLI started ahead of a new thread the app is writing
@@ -862,7 +866,7 @@ export class Runner {
   // The version E last asked sessions to move to, per provider.
   wantedVersion: Partial<Record<Provider, string>> = {};
   unsubs: (() => void)[] = [];
-  // Pools (docs/protocol.md, "Pools"): the timer for threads waiting for
+  // Pools (docs/protocol/settings.md, "Pools"): the timer for threads waiting for
   // room, the list clients were last sent, and logins a turn found at
   // their limit, blocked here until the time given even when the usage
   // readings haven't caught up.
@@ -882,6 +886,7 @@ export class Runner {
   reachable: Reachable;
   appRestartAsked?: (threadId: string) => void;
   awaitingAppRestart?: (threadId: string) => boolean;
+  appRestartWant?: (threadId: string) => { commit?: string; short?: string } | undefined;
   atMac?: () => boolean | undefined;
 
   private threadKey?: (threadId: string) => string;
@@ -916,6 +921,7 @@ export class Runner {
     this.standingInstructions = deps.standingInstructions;
     this.appRestartAsked = deps.appRestartAsked;
     this.awaitingAppRestart = deps.awaitingAppRestart;
+    this.appRestartWant = deps.appRestartWant;
     this.atMac = deps.atMac;
     this.adapters = deps.adapters;
     this.accounts = deps.accounts;
@@ -1078,7 +1084,7 @@ export class Runner {
     this.accountsChanged();
   }
 
-  // accounts.useReset (docs/protocol.md, "Usage resets"): spends one of a
+  // accounts.useReset (docs/protocol/settings.md, "Usage resets"): spends one of a
   // Codex login's usage-limit resets, on Mike's click in the limit box. The
   // reading taken after it goes into the usage store like a turn's, so the
   // block lifts and any thread waiting for room on that login carries on by
@@ -1214,7 +1220,7 @@ export class Runner {
       this.signIn?.noteWorked(a.id);
       for (const st of this.threads.values()) {
         if (st.rec.accountId !== a.id || !st.rt.session) continue;
-        st.rt.releaseWhenIdle = true;
+        this.cli(st, { kind: 'leave' });
         if (!st.rt.turn) this.releaseSession(st);
       }
       this.log.info('a login changed its year-long token; its sessions start again on it', { accountId: a.id });
@@ -1286,8 +1292,16 @@ export class Runner {
       pendingApprovals: [],
       handoff: { fromCwd: this.cfg.defaults.cwd, fromAccountId: accountId, rebuilt: true },
     };
+    // Each only with this thread's own copies of its files, as recoverReviews
+    // takes one from the log (Daybreak 159, Gemini's second review): a moved
+    // thread's log is the other runner's word.
     const reviews = new Map<string, DesignReview>();
-    for (const event of events) if (event.type === 'review.updated') reviews.set(event.review.id, event.review);
+    const media = this.store.mediaDir(id);
+    for (const event of events) {
+      if (event.type !== 'review.updated') continue;
+      const review = fitReview(event.review, { threadId: id, now: media, final: media }, true);
+      if (review) reviews.set(review.id, review);
+    }
     if (reviews.size) rec.reviews = [...reviews.values()];
     const buttons = new Map<string, ReplyButton>();
     for (const event of events) if (event.type === 'button.updated') buttons.set(event.button.id, event.button);
@@ -1416,7 +1430,7 @@ export class Runner {
       rt.wakeTimer?.cancel();
       this.flushDeltas(st);
       // Output and exits from CLIs that are about to be killed no longer count.
-      rt.generation++;
+      this.cli(st, { kind: 'drop', forget: false });
       if (rt.turn) this.stopTurn(st);
       // Killing the CLIs kills their background shells and subagents too.
       // Say so in the thread, as releaseSession does, or it would wait for
@@ -1426,7 +1440,7 @@ export class Runner {
       if (rt.tasks.length) {
         const what = rt.tasks.map((t) => t.description || t.type).join('; ');
         this.rememberStoppedWork(st);
-        rt.tasks = [];
+        this.cli(st, { kind: 'stopTasks' });
         try {
           this.emit(st, { type: 'system.note', text: `Stopped background work when the runner stopped: ${what}` });
         } catch (e) {
@@ -1438,10 +1452,10 @@ export class Runner {
   }
 
   // ------------------------------------------------------------- handovers
-  // docs/protocol.md, "Handovers".
+  // docs/protocol/updates.md, "Handovers".
 
   // ---------------------------------------------------- stopped background work
-  // docs/protocol.md, "Stopped background work". A handover or restart stops
+  // docs/protocol/updates.md, "Stopped background work". A handover or restart stops
   // work the thread is counting on, usually a wait it promised to report
   // back from (1 Nov: Mike asked "Is this still going?" 4.5 hours later).
   // The note alone wakes nobody, so the next runner tells the thread.
@@ -1621,11 +1635,11 @@ export class Runner {
   }
 
   // ------------------------------------------------------------------ pools
-  // docs/protocol.md, "Pools". The rules are in pools.ts; this is where
+  // docs/protocol/settings.md, "Pools". The rules are in pools.ts; this is where
   // they meet threads.
 
   // With ids, only those threads (threads.list's ids): a draining runner
-  // looking one up mustn't be sent all 900 (docs/protocol.md, "Handovers").
+  // looking one up mustn't be sent all 900 (docs/protocol/updates.md, "Handovers").
   list(include: ('inbox' | 'snoozed' | 'archived')[] = ['inbox'], ids?: string[]): ThreadSummary[] {
     const want = new Set(include);
     const out: ThreadSummary[] = [];
@@ -1683,12 +1697,6 @@ export class Runner {
   // UNREAD_MESSAGE). It counts as a refusal for each (adapters/types.ts).
   unreadMessage(threadId: string): boolean {
     return this.threads.get(threadId)?.rt.session?.unreadMessage?.() === true;
-  }
-
-  // Whether one of the experiments is on here (experiments.ts), for what
-  // a tool tells the agent (threadbear-mcp.ts).
-  experiment(id: string): boolean {
-    return experimentOn(this.cfg.home, id);
   }
 
   get(threadId: string): ThreadSummary {
@@ -1928,7 +1936,7 @@ export class Runner {
     // if it ends with nothing for Mike (the end of the turn, below).
     // Answering it from his phone without opening it counts as having seen
     // it woke (place.ts, message).
-    if (placeOf(rec).kind !== 'inbox') rt.releaseWhenIdle = false;
+    if (placeOf(rec).kind !== 'inbox') this.cli(st, { kind: 'stay' });
     this.park(st, { kind: 'message', fromSchedule: opts.origin === 'schedule', fromMike: fromMike(text, opts) });
     this.supersedeReviews(st, text, opts);
     // He has seen the reply a waiting panel went with.
@@ -2053,7 +2061,7 @@ export class Runner {
   // or be refused (handover.ts sendScheduled), so it looks as before.
   needsPreLook(st: ThreadState): boolean {
     const { rec, rt } = st;
-    return rec.provider === 'claude' && Boolean(this.offThread && this.patchTrust.lookClaude) && Boolean(rt.session) && !rt.closing && !this.draining;
+    return rec.provider === 'claude' && Boolean(this.offThread && this.patchTrust.lookClaude) && Boolean(runningSession(rt)) && !this.draining;
   }
 
   // Whether the look still answers for the front of the queue as it is.
@@ -2090,7 +2098,7 @@ export class Runner {
   canSteer(st: ThreadState): boolean {
     const { rec, rt } = st;
     const turn = rt.turn;
-    if (!turn || !rt.session || rt.closing || this.stopping || rt.editing) return false;
+    if (!turn || !runningSession(rt) || this.stopping || rt.editing) return false;
     if (rec.queue.some(q => !isAutomaticInput(q)) || rec.handoff || rec.moved || rt.releaseWhenIdle || turn.interruptRequested) return false;
     // Nor into a compaction or review (a skill's turn takes them).
     if (turn.noSteer || turn.local) return false;
@@ -2124,17 +2132,10 @@ export class Runner {
     this.markOlderInputs(st, msg);
     (turn.inputs ??= new Map()).set(msg.turnId, event.seq);
     turn.messages.push(msg.turnId);
-    // He wrote again, so the turn owes him another reply.
-    turn.ended = false;
-    turn.owedReply = undefined;
-    // ...and a card it was sent back for (needs.ts, REPLY_ASKS) gives way to
-    // this message's own: the reply written before it isn't its answer, so
-    // it isn't written again under that card (from Codex's review).
-    turn.cardReopened = false;
-    turn.replyRewrite = false;
-    // ...and an archive it asked for before reading this is off: "wait, one
-    // more thing" shouldn't send the thread away. It can ask again.
-    if (turn.endTurn) turn.endTurn = { ...turn.endTurn, archive: false, snooze: undefined, waitFor: undefined };
+    // He wrote again, so the turn owes him another reply; a card it was sent
+    // back for (needs.ts, REPLY_ASKS) gives way to this message's own (from
+    // Codex's review); an archive it asked for before reading this is off.
+    this.reply(st, { kind: 'message' });
     this.markDirty(st);
     // A change reaches a running turn too, or a clear could wait out as many
     // messages as were sent into it (Codex review).
@@ -2153,14 +2154,35 @@ export class Runner {
   // stop without another. A one-reply turn's text stays its reply (replyAfter,
   // marked final), so a report written after the wake shows even without a
   // new end_turn (TranscriptReducer, reply(of:), picks among them).
-  seeWake(turn: Turn, ev: { type: string; itemId?: string; wake?: true }): void {
+  seeWake(st: ThreadState, ev: { type: string; itemId?: string; wake?: true }): void {
+    const turn = st.rt.turn;
+    if (!turn) return;
     turn.wake ??= new WakeRead();
-    if (!turn.wake.see(ev) || !(turn.ended || turn.tookEndTurn)) return;
-    turn.ended = false;
-    turn.owedReply = undefined;
-    turn.headline = false;
-    turn.summarized = false;
-    turn.narrationItem = undefined;
+    if (turn.wake.see(ev)) this.reply(st, { kind: 'wakeRead' });
+  }
+
+  // Moves the running turn's reply phase (reply-phase.ts), the only way
+  // its fields change. A refusal (fields that fit no phase) leaves them
+  // and is logged; the event then goes as in a turn with no end_turn.
+  // The thread's CLI (cli-session.ts): the only way its fields change. A
+  // stale event (for an older CLI) changes nothing and says nothing; a move
+  // the table says never happens is made as the old writes made it, and
+  // logged, so a real one shows up.
+  cli(st: ThreadState, e: CliEvent): CliMove {
+    const from = cliOf(st.rt).kind;
+    const res = cliRuntime(st.rt, e);
+    if (!res.ok) {
+      if (res.reason !== STALE) this.log.warn('refused a CLI session move', { threadId: st.rec.id, event: e.kind, from, reason: res.reason });
+    } else if (res.unexpected) this.log.warn('an unexpected CLI session move', { threadId: st.rec.id, event: e.kind, from, to: res.state.kind, why: res.unexpected });
+    return res;
+  }
+
+  reply(st: ThreadState, e: ReplyEvent): ReplyMove | undefined {
+    const turn = st.rt.turn;
+    if (!turn) return undefined;
+    const res = replyTurn(turn, e);
+    if (!res.ok) this.log.warn('refused a reply phase move', { threadId: st.rec.id, event: e.kind, reason: res.reason });
+    return res;
   }
 
   private markOlderInputs(st: ThreadState, msg: QueuedSend): void {
@@ -2234,8 +2256,8 @@ export class Runner {
     delete rec.waitingForNetwork;
     if (rec.netCarryOn && rec.netCarryOn.turnId !== msg.turnId) delete rec.netCarryOn;
     this.beforeTurn(st);
-    // A subagent's card can still be open (docs/protocol.md, "A subagent's card").
-    rec.status = rt.session && !rt.closing ? (rt.approvals.size ? 'waiting' : 'running') : 'starting';
+    // A subagent's card can still be open (docs/protocol/needs-you.md, "A subagent's card").
+    rec.status = runningSession(rt) ? (rt.approvals.size ? 'waiting' : 'running') : 'starting';
     this.markDirty(st);
     // A message to the thread (not a turn the CLI opened by itself), so the
     // librarian can file a new thread before its first turn is over.
@@ -2277,14 +2299,15 @@ export class Runner {
       return gone() ? 'gone' : looks;
     };
     // A folder, account or settings change asked for a fresh CLI, or a CLI
-    // update came in since this one started.
-    if (rt.session && (rt.releaseWhenIdle || rec.handoff || (rt.versionMove && rt.tasks.length === 0))) this.releaseSession(st);
+    // update came in since this one started. (One already closing goes
+    // anyway: the turn waits for it below.)
+    if (runningSession(rt) && (rt.releaseWhenIdle || rec.handoff || (rt.versionMove && rt.tasks.length === 0))) this.releaseSession(st);
     // The folder's Claude Code hooks were trusted since the CLI started
     // without them, or new ones came that aren't (a pull): a fresh CLI
     // reads the folder's settings again.
     // Not for one already closing: the turn waits for it below, then looks
     // for the new one.
-    else if (rt.session && !rt.closing && rec.provider === 'claude' && Boolean(rt.claudeSkipped) === this.patchTrust.checkClaude(rec.cwd, claudeOptions(rec), lookFor(live && !('failed' in live) ? live : undefined, rec.cwd, claudeOptions(rec))).trusted) this.releaseSession(st);
+    else if (runningSession(rt) && rec.provider === 'claude' && Boolean(rt.claudeSkipped) === this.patchTrust.checkClaude(rec.cwd, claudeOptions(rec), lookFor(live && !('failed' in live) ? live : undefined, rec.cwd, claudeOptions(rec))).trusted) this.releaseSession(st);
     // Never two live CLIs on one session: wait for a releasing one to exit.
     while (rt.closing) await rt.closing;
     // An archive's worktree cleanup still running: where this turn starts
@@ -2474,7 +2497,7 @@ export class Runner {
   }
 
   makeRoomForCli(starting: ThreadState): void {
-    const live = [...this.threads.values()].filter((t) => t !== starting && t.rt.session && !t.rt.closing);
+    const live = [...this.threads.values()].filter((t) => t !== starting && runningSession(t.rt));
     if (live.length < this.cfg.maxLive) return;
     const idle = live
       .filter((t) => !t.rt.turn && t.rt.approvals.size === 0 && t.rec.queue.length === 0 && t.rt.tasks.length === 0)
@@ -2535,14 +2558,18 @@ export class Runner {
     // wake, a review) comes through, rather than at each of them.
     if (rec.copied) throw new Error(COPIED_REFUSAL);
     if (!rec.nativeSessionId) rec.nativeSessionId = crypto.randomUUID();
-    const gen = ++rt.generation;
     const resume = Boolean(rec.sessionUsed);
+    // A new generation, so whatever an older CLI still says goes nowhere,
+    // and this CLI is the fresh one anything asked for: a release asked of
+    // the last one doesn't carry over to it (thread 8a971407).
+    this.cli(st, { kind: 'begin', resume });
+    const gen = rt.generation;
     const sink: SessionSink = {
       output: (o) => {
-        if (rt.generation !== gen) return;
+        if (cliHears(rt, gen) === 'stale') return;
         rt.lastOutputAt = this.clock.now();
         try {
-          this.onOutput(st, o);
+          this.onOutput(st, o, gen);
         } catch (e) {
           // Most likely the disk (full, permissions). The CLI carries on;
           // say so rather than let the error look like a CLI crash.
@@ -2554,26 +2581,20 @@ export class Runner {
       requestQuestion: (req) => this.requestQuestion(st, gen, req),
       exited: (err) => this.onExited(st, gen, err),
     };
-    rt.resumed = resume;
     rt.cliVersion = undefined;
-    rt.versionMove = false;
-    // This CLI is the fresh one anything asked for; a release asked of the
-    // last one doesn't carry over to it (thread 8a971407).
-    rt.releaseWhenIdle = false;
     rt.sessionProvider = rec.provider;
-    rt.started = false;
     rt.startVersion = this.cliList()?.find((c) => c.provider === rec.provider)?.installedVersion;
     const { opts, claude, claudeSkipped, heldGrants } = this.sessionOptions(st, account, looks, resume);
     rt.claudeSkipped = claudeSkipped;
     rt.claudeHeldGrants = heldGrants;
     // A CLI started ahead of this thread with these same options takes the
     // place of a new one (runner/warm-start.ts).
-    rt.session = this.takeSpare(st, opts, sink) ?? adapter.start(opts, sink);
+    const session = this.takeSpare(st, opts, sink) ?? adapter.start(opts, sink);
+    this.cli(st, { kind: 'spawned', session });
     // Every input to the CLI (a turn, a steer, a retry after the session
     // went) sends only the thread's own pictures (ownInput), whichever path
     // it took (Codex's review, 17 Nov: a retry re-sent a logged message's
     // pictures as they were).
-    const session = rt.session;
     const send = session.send.bind(session);
     session.send = (input) => send(this.ownInput(st, input));
     if (claude && !claude.trusted) this.noteClaudeSkipped(st, claude);
@@ -2581,7 +2602,8 @@ export class Runner {
     this.markDirty(st);
   }
 
-  onOutput(st: ThreadState, o: AdapterOutput): void {
+  // `gen`: the CLI it came from (startSession's sink drops an older one's).
+  onOutput(st: ThreadState, o: AdapterOutput, gen = st.rt.generation): void {
     const { rec, rt } = st;
     if (rt.turn?.dispatched && !rt.closing && !rt.turn.foreignOutput && ((o.kind === 'delta' && o.delta.text.length > 0) ||
       (o.kind === 'event' && ['assistant.text', 'reasoning', 'tool.call', 'tool.result', 'edit.diff', 'image'].includes(o.event.type)))) {
@@ -2601,48 +2623,37 @@ export class Runner {
       }
       case 'event': {
         let ev = o.event;
-        if (rt.turn) this.seeWake(rt.turn, ev);
+        this.seeWake(st, ev);
         // The CLI's own line for a compaction this runner asked for ahead of
         // the turn says why (runner/cold-compact.ts).
         if (ev.type === 'system.note' && ev.text === 'Compacted the conversation' && rt.turn?.precompact && !rt.turn.precompact.noted) {
           rt.turn.precompact.noted = true;
           ev = { ...ev, text: this.coldNote(rt.turn.precompact) };
         }
-        // Text after an accepted end_turn (see Turn.ended), dropped before
-        // it can become the preview or a second message. Unless the reply
-        // was a narration block's summary: then this is the reply, in the
-        // summary's place. Thinking after it is dropped too: Opus mused
-        // "I'd already wrapped up" under its summary (29 Oct 2026).
-        if (rt.turn?.replyAfter && (ev.type === 'assistant.text' || ev.type === 'reasoning') && !ev.itemId.includes('/')) {
-          // One reply: this is the reply (or the thinking before it, which
-          // folds into the work), not text to drop. A "What I need from
-          // you" section comes off it when end_turn brought no card of its
-          // own, and becomes the card (needs.ts, splitReplySection). When
-          // end_turn did bring asks, one repeating them just comes off
-          // (replyWithoutRepeat).
-          if (ev.type === 'assistant.text') {
-            const tool = rt.turn.endTurn ? needsFromTool(rt.turn.endTurn) : undefined;
-            const split = !tool?.asks?.length && !tool?.next?.length ? splitReplySection(ev.text) : undefined;
-            if (split?.needs) {
-              rt.turn.replyNeeds = split.needs;
-              this.log.info('took the card from the reply', { threadId: rec.id, needs: split.needs.needs, asks: split.needs.asks?.length ?? 0 });
-            }
-            const text = split?.needs ? split.reply : tool?.asks?.length ? replyWithoutRepeat(ev.text, tool) : ev.text;
-            ev = { type: 'assistant.text', itemId: ev.itemId, text, final: true, ...(ev.narration ? { narration: true as const } : {}) };
-            if (text.trim()) (rt.turn.finalTexts ??= new Map()).set(ev.itemId, text);
+        // A Codex child's items carry its prefix (<child>/<id>); Claude's
+        // sub-agents never reach the thread's events.
+        const own = !('itemId' in ev && ev.itemId?.includes('/'));
+        // The agent's own words after an accepted end_turn (reply-phase.ts):
+        // dropped before they can become the preview or a second message,
+        // thinking too (Opus mused "I'd already wrapped up" under its
+        // summary, 29 Oct 2026). Unless it's the reply (one reply), the real
+        // message a narration block's summary stood for, in its place, or
+        // the message bullets stood for.
+        if (own && (ev.type === 'assistant.text' || ev.type === 'reasoning')) {
+          const said = this.reply(st, ev.type === 'assistant.text' ? { kind: 'text', itemId: ev.itemId, text: ev.text, ...(ev.narration ? { narration: true } : {}) } : { kind: 'reasoning', itemId: ev.itemId });
+          const out = said?.ok ? said.out : undefined;
+          if (out?.tookCard) this.log.info('took the card from the reply', { threadId: rec.id, needs: out.tookCard.needs, asks: out.tookCard.asks?.length ?? 0 });
+          if (out?.route === 'dropped') {
+            rt.inProgress.delete(ev.itemId);
+            this.log.info('dropped text after end_turn', { threadId: rec.id, chars: ev.text.length });
+            break;
           }
-        } else if (ev.type === 'assistant.text' && rt.turn?.ended && !ev.itemId.includes('/') && rt.turn.narrationItem && !rt.turn.summarized && ev.text.trim()) {
-          rt.inProgress.delete(ev.itemId);
-          this.log.info('replaced a summary with the text after end_turn', { threadId: rec.id, chars: ev.text.length });
-          ev = { type: 'assistant.text', itemId: rt.turn.narrationItem, text: ev.text };
-          rt.turn.narrationItem = undefined;
-        } else if (ev.type === 'assistant.text' && rt.turn?.ended && rt.turn.owedReply !== undefined && !ev.itemId.includes('/') && ev.text.trim().length > rt.turn.owedReply) {
-          this.log.info('kept the message after end_turn its bullets stood for', { threadId: rec.id, chars: ev.text.length });
-          rt.turn.owedReply = undefined;
-        } else if ((ev.type === 'assistant.text' || ev.type === 'reasoning') && rt.turn?.ended && !ev.itemId.includes('/')) {
-          rt.inProgress.delete(ev.itemId);
-          this.log.info('dropped text after end_turn', { threadId: rec.id, chars: ev.text.length });
-          break;
+          if (out?.route === 'summaryReplaced') {
+            rt.inProgress.delete(ev.itemId);
+            this.log.info('replaced a summary with the text after end_turn', { threadId: rec.id, chars: ev.text.length });
+          }
+          if (out?.route === 'owedKept') this.log.info('kept the message after end_turn its bullets stood for', { threadId: rec.id, chars: ev.text.length });
+          if (out?.text && (out.route === 'reply' || out.route === 'summaryReplaced')) ev = { type: 'assistant.text', ...out.text };
         }
         if (ev.type === 'assistant.text' || ev.type === 'reasoning') {
           this.flushDeltas(st);
@@ -2652,66 +2663,17 @@ export class Runner {
         // Once the turn has its summary, that is the reply: Codex's final
         // answer after it folds away in the app and isn't the preview.
         if (ev.type === 'assistant.text' && !rt.turn?.summarized && !rt.turn?.headline && ev.text.trim()) rec.preview = oneLine(ev.text, LIMITS.previewChars);
+        // end_turn's call and its result move the reply phase (reply-phase.ts):
+        // what the result took, refused or added, and what it writes.
+        let ended: ReplyOut | undefined;
         if (rt.turn) {
-          // A Codex child's items carry its prefix (<child>/<id>); Claude's
-          // sub-agents never reach the thread's events.
-          const own = !('itemId' in ev && ev.itemId?.includes('/'));
-          if (ev.type === 'assistant.text' && own && !rt.turn.summarized) {
-            rt.turn.lastText = ev.text;
-            rt.turn.narrationItem = ev.narration ? ev.itemId : undefined;
-          }
           if (ev.type === 'tool.call' && own && ev.name === `mcp__${SERVER_NAME}__${END_TURN_TOOL}`) {
-            rt.turn.endTurnBefore = rt.turn.endTurn;
-            rt.turn.endTurn = ev.input;
-            rt.turn.endTurnBy = leastAuthority(rt.turn.endTurnBy, this.authorityNow(rec.id));
-            rt.turn.endTurnCall = ev.itemId;
+            this.reply(st, { kind: 'call', itemId: ev.itemId, input: ev.input, by: leastAuthority(rt.turn.endTurnBy, this.authorityNow(rec.id)) });
           }
-          // A refused repeat changes nothing: its archive once took effect
-          // under a result saying it hadn't, and its card replaced the one
-          // Mike was told about. One that adds archive adds only that.
           if (ev.type === 'tool.result' && ev.itemId === rt.turn.endTurnCall) {
-            // Any refusal after one it took, not just ALREADY_ENDED: a bad
-            // snooze or waitFor on a repeat once turned an ask into Done.
-            // ...nor does one refused for a message it was written without
-            // (needs.ts, UNREAD_MESSAGE): a first call's arguments otherwise
-            // stand as the card of a turn that ends with no other, and this
-            // one's are about the turn before that message.
-            if (endTurnRefusedRepeat(ev) || endTurnRefusedUnread(ev) || (!ev.ok && (rt.turn.ended || rt.turn.tookEndTurn))) rt.turn.endTurn = rt.turn.endTurnBefore;
-            else if (endTurnTaken(ev)) {
-              rt.turn.tookEndTurn = true;
-              // The card a reopened turn was sent back for, told "your
-              // message above is the reply": the apps take a turn's reply
-              // from after its last card, and fold a final message before
-              // it away as one a wake replaced, so the reply is written
-              // again under this card (below, once the result is out).
-              // All of its blocks, or the Mac kept only the closing
-              // question of a reply written as two (from Codex's review).
-              rt.turn.restateReply = rt.turn.cardReopened && endTurnMessageStands(ev) && rt.turn.finalTexts?.size ? [...rt.turn.finalTexts.values()].join('\n\n') : undefined;
-              rt.turn.cardReopened = false;
-              rt.turn.replyRewrite = false;
-              // A reply asked for now is a new one.
-              if (endTurnWantsReply(ev)) rt.turn.finalTexts = undefined;
-              // Every taken one, Codex's older "Noted." too: one that isn't
-              // one-reply means text after it isn't the reply (from Codex's
-              // review). A "Done." after one took a full reply's place on
-              // 11 Nov 2026 (dcdc60a3).
-              rt.turn.replyAfter = endTurnWantsReply(ev);
-            }
-            else if (endTurnAddedArchive(ev)) rt.turn.endTurn = { ...rt.turn.endTurnBefore, archive: true };
-            else if (endTurnAddedSnooze(ev)) rt.turn.endTurn = { ...rt.turn.endTurnBefore, snooze: rt.turn.endTurn?.snooze };
-          }
-          if (ev.type === 'tool.result' && ev.itemId === rt.turn.endTurnCall && endTurnAccepted(ev)) {
-            rt.turn.ended = true;
-            const headline = typeof rt.turn.endTurn?.headline === 'string' ? rt.turn.endTurn.headline.trim() : '';
-            if (headline) {
-              rt.turn.headline = true;
-              rec.preview = oneLine(headline, LIMITS.previewChars);
-            }
-            // A "What I need from you" taken from a reply before a wake
-            // stands until now (reopenForWake).
-            rt.turn.replyNeeds = undefined;
-            const bullets = endTurnIsOneReply(ev) ? undefined : summaryFromTool(rt.turn.endTurn);
-            rt.turn.owedReply = !bullets ? undefined : endTurnAsksForMessage(ev) ? 0 : endTurnOwesReply(ev) ? summaryMarkdown(bullets).length : undefined;
+            const res = this.reply(st, { kind: 'result', itemId: ev.itemId, ok: ev.ok, text: ev.text });
+            ended = res?.ok ? res.out : undefined;
+            if (ended?.headline) rec.preview = oneLine(ended.headline, LIMITS.previewChars);
           }
           // For hooks and the librarian only, never trust: these include
           // previews (an edit.diff before approval) and edits that were
@@ -2729,22 +2691,16 @@ export class Runner {
           }
         }
         this.emit(st, ev, rt.turn?.turnId);
-        if (ev.type === 'tool.result' && rt.turn?.restateReply !== undefined && ev.itemId === rt.turn.endTurnCall) {
-          const text = rt.turn.restateReply;
-          rt.turn.restateReply = undefined;
-          this.emit(st, { type: 'assistant.text', itemId: `${ev.itemId}.reply`, text, final: true }, rt.turn.turnId);
+        // The reply a reopened turn wrote, again under the card it was sent
+        // back for: the apps take a turn's reply from after its last card.
+        if (ev.type === 'tool.result' && ended?.restate !== undefined) {
+          this.emit(st, { type: 'assistant.text', itemId: `${ev.itemId}.reply`, text: ended.restate, final: true }, rt.turn?.turnId);
         }
         // end_turn's summary, written as the turn's reply straight after
-        // the call it came in (docs/protocol.md, "The summary").
-        if (ev.type === 'tool.result' && rt.turn && ev.itemId === rt.turn.endTurnCall && endTurnTaken(ev)) {
-          const bullets = endTurnIsOneReply(ev) ? undefined : summaryFromTool(rt.turn.endTurn);
-          if (bullets) {
-            const text = summaryMarkdown(bullets);
-            rt.turn.summarized = true;
-            rt.turn.lastText = text;
-            rec.preview = oneLine(text, LIMITS.previewChars);
-            this.emit(st, { type: 'assistant.text', itemId: `${ev.itemId}.summary`, text, summary: true, ...(this.cfg.bulletReplies ? {} : { givesWay: true as const }) }, rt.turn.turnId);
-          }
+        // the call it came in (docs/protocol/needs-you.md, "The summary").
+        if (ev.type === 'tool.result' && ended?.summary !== undefined) {
+          rec.preview = oneLine(ended.summary, LIMITS.previewChars);
+          this.emit(st, { type: 'assistant.text', itemId: `${ev.itemId}.summary`, text: ended.summary, summary: true, ...(this.cfg.bulletReplies ? {} : { givesWay: true as const }) }, rt.turn?.turnId);
         }
         break;
       }
@@ -2753,8 +2709,8 @@ export class Runner {
         // above, so it doesn't flash up and vanish.
         // That includes the message an owed reply keeps (owedReply): it
         // lands whole, as a sign-off line it drops would leave a row behind.
-        if (rt.turn && (o.delta.type === 'assistant.text.delta' || o.delta.type === 'reasoning.delta')) this.seeWake(rt.turn, { type: 'assistant.text', itemId: o.delta.itemId });
-        if (rt.turn?.ended && !rt.turn.replyAfter && (o.delta.type === 'assistant.text.delta' || o.delta.type === 'reasoning.delta') && !o.delta.itemId.includes('/')) break;
+        if (o.delta.type === 'assistant.text.delta' || o.delta.type === 'reasoning.delta') this.seeWake(st, { type: 'assistant.text', itemId: o.delta.itemId });
+        if (rt.turn && dropsStream(rt.turn) && (o.delta.type === 'assistant.text.delta' || o.delta.type === 'reasoning.delta') && !o.delta.itemId.includes('/')) break;
         this.addDelta(st, o.delta);
         break;
       case 'session':
@@ -2762,7 +2718,7 @@ export class Runner {
         rec.sessionUsed = true;
         // This session is there, so a later one that can't be found gets
         // its own fresh start.
-        rt.retriedFresh = false;
+        this.cli(st, { kind: 'init', gen });
         if (rec.status === 'starting') rec.status = rt.approvals.size ? 'waiting' : 'running';
         if (o.model) {
           rec.modelInUse = o.model;
@@ -2802,10 +2758,9 @@ export class Runner {
         break;
       case 'cliVersion': {
         rt.cliVersion = o.version;
-        if (!rt.started) {
-          rt.started = true;
-          this.tellStarted(rec.provider, o.version, true);
-        }
+        // Started on the version an update wants: nothing to move.
+        const said = this.cli(st, { kind: 'version', gen, atWanted: this.wantedVersion[rec.provider] === o.version });
+        if (said.ok && said.out.reportStart) this.tellStarted(rec.provider, o.version, true);
         if (rec.cliVersion && rec.cliVersion !== o.version) {
           this.emit(st, { type: 'system.note', text: `${cliName(rec.provider)} ${o.version} from this turn on (was ${rec.cliVersion})` }, rt.turn?.turnId);
         }
@@ -2813,8 +2768,6 @@ export class Runner {
           rec.cliVersion = o.version;
           this.markDirty(st);
         }
-        // Started on the version an update wants: nothing to move.
-        if (this.wantedVersion[rec.provider] === o.version) rt.versionMove = false;
         break;
       }
       case 'cliTurn':
@@ -2828,14 +2781,9 @@ export class Runner {
         if (o.note) this.emit(st, { type: 'system.note', text: o.note }, rt.turn!.turnId);
         break;
       case 'endTurnNudge':
-        if (rt.turn) rt.turn.endTurnNudged = true;
         // Sent back for a card under a reply already written: that reply
         // stands, so words from here are dropped like any after end_turn.
-        if (rt.turn && o.reopen && rt.turn.ended) {
-          rt.turn.cardReopened = true;
-          rt.turn.replyAfter = false;
-          rt.turn.replyRewrite = o.rewrite === true;
-        }
+        this.reply(st, { kind: 'nudge', reopen: o.reopen === true, rewrite: o.rewrite === true });
         break;
       case 'tasks': {
         const endedTasks = rt.tasks.filter((t) => !o.tasks.some((n) => n.id === t.id));
@@ -2846,7 +2794,7 @@ export class Runner {
         // turn still has its Claude CLI here, which wakes.
         const wakes = this.adapters[rt.sessionProvider ?? rec.provider]?.wakesAfterTasks !== false;
         const ended = endedTasks.length > 0 && wakes;
-        rt.tasks = o.tasks;
+        this.cli(st, { kind: 'tasks', gen, tasks: o.tasks });
         if (wakes) rt.finished.push(...endedTasks);
         // The CLI reports the list shrinking a moment before it starts the
         // turn that reads the result. A restart in between would lose that
@@ -2915,7 +2863,7 @@ export class Runner {
         if (!turn) break;
         // The compaction sent ahead of the message (runner/cold-compact.ts).
         // A turn the CLI ran by itself meanwhile isn't it: keep waiting.
-        if (turn.precompact?.gen === rt.generation) {
+        if (turn.precompact && cliHears(rt, turn.precompact.gen) !== 'stale') {
           if (compactionResult(turn.precompact, r)) this.compactDone(st, r);
           break;
         }
@@ -3289,7 +3237,7 @@ export class Runner {
     if (rt.taskEndedInTurn) {
       rt.taskEndedInTurn = false;
       // Only while the CLI is there to start that turn.
-      if (rt.session && !rt.closing && !this.stopping) this.startWakeGrace(st);
+      if (runningSession(rt) && !this.stopping) this.startWakeGrace(st);
     }
     rt.activeAt = this.clock.now();
     rec.turnId = undefined;
@@ -3367,7 +3315,7 @@ export class Runner {
 
   // Before a pool thread's turn starts: if its login isn't OK (blocked or
   // under the minimum room) or isn't in its pool any more, it moves first
-  // (docs/protocol.md, "Pools"). With nowhere better, the turn starts
+  // (docs/protocol/settings.md, "Pools"). With nowhere better, the turn starts
   // where it is. A pinned thread (no poolId) never moves.
   beforeTurn(st: ThreadState): void {
     const { rec } = st;
@@ -3388,17 +3336,23 @@ export class Runner {
 
   onExited(st: ThreadState, gen: number, err?: Error): void {
     const { rec, rt } = st;
-    if (rt.generation !== gen) return;
-    // A CLI that died before it got going, other than one asked to stop or
-    // one whose session to resume was missing (the CLI itself was fine).
+    // An older CLI's exit is stale: nothing moves. Else the session goes,
+    // and it says whether it was asked to stop.
+    // A session to resume that was missing isn't the CLI failing: it was fine.
     const missing = err && (err instanceof SessionNotFoundError || err.name === 'SessionNotFoundError' || /no conversation found/i.test(err.message));
-    if (err && !rt.started && !missing && rt.releasedGen !== gen) this.tellStarted(rec.provider, rt.startVersion, false);
-    rt.session = undefined;
+    const exit = this.cli(st, { kind: 'exited', gen, ...(err && !missing ? { failed: true } : {}) });
+    if (!exit.ok) return;
+    const released = exit.out.released === true;
+    // One that fell over before it got going (and wasn't asked to stop).
+    if (exit.out.reportStart === false) this.tellStarted(rec.provider, rt.startVersion, false);
     rt.frozen = false;
     // Nothing's left to answer them: a subagent's card can be open with no
     // turn running, and no turn ending would close it.
     this.expireApprovals(st, 'The CLI stopped.');
-    rt.tasks = [];
+    // Its background work went with it: only now, as the cards closing
+    // above can look at the thread (a handover's readiness check) and must
+    // still see the work.
+    this.cli(st, { kind: 'stopTasks' });
     rt.finished = [];
     rt.taskEndedInTurn = false;
     // Its sub-agents went with it.
@@ -3408,11 +3362,10 @@ export class Runner {
     rt.idleTimer?.cancel();
     rt.idleTimer = undefined;
     this.log.info('session ended', { threadId: rec.id, error: err?.message });
-    if (rt.releasedGen === gen) {
+    if (released) {
       // A CLI we asked to stop. A turn that is waiting for it to go starts
       // the next CLI once it has. A turn it had started by itself while
       // shutting down ends with it.
-      rt.releasedGen = undefined;
       if (rt.turn?.auto) {
         rt.turn.interruptRequested = true;
         this.failTurn(st, 'The session was released.');
@@ -3433,7 +3386,7 @@ export class Runner {
       // sessionUsed never got set. Resume it instead, once (4 Nov 2026).
       const inUse = Boolean(err && !rt.resumed && /Session ID \S+ is already in use/i.test(err.message));
       if (((notFound && rt.resumed) || inUse) && !rt.retriedFresh) {
-        rt.retriedFresh = true;
+        this.cli(st, { kind: 'retryFresh' });
         if (inUse) {
           rec.sessionUsed = true;
           // The old session goes on, not the fresh one the brief was for.
@@ -3514,7 +3467,7 @@ export class Runner {
 
   // byMike: his Stop, in the app or on the phone. Everything else that stops
   // a turn (an agent's interrupt_thread, an archive, a move) mustn't reach
-  // the agent as his decision (docs/protocol.md, "Who stopped it").
+  // the agent as his decision (docs/protocol/needs-you.md, "Who stopped it").
   interrupt(threadId: string, opts: { byMike?: boolean } = {}): Record<string, never> {
     const st = this.mustGet(threadId);
     const { rt } = st;
@@ -3527,10 +3480,10 @@ export class Runner {
     }
     turn.interruptRequested = true;
     this.expireApprovals(st, 'Interrupted.', closing);
-    const session = rt.session;
+    const session = runningSession(rt);
     // Nothing is running in the CLI for a turn that was only opened for a
     // background subagent's approval, so nothing would end it.
-    if (!session || rt.closing || (turn.auto && !turn.cliStarted)) {
+    if (!session || (turn.auto && !turn.cliStarted)) {
       this.failTurn(st, 'Interrupted.');
       return {};
     }
@@ -3575,7 +3528,7 @@ export class Runner {
     verdict?: ArchiveVerdict;
     starred?: boolean;
     // Out from under the thread that started it in the sidebar, or back
-    // (docs/protocol.md, "Nested threads").
+    // (docs/protocol/threads.md, "Nested threads").
     detached?: boolean;
     // Whether a turn that hits its login's limit waits for room and
     // carries on by itself (the limit box's menu). false also ends a wait
@@ -3664,12 +3617,14 @@ export class Runner {
       if (rec.sessionUsed || rt.session) rec.moved ??= { fromCwd: rec.cwd };
       rec.cwd = newCwd!;
       if (rec.moved?.fromCwd === rec.cwd) delete rec.moved;
-      const session = rt.session;
-      if (session && !rt.closing) {
+      const session = runningSession(rt);
+      if (session) {
+        const gen = rt.generation;
         const fallback = () => {
           // Couldn't move the live session: a fresh CLI resumes there,
-          // once any background work is done (scheduleIdle).
-          rt.releaseWhenIdle = true;
+          // once any background work is done (scheduleIdle). Not one
+          // started since, which started there.
+          if (!this.cli(st, { kind: 'leave', gen }).ok) return;
           if (!rt.turn) this.scheduleIdle(st);
         };
         if (session.setCwd) session.setCwd(rec.cwd).catch(fallback);
@@ -3722,8 +3677,9 @@ export class Runner {
       if (model) rec.model = model;
       else delete rec.model;
       if (rt.session && !release) {
+        const gen = rt.generation;
         rt.session.setModel(model).catch(() => {
-          rt.releaseWhenIdle = true;
+          this.cli(st, { kind: 'leave', gen });
         });
         if (sayNextTurn()) nextTurn.push(model ? (account ? modelTitle(account, model) : model) : 'The default model');
       }
@@ -3732,8 +3688,9 @@ export class Runner {
       if (effort) rec.effort = effort;
       else delete rec.effort;
       if (rt.session && !release) {
+        const gen = rt.generation;
         rt.session.setEffort(effort).catch(() => {
-          rt.releaseWhenIdle = true;
+          this.cli(st, { kind: 'leave', gen });
         });
         if (sayNextTurn()) nextTurn.push(effort ? `${effortTitle(effort)} effort` : "The model's own effort level");
       }
@@ -3753,14 +3710,16 @@ export class Runner {
       // and the next message gets a CLI without them.
       if (rt.session && rt.claudeHeldGrants && params.permissionMode !== 'full') {
         rt.session.askBeforeEveryTool?.();
-        rt.releaseWhenIdle = true;
+        this.cli(st, { kind: 'leave' });
       }
       // A session on its way out (another login or folder in the same
       // call) still hears it: its turn runs on till the next message, and
       // on Full a Codex one answers its own approvals.
       if (rt.session) {
+        const gen = rt.generation;
         rt.session.setPermissionMode(params.permissionMode).catch(() => {
-          rt.releaseWhenIdle = true;
+          // A CLI started since started in this mode.
+          if (!this.cli(st, { kind: 'leave', gen }).ok) return;
           if (!rt.turn) this.releaseSession(st);
         });
         // Full counts at once even on Codex: what the turn would ask, the
@@ -3850,14 +3809,14 @@ export class Runner {
     if (!stop && this.bucket(rec) === 'inbox') this.kickQueue(st);
     if (stop) {
       // Snoozing or archiving stops the CLI: end any turn, then release.
-      rt.releaseWhenIdle = true;
+      this.cli(st, { kind: 'leave' });
       if (rt.turn) this.interrupt(rec.id);
       else this.releaseSession(st);
     } else if (release) {
       // Another login or folder: the CLI goes now, or once its background
       // work is done (scheduleIdle). The next message gets the fresh one
       // either way.
-      rt.releaseWhenIdle = true;
+      this.cli(st, { kind: 'leave' });
       if (!rt.turn) this.scheduleIdle(st);
     }
     // Its first turn on the new login releases the old CLI (deliver).
@@ -3890,12 +3849,8 @@ export class Runner {
     // first, then released, so that can take a moment. Resuming unarchives.
     if (archiving) {
       rt.archivePending = true;
-      if (rec.worktree && !rec.worktree.removedAt) {
-        rec.worktree.cleanupOwed = true;
-        // Each archive tears down again: a thread brought back may have
-        // made its things again since the last one.
-        delete rec.worktree.tornDownAt;
-      }
+      // Its worktree's cleanup is owed, and its teardown due again.
+      this.slot(st, { kind: 'archived' });
       this.archiveWhenGone(st);
     }
     rec.updatedAt = this.isoNow();
@@ -3918,16 +3873,15 @@ export class Runner {
     rt.deltaTimer?.cancel();
     rt.wakeTimer?.cancel();
     rt.turn?.interruptTimer?.cancel();
-    // Bumping the generation makes everything the old CLI still reports
-    // (output, approvals, its exit) go nowhere.
-    rt.generation++;
+    // A new generation makes everything the old CLI still reports (output,
+    // approvals, its exit) go nowhere; the CLI is forgotten and stopped.
+    const dropped = this.cli(st, { kind: 'drop', forget: true });
     for (const [, p] of rt.approvals) {
       settleDeclined(p, 'expired', 'The thread was deleted.');
     }
     rt.approvals.clear();
     for (const r of [...(rt.reviews?.values() ?? [])]) r.cancel({ decision: 'expired', message: 'The thread was deleted.' });
-    const session = rt.session;
-    rt.session = undefined;
+    const session = dropped.ok ? dropped.out.forgot : undefined;
     const ended = session?.end({ hard: true }).catch((e: unknown) => this.log.warn('stopping a deleted thread failed', { threadId, error: String(e) }));
     this.archiveNative(st, ended ?? rt.closing);
     // Its worktree goes once the CLI has let go of the folder, and after an
@@ -3983,6 +3937,24 @@ export class Runner {
     this.park(st, { kind: 'seen' });
     this.markDirty(st);
     return { thread: this.summary(st) };
+  }
+
+  // media.import from a thread's own key (Daybreak finding 157): off the
+  // event loop, and below Full access metered (media-quota.ts). Whether it's
+  // metered is the caller gate's call, by the thread's saved mode, as for
+  // everything else it may do. The owner's imports (the app's paste and drop)
+  // are importMedia's.
+  readonly importQuota = new ImportQuota();
+
+  async importMediaForThread(threadId: string, p: string, metered: boolean): Promise<{ image: ImageRef }> {
+    const src = path.resolve(expandHome(p));
+    const dir = paths.inbox(this.cfg.home);
+    if (metered) return { image: await this.importQuota.run(threadId, src, dir) };
+    try {
+      return { image: await importImageInto(dir, src) };
+    } catch (e) {
+      throw new RpcError(ErrorCode.badParams, (e as Error).message);
+    }
   }
 
   importMedia(p: string): { image: ImageRef } {
@@ -4521,7 +4493,7 @@ export class Runner {
       status: rec.status,
       live: Boolean(rt.session),
       // A finished turn that said it needs nothing isn't waiting on Mike
-      // (docs/protocol.md, "Needs you"). A pending design review only
+      // (docs/protocol/needs-you.md, "Needs you"). A pending design review only
       // counts once the turn ends: show_options doesn't block, and Mike
       // didn't want a "Needs you" (or a phone push) mid-turn.
       needsYou: (!unfinished && Boolean(rec.reviews?.some(r => r.status === 'pending'))) || rec.status === 'waiting' || Boolean(rec.forceUnread) || (!unfinished && rec.lastTurnCompletedSeq > rec.lastSeenSeq && !this.saidNothing(rec)),
@@ -4562,6 +4534,10 @@ export class Runner {
     // Only while something still listens for the restart: one archived when
     // it came isn't told, and its watch is spent (Codex's review, 19 Nov).
     if (rec.hibernatedForApp && rec.snoozedUntil && this.awaitingAppRestart?.(rec.id)) s.awaitingAppRestart = true;
+    // Any thread waiting on the app, hibernating or not: the Updates panel
+    // lists them with whether the build on its way has their commit.
+    const appWant = rec.archivedAt ? undefined : this.appRestartWant?.(rec.id);
+    if (appWant) s.awaitingApp = appWant;
     if (rec.woke && rec.forceUnread) s.woke = { ...rec.woke };
     if (rec.archivedAt) {
       s.archivedAt = rec.archivedAt;
@@ -4611,7 +4587,7 @@ export class Runner {
   // ------------------------------------------------------- showing panels
 
   // Whether anyone with the link can read the thread on the website
-  // (docs/protocol.md, "Sharing"). The mirror carries it to Convex, which
+  // (docs/protocol/runners.md, "Sharing"). The mirror carries it to Convex, which
   // serves the link. The slug stays when sharing goes off, so sharing
   // again brings the same link back, as a doc's sharing does; newLink
   // makes a fresh one, which stops the old link for good.
@@ -5018,7 +4994,7 @@ export function fromMike(text: string, opts: SendOptions): boolean {
 export const WROTE_INSTEAD = "The user didn't answer this; they wrote you a message instead, which comes next. Read it before asking again.";
 
 // What a pool thread is told when it carries on by itself after its login
-// ran dry (docs/protocol.md, "Pools").
+// ran dry (docs/protocol/settings.md, "Pools").
 export const CARRY_ON_SIGNED_OUT = 'Your last login was signed out, so this thread has moved to another one. Carry on from where you left off.';
 export const CARRY_ON_MOVED = 'Your last login hit its usage limit partway through that turn, so this thread has moved to another one. Carry on from where you left off.';
 export const CARRY_ON_RESTART = 'The runner stopped partway through that turn (Threadbear or the Mac restarted) and is back now. Carry on from where you left off.';
@@ -5129,17 +5105,6 @@ export function cleanTitle(text: string): string {
   return t;
 }
 
-// What a completed turn needs from Mike: its end_turn call, then its last
-// text's "What I need from you" section, else nothing said.
-function turnNeeds(turn: Turn): (Needs & { from: 'tool' | 'text' }) | undefined {
-  const tool = turn.endTurn && needsFromTool(turn.endTurn);
-  if (turn.replyNeeds) return { ...turn.replyNeeds, from: 'text' };
-  if (tool) return { ...tool, from: 'tool' };
-  if (turn.command) return undefined;
-  const text = turn.lastText && needsFromText(turn.lastText);
-  return text ? { ...text, from: 'text' } : undefined;
-}
-
 // The sidebar's "You: ..." line: what Mike last said to a thread, in one
 // line. Not the runner's, a schedule's or another agent's messages, which
 // he didn't write. A design review's reply is his words (reply, then
@@ -5157,7 +5122,7 @@ export function askedLine(m: { text: string; origin?: MessageOrigin; reviewId?: 
   return oneLine(text, max) || undefined;
 }
 
-// The first of those lines, longer: what the thread is for (docs/protocol.md,
+// The first of those lines, longer: what the thread is for (docs/protocol/threads.md,
 // "What Mike first asked").
 export const REQUEST_CHARS = 200;
 export function requestLine(m: Parameters<typeof askedLine>[0], reviews?: DesignReview[]): string | undefined {

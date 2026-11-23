@@ -139,7 +139,7 @@ export type Config = {
   // A turn's reply in the Mac app: end_turn's bullets, or (false) the
   // agent's own message, with the bullets only for previews.
   bulletReplies: boolean;
-  // One reply (docs/protocol.md, "One reply"): end_turn carries the card
+  // One reply (docs/protocol/needs-you.md, "One reply"): end_turn carries the card
   // and a headline, and the agent's message straight after it is the
   // turn's reply. Off by default while Mike tries it (1 Nov 2026).
   oneReply: boolean;

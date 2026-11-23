@@ -28,7 +28,12 @@ use tokio::sync::mpsc;
 pub struct Threadbear {
     pub(crate) milestone: crate::milestones::Milestones,
     pub(crate) client: Arc<Client>,
-    pub(crate) status: Status,
+    /// The connection to the runner, one phase with its moves in
+    /// threadbear_core::connection, advanced only by `advance_connection`.
+    pub(crate) connection: threadbear_core::connection::ConnectionPhase,
+    /// Delivers the phase's next deadline (the drop's grace, a restart
+    /// run too long) as `Event::Clock`.
+    pub(crate) connection_clock: Option<Task<()>>,
     pub(crate) threads: crate::thread_map::ThreadMap,
     /// Why the thread list couldn't load, under the search box until a
     /// load works. Only that: it has no Dismiss, so a failed action (a
@@ -71,9 +76,6 @@ pub struct Threadbear {
     pub(crate) frame_rate: Option<Entity<crate::frame_stats::FrameRate>>,
     /// The pane sections Hide Panels closed, for Show Panels (`hiddenPanes`).
     pub(crate) hidden_panes: Vec<String>,
-    /// The pane sections made wide for a page, and what that changed, for
-    /// putting each back (`show_pane_wide`).
-    pub(crate) pane_widths: HashMap<String, threadbear_dock::Widened>,
     pub(crate) mode: SidebarMode,
     /// When the activity bar last switched the sidebar's view, for the new
     /// one to settle in (shell.rs `render_threads_panel`).
@@ -142,9 +144,6 @@ pub struct Threadbear {
     /// Asks `runner.status` which threads a pending restart waits for, as
     /// they finish, once for a burst of updates (`refreshRunnerStatus`).
     pub(crate) restart_status_task: Option<Task<()>>,
-    /// Redraws the banner when a restart has gone on so long that the runner
-    /// looks down (`restartExpiry`).
-    pub(crate) restart_expiry: Option<Task<()>>,
     pub(crate) creating_investigation: bool,
     /// The title being renamed in the header, and its field.
     pub(crate) renaming: Option<String>,
@@ -232,25 +231,6 @@ pub struct Threadbear {
     /// The highlights fetch each pin request needs an answer from, so an
     /// older answer or a failed fetch cannot consume the request.
     pub(crate) pins_fetched: HashMap<String, u64>,
-    /// Why the connection last went, kept while it tries again, so the banner
-    /// says what's wrong rather than flicking to "Connecting" on each try
-    /// (`connection()`). Cleared when it's back, and by Try again.
-    pub(crate) last_drop: Option<(threadbear_client::runner::Disconnect, String)>,
-    /// When it stopped being connected (or the app started), for the grace
-    /// before the banner says anything about an unexpected drop
-    /// (`DROP_GRACE`), and the redraw at its end.
-    pub(crate) dropped_at: Option<std::time::Instant>,
-    pub(crate) drop_grace_task: Option<Task<()>>,
-    /// When the restart this outage belongs to began, kept from the drop
-    /// until this app sees itself connected again. The client clears its
-    /// own restart as soon as the new runner says hello, a moment before
-    /// that Connected reaches the app; read live in between, the banner saw
-    /// no restart, a runner down past the grace, and said "Can't reach the
-    /// runner." mid-restart (the connection spec, red on all three CI
-    /// systems, 13 Nov).
-    pub(crate) restart_outage: Option<std::time::Instant>,
-    /// Start runner is under way (runner_launcher.rs): its button spins.
-    pub(crate) starting_runner: bool,
     /// The checkout the runner follows main in (`runner.status`'s
     /// `update.checkout`), where Investigate starts its thread.
     pub(crate) runner_checkout: Option<String>,
@@ -327,6 +307,10 @@ pub struct Threadbear {
 }
 
 impl Threadbear {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 342 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     pub(crate) fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut settings = settings;
         if settings.saved.thread_milestone_shown.is_none()
@@ -389,7 +373,6 @@ impl Threadbear {
                 }
             }
         });
-        let status = client.status();
         let weak_app = cx.entity().downgrade();
         let side_client = client.clone();
         // BrowserBear's pages, before the pane that lists them.
@@ -555,7 +538,10 @@ impl Threadbear {
         let mut this = Threadbear {
             milestone: crate::milestones::Milestones::new(window.is_window_active()),
             client,
-            status,
+            connection: threadbear_core::connection::ConnectionPhase::opening(
+                std::time::Instant::now(),
+            ),
+            connection_clock: None,
             threads: Default::default(),
             list_error: None,
             selected: None,
@@ -580,7 +566,6 @@ impl Threadbear {
             #[cfg(feature = "frame-stats")]
             frame_rate: None,
             hidden_panes: Vec::new(),
-            pane_widths: HashMap::new(),
             mode: SidebarMode::Inbox,
             view_switched: None,
             history: NavigationHistory::default(),
@@ -614,10 +599,6 @@ impl Threadbear {
             done_task: None,
             dismissed_cli_failures: HashSet::new(),
             restart_status_task: None,
-            restart_expiry: None,
-            dropped_at: Some(std::time::Instant::now()),
-            drop_grace_task: None,
-            restart_outage: None,
             creating_investigation: false,
             renaming: None,
             rename_field: None,
@@ -657,8 +638,6 @@ impl Threadbear {
             subagent_pane: None,
             subagent_events: None,
             pins_fetched: HashMap::new(),
-            last_drop: None,
-            starting_runner: false,
             runner_checkout: None,
             upstream_checkout: None,
             settings_error: None,
@@ -1018,6 +997,10 @@ impl Threadbear {
         RT.spawn(async move { client.call("threads.panelShown", params).await });
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 241 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn on_seen(&mut self, seen: Seen, cx: &mut Context<Self>) {
         match seen {
             Seen::Status(status) => {
@@ -1036,13 +1019,6 @@ impl Threadbear {
                             .iter()
                             .any(|e| e == crate::live_pages::EXPERIMENT),
                         self.main_window,
-                        cx,
-                    );
-                    crate::review_pane::set_on(
-                        self.remote
-                            .experiments
-                            .iter()
-                            .any(|e| e == crate::review_pane::EXPERIMENT),
                         cx,
                     );
                     self.runner_version = hello["runnerVersion"].as_str().unwrap_or("").to_owned();
@@ -1064,26 +1040,11 @@ impl Threadbear {
                     // The runner's own update and the CLIs, for the Updates panel.
                     self.updates_from_hello(hello);
                 }
-                match &status {
-                    Status::Connected { .. } => {
-                        self.last_drop = None;
-                        self.dropped_at = None;
-                        self.drop_grace_task = None;
-                        self.restart_outage = None;
-                        self.clear_connection_error();
-                    }
-                    Status::Disconnected { kind, reason, .. } => {
-                        self.last_drop = Some((*kind, reason.clone()));
-                        self.note_restart_outage();
-                        self.watch_restart_expiry(cx);
-                        self.start_drop_grace(cx);
-                    }
-                    Status::Connecting { .. } => {
-                        self.note_restart_outage();
-                        self.start_drop_grace(cx);
-                    }
+                if connected {
+                    self.clear_connection_error();
                 }
-                self.status = status;
+                let event = self.connection_event(&status);
+                self.advance_connection(event, cx);
                 // Each time it's connected, the whole list again, and the
                 // open thread read again: thread.updated only says what changed.
                 if connected {
@@ -1103,7 +1064,7 @@ impl Threadbear {
                     }
                     // Kept ones catch up from their last seq when next shown.
                     for pane in self.kept.panes() {
-                        pane.update(cx, |p, _| p.connection_back());
+                        pane.update(cx, |p, cx| p.connection_back(cx));
                     }
                 }
             }
@@ -1167,8 +1128,8 @@ impl Threadbear {
                             self.remote.recent.note(&from_runner);
                         }
                         // The runner's word on it: a message it just took no
-                        // longer holds it under Running (`thread::AWAITING`).
-                        crate::thread::summary_arrived(&t.id);
+                        // longer holds it under Running (`Outbox::sending`).
+                        crate::thread::summary_arrived(&t.id, cx);
                         let before = self.threads.insert(t.id.clone(), Arc::new(t.clone()));
                         self.note_failed_account(before.as_deref(), &t);
                         self.note_failed_move(before.as_deref(), &t, cx);
@@ -1209,13 +1170,8 @@ impl Threadbear {
                     // go in the error bar (`notice`).
                     let message = params["message"].as_str().unwrap_or("");
                     if threadbear_client::restart::RunnerRestart::parse(message).is_some() {
-                        // Heard while it's still reconnecting: this outage is
-                        // the restart's now (`restart_outage`).
-                        if !matches!(self.status, Status::Connected { .. }) {
-                            self.note_restart_outage();
-                        }
+                        self.restart_news(cx);
                         self.refresh_restart(cx);
-                        self.watch_restart_expiry(cx);
                     } else if params["level"].as_str().is_some_and(|l| l != "info")
                         && !message.is_empty()
                     {
@@ -1295,19 +1251,6 @@ impl Threadbear {
                     // An open review window hears its review change whichever
                     // thread is open here (review_window.rs).
                     crate::review_window::receive_event(&params, cx);
-                    // And its page in the pane, if that's how it's open
-                    // (review_pane.rs).
-                    if params["event"]["type"].as_str() == Some("review.updated") {
-                        if let (Some(thread_id), Some(review)) = (
-                            params["threadId"].as_str(),
-                            threadbear_core::reducer::DesignReview::decode(
-                                &params["event"]["review"],
-                            ),
-                        ) {
-                            self.side
-                                .update(cx, |side, cx| side.review_updated(thread_id, &review, cx));
-                        }
-                    }
                     // Each pane takes its own thread's events only: the open
                     // ones, and those kept loaded, which stay subscribed.
                     let id = params["threadId"].as_str().unwrap_or("");
@@ -1450,7 +1393,7 @@ impl Threadbear {
                                 .get(&thread.id)
                                 .is_none_or(|old| **old != *thread)
                             {
-                                crate::thread::summary_arrived(&thread.id);
+                                crate::thread::summary_arrived(&thread.id, cx);
                             }
                         }
                         let before = (*this.threads).clone();
@@ -2101,13 +2044,7 @@ impl Threadbear {
     #[cfg(feature = "automation")]
     pub(crate) fn dump(&self, cx: &App) -> Value {
         // The Swift dump's names (`connectionName`).
-        let connection = match self.connection() {
-            Connection::Connected => "connected",
-            Connection::Connecting => "connecting",
-            Connection::Down(_) => "down",
-            Connection::Lost(_) => "lost",
-            Connection::Unauthorized(_) => "unauthorized",
-        };
+        let connection = self.connection.name();
         let pane = self.pane.as_ref().map(|p| p.read(cx));
         let dock = self
             .dock
@@ -2347,9 +2284,10 @@ impl Threadbear {
             if let Some(answers) = composer.answer_chip_lines(cx) {
                 out["answers"] = json!(answers);
             }
-            // The options ticked on a review's page, over the words.
-            if let Some(picks) = composer.review_pick_lines(cx) {
-                out["reviewPicks"] = json!(picks);
+            // Changed drafts going with the message (composer_drafts.rs).
+            let drafts = composer.draft_chip_lines(cx);
+            if !drafts.is_empty() {
+                out["drafts"] = json!(drafts);
             }
         }
         out
@@ -2371,7 +2309,7 @@ impl Threadbear {
         let changes = self.threads.changes();
         // A thread with a message on its way sorts under Running
         // (`inbox::as_sending`), so the outbox changing counts too.
-        let outbox = crate::thread::outbox_changes();
+        let outbox = crate::thread::outbox_changes(cx);
         // Nested threads (nested.rs) only with the experiment on, and not
         // while searching: a search lists what it found, each on its own row.
         let nested = query.is_empty() && self.nested_threads_on();
@@ -2393,7 +2331,7 @@ impl Threadbear {
         // in the Inbox with a spinner on its bubble. Only these few are
         // copied; the rest are shared rows, so working them out again copies
         // pointers (thread_map.rs).
-        let sending: Vec<Arc<ThreadSummary>> = crate::thread::sending()
+        let sending: Vec<Arc<ThreadSummary>> = crate::thread::sending(cx)
             .iter()
             .filter_map(|id| self.threads.get(id))
             .map(|t| Arc::new(inbox::as_sending(t)))
@@ -2451,25 +2389,77 @@ impl Threadbear {
             .and_then(|c| c.nesting.clone())
     }
 
-    /// The connection as the Swift app tells it (`ConnectionState`). While it
-    /// tries again after a drop it stays what the drop was, as the Swift
-    /// app's does, rather than "Connecting" on each try.
-    pub(crate) fn connection(&self) -> Connection<'_> {
+    /// Connected and signed in, as far as the app has heard.
+    pub(crate) fn connected(&self) -> bool {
+        self.connection.is_connected()
+    }
+
+    /// What a status from the client means for the phase, with the
+    /// client's restart as it is now: plain data, as core can't see the
+    /// client. The drop's reason in plain words (the raw one is in the log).
+    fn connection_event(&self, status: &Status) -> threadbear_core::connection::Event {
         use threadbear_client::runner::Disconnect;
-        let drop = match &self.status {
-            Status::Connected { .. } => return Connection::Connected,
-            Status::Disconnected { kind, reason, .. } => Some((*kind, reason.as_str())),
-            Status::Connecting { .. } => self
-                .last_drop
-                .as_ref()
-                .map(|(kind, reason)| (*kind, reason.as_str())),
-        };
-        match drop {
-            None => Connection::Connecting,
-            Some((Disconnect::Down, reason)) => Connection::Down(reason),
-            Some((Disconnect::Lost, reason)) => Connection::Lost(reason),
-            Some((Disconnect::Refused, reason)) => Connection::Unauthorized(reason),
+        use threadbear_core::connection::{Cause, Event, Gone};
+        let restart_ends = self.restart_ends();
+        match status {
+            Status::Connected { .. } => Event::Connected { restart_ends },
+            Status::Connecting { .. } => Event::Connecting { restart_ends },
+            Status::Disconnected { kind, reason, .. } => Event::Disconnected {
+                gone: Gone {
+                    cause: match kind {
+                        Disconnect::Lost => Cause::Lost,
+                        Disconnect::Down => Cause::Down,
+                        Disconnect::Refused => Cause::Refused,
+                    },
+                    // A refusal is the runner's own words, as they are.
+                    reason: match kind {
+                        Disconnect::Refused => reason.clone(),
+                        Disconnect::Lost | Disconnect::Down => {
+                            threadbear_client::runner::plain_reason(reason)
+                        }
+                    },
+                },
+                restart_ends,
+            },
         }
+    }
+
+    /// When the restart the client knows of stops being one: from when it
+    /// began, its patience on.
+    fn restart_ends(&self) -> Option<std::time::Instant> {
+        self.client
+            .restart()
+            .restarting_since()
+            .map(|since| since + threadbear_client::restart::PATIENCE)
+    }
+
+    /// The client's restart has news (a notice, `runner.status`'s answer).
+    pub(crate) fn restart_news(&mut self, cx: &mut Context<Self>) {
+        let ends = self.restart_ends();
+        self.advance_connection(threadbear_core::connection::Event::Restart { ends }, cx);
+    }
+
+    /// The one place the connection's phase moves: then a Clock at its
+    /// next deadline, and a redraw.
+    pub(crate) fn advance_connection(
+        &mut self,
+        event: threadbear_core::connection::Event,
+        cx: &mut Context<Self>,
+    ) {
+        use threadbear_core::connection::{ConnectionPhase, Event};
+        let now = std::time::Instant::now();
+        let phase = std::mem::replace(&mut self.connection, ConnectionPhase::Connecting);
+        self.connection = phase.next(event, now);
+        self.connection_clock = self.connection.deadline().map(|at| {
+            // A moment after, so the Clock finds the deadline passed.
+            let wait = at.saturating_duration_since(now) + std::time::Duration::from_millis(50);
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                this.update(cx, |this, cx| this.advance_connection(Event::Clock, cx))
+                    .ok();
+            })
+        });
+        cx.notify();
     }
 
     /// "Start runner" kickstarts the installed runner's LaunchAgent, which
@@ -2491,11 +2481,18 @@ impl Threadbear {
     /// Start runner: launchctl, then a fresh try a moment later, as the
     /// service takes a little while to listen (`startRunner`).
     pub(crate) fn start_runner(&mut self, cx: &mut Context<Self>) {
-        if self.starting_runner || !self.can_start_runner() {
+        // Only from the banner's Start runner, and once: it spins until
+        // launchctl has answered and the app has tried again. The banner
+        // may be drawn past a deadline whose Clock hasn't come: catch up.
+        self.advance_connection(threadbear_core::connection::Event::Clock, cx);
+        if !matches!(
+            self.connection,
+            threadbear_core::connection::ConnectionPhase::Unreachable { .. }
+        ) || !self.can_start_runner()
+        {
             return;
         }
-        self.starting_runner = true;
-        cx.notify();
+        self.advance_connection(threadbear_core::connection::Event::StartRunner, cx);
         cx.spawn(async move |this, cx| {
             let failure = cx
                 .background_executor()
@@ -2505,11 +2502,11 @@ impl Threadbear {
                 .timer(std::time::Duration::from_millis(600))
                 .await;
             this.update(cx, |this, cx| {
-                this.starting_runner = false;
                 if let Some(failure) = failure {
                     this.error_message = Some(failure);
                 }
-                this.reconnect_now(cx);
+                this.advance_connection(threadbear_core::connection::Event::RunnerStarted, cx);
+                this.client.retry_now();
             })
             .ok();
         })
@@ -2517,24 +2514,31 @@ impl Threadbear {
     }
 }
 
-/// `Threadbear::connection`: the Swift app's `ConnectionState`, each drop
-/// with what went wrong.
-pub(crate) enum Connection<'a> {
-    Connected,
-    Connecting,
-    Down(&'a str),
-    Lost(&'a str),
-    Unauthorized(&'a str),
-}
-
 /// `change`'s fields written over `into`'s, objects within objects too, as a
 /// `settings.update` changes only what it names.
 fn merge_json(into: &mut Value, change: &Value) {
     match (into, change) {
+        // `experiments` is a list of { id, on } but a change names them by
+        // id ({ "experiments": { id: on } }). Replacing the list with that
+        // emptied Experiments until the runner answered, so the page got
+        // shorter and the pane lost its place (21 Nov).
+        (Value::Array(list), Value::Object(change))
+            if list
+                .iter()
+                .all(|item| item.get("id").is_some_and(Value::is_string)) =>
+        {
+            for item in list.iter_mut() {
+                if let Some(on) = item["id"].as_str().and_then(|id| change.get(id)) {
+                    item["on"] = on.clone();
+                }
+            }
+        }
         (Value::Object(into), Value::Object(change)) => {
             for (key, value) in change {
                 match into.get_mut(key) {
-                    Some(existing) if existing.is_object() && value.is_object() => {
+                    Some(existing)
+                        if (existing.is_object() || existing.is_array()) && value.is_object() =>
+                    {
                         merge_json(existing, value)
                     }
                     _ => {
@@ -2625,4 +2629,26 @@ struct SectionsCache {
     /// Worked out with nested threads, and which nest under which.
     nested: bool,
     nesting: Option<Rc<threadbear_core::nested::Nesting>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_json;
+    use serde_json::json;
+
+    #[test]
+    fn an_experiment_switch_keeps_the_list() {
+        let mut settings = json!({ "experiments": [{ "id": "pages", "on": false, "name": "Prints" }, { "id": "voiceMode", "on": true }], "labReview": false });
+        merge_json(&mut settings, &json!({ "experiments": { "pages": true } }));
+        assert_eq!(
+            settings["experiments"],
+            json!([{ "id": "pages", "on": true, "name": "Prints" }, { "id": "voiceMode", "on": true }])
+        );
+        merge_json(
+            &mut settings,
+            &json!({ "labReview": true, "models": { "pool": "p1" } }),
+        );
+        assert_eq!(settings["labReview"], json!(true));
+        assert_eq!(settings["models"]["pool"], json!("p1"));
+    }
 }

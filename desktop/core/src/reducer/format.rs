@@ -142,8 +142,13 @@ impl TurnTokens {
         }
         text
     }
+}
 
-    pub fn add(self, other: TurnTokens) -> TurnTokens {
+/// A stretch's footer adds its turns up, each count saturating.
+impl std::ops::Add for TurnTokens {
+    type Output = TurnTokens;
+
+    fn add(self, other: TurnTokens) -> TurnTokens {
         TurnTokens {
             input: self.input.saturating_add(other.input),
             output: self.output.saturating_add(other.output),

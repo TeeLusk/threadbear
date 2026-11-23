@@ -38,10 +38,7 @@ impl Art {
                 .get_or_init(|| {
                     Arc::new(Image::from_bytes(
                         ImageFormat::Png,
-                        include_bytes!(
-                            "../../../app/Sources/Threadbear/Resources/Art/scheduled.png"
-                        )
-                        .to_vec(),
+                        include_bytes!("../../../shared/art/scheduled.png").to_vec(),
                     ))
                 })
                 .clone(),
@@ -49,10 +46,7 @@ impl Art {
                 .get_or_init(|| {
                     Arc::new(Image::from_bytes(
                         ImageFormat::Png,
-                        include_bytes!(
-                            "../../../app/Sources/Threadbear/Resources/Art/librarian.png"
-                        )
-                        .to_vec(),
+                        include_bytes!("../../../shared/art/librarian.png").to_vec(),
                     ))
                 })
                 .clone(),

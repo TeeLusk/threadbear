@@ -16,13 +16,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use threadbear_client::runner::{Client, Progress, ProgressFn, Resend, RpcError};
 use threadbear_core::inbox::ThreadSummary;
+use threadbear_core::older_pages::{
+    Answer as OlderAnswer, Ask as OlderAsk, OlderPages, Then as OlderThen, EVENTS_PAGE,
+};
+use threadbear_core::outbox::{Answer, Effects, Event as OutboxEvent, Outbox, Send as Sending};
 use threadbear_core::reducer::{
     BackgroundTask, Event, EventsPage, FeedAction, ImageRef, PendingMessage, Row, RowContent,
     ThreadFeed, TranscriptChange, TranscriptModel,
 };
+use threadbear_core::thread_load::{Event as LoadEvent, Then as LoadThen, ThreadLoad, View};
 
-/// Events asked for when a thread opens, as ThreadSession.eventsPage.
-const EVENTS_PAGE: u64 = 500;
 /// Streamed text arrives faster than it's worth drawing: flushed at most this
 /// often, as ThreadSession does (30 Hz).
 const FLUSH_EVERY: Duration = Duration::from_millis(33);
@@ -190,228 +193,128 @@ pub(crate) fn window_key(window: &Window) -> u64 {
     window.window_handle().window_id().as_u64()
 }
 
-thread_local! {
-    /// Messages on their way, by thread, kept outside any pane (the Swift
-    /// app keeps its sessions, and with them their pending messages): a pane
-    /// goes when another thread is opened, and a message held for a
-    /// restarting runner can wait a minute and more. A pane opened on the
-    /// thread shows them, and a send's task finds whichever pane is showing
-    /// its thread by then (`Threadbear::pane_for`). The main thread's only.
-    static OUTBOX: std::cell::RefCell<HashMap<String, Vec<PendingMessage>>> = std::cell::RefCell::new(HashMap::new());
+/// Every message on its way, every thread's (core's outbox.rs), kept for
+/// the whole app rather than in a pane: a pane goes when another thread is
+/// opened, and a message held for a restarting runner can wait a minute and
+/// more. A global, not the app's own field, so a pane, the sidebar and a
+/// composer saving its draft can each read it from inside another update
+/// without updating the app again. It's only ever moved by `move_outbox`,
+/// whose closure reads nothing else, and its clock by `arm_clock`.
+#[derive(Default)]
+struct Shared {
+    outbox: Outbox<crate::composer::RestoreDraft>,
+    /// The app, for a deadline to show what it moved.
+    app: Option<WeakEntity<crate::app::Threadbear>>,
+    /// The timer that delivers the outbox's next deadline, and when.
+    clock: Option<(std::time::Instant, Task<()>)>,
 }
 
-fn outbox(thread_id: &str) -> Vec<PendingMessage> {
-    OUTBOX.with(|o| o.borrow().get(thread_id).cloned().unwrap_or_default())
+impl Global for Shared {}
+
+fn read_outbox<R>(cx: &App, f: impl FnOnce(&Outbox<crate::composer::RestoreDraft>) -> R) -> R {
+    match cx.try_global::<Shared>() {
+        Some(shared) => f(&shared.outbox),
+        None => f(&Outbox::default()),
+    }
 }
 
-thread_local! {
-    /// Goes up whenever any thread's outbox changes, so the sidebar's
-    /// sections, which sort a thread with a message on its way under Running
-    /// (`sending`), are worked out again.
-    static OUTBOX_CHANGES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+/// The only way the outbox moves: the event, then its clock set for its
+/// next deadline.
+fn move_outbox(
+    event: OutboxEvent<crate::composer::RestoreDraft>,
+    app: Option<&WeakEntity<crate::app::Threadbear>>,
+    cx: &mut App,
+) -> Effects<crate::composer::RestoreDraft> {
+    let shared = cx.default_global::<Shared>();
+    if let Some(app) = app {
+        shared.app = Some(app.clone());
+    }
+    let effects = shared.outbox.next(event, std::time::Instant::now());
+    arm_clock(cx);
+    effects
+}
+
+/// Delivers `Clock` when the outbox's next deadline comes.
+fn arm_clock(cx: &mut App) {
+    let shared = cx.default_global::<Shared>();
+    let deadline = shared.outbox.deadline();
+    if shared.clock.as_ref().map(|(at, _)| *at) == deadline {
+        return;
+    }
+    let Some(at) = deadline else {
+        shared.clock = None;
+        return;
+    };
+    let task = cx.spawn(async move |cx| {
+        let wait = at.saturating_duration_since(std::time::Instant::now());
+        cx.background_executor().timer(wait).await;
+        cx.update(clock_came);
+    });
+    cx.default_global::<Shared>().clock = Some((at, task));
+}
+
+/// A deadline came: a taken message is called queued, a hold runs out.
+fn clock_came(cx: &mut App) {
+    cx.default_global::<Shared>().clock = None;
+    let effects = move_outbox(OutboxEvent::Clock, None, cx);
+    let app = cx.try_global::<Shared>().and_then(|s| s.app.clone());
+    let Some(app) = app else { return };
+    for thread in &effects.moved {
+        show_outbox_in(&app, thread, cx);
+    }
+    if effects.moved.is_empty() && effects.let_go {
+        app.update(cx, |_, cx| cx.notify()).ok();
+    }
+}
+
+/// What's on its way to a thread, for its transcript.
+pub(crate) fn outbox(thread_id: &str, cx: &App) -> Vec<PendingMessage> {
+    read_outbox(cx, |o| o.pending(thread_id))
 }
 
 /// How many times the outbox has changed, for the sidebar's cache.
-pub(crate) fn outbox_changes() -> u64 {
-    OUTBOX_CHANGES.with(|c| c.get())
+pub(crate) fn outbox_changes(cx: &App) -> u64 {
+    read_outbox(cx, Outbox::changes)
 }
 
-/// The threads with a message the runner hasn't taken yet (the spinner by
-/// its bubble), or has taken without a summary since (`AWAITING`): the
-/// sidebar has them under Running rather than in the Inbox
-/// (`inbox::as_sending`). A queued one is left out: the runner has it, and
-/// its summary says what the thread is doing. That also bounds the guess to
-/// the send's own call, whose task marks it queued or takes it out whether
-/// or not a pane is open, so no bubble left behind keeps a thread in Running.
-pub(crate) fn sending() -> Vec<String> {
-    let mut ids: Vec<String> = OUTBOX.with(|o| {
-        o.borrow()
-            .iter()
-            .filter(|(_, list)| list.iter().any(|m| !m.queued))
-            .map(|(id, _)| id.clone())
-            .collect()
-    });
-    AWAITING.with(|a| {
-        ids.extend(
-            a.borrow()
-                .keys()
-                .filter(|id| !ids.contains(id))
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-    });
-    ids
+/// The threads the sidebar has under Running for a message on its way
+/// (`Outbox::sending`).
+pub(crate) fn sending(cx: &App) -> Vec<String> {
+    read_outbox(cx, Outbox::sending)
 }
-
-thread_local! {
-    /// Threads the runner has just taken a message for, by the hold's own
-    /// number, until its next summary of them (`summary_arrived`). The
-    /// runner sends the message's `user.message` first and the summary
-    /// saying its turn has started just after, later on a busy Mac or from
-    /// another runner; until then its summary still has the last turn's
-    /// "needs you". Ending the guess as the bubble went put the thread back
-    /// in the Inbox for that moment, and out again a second later (18 Nov).
-    /// Any summary after the message is the runner's word, whatever it
-    /// says: one that failed at once goes straight back to the Inbox.
-    static AWAITING: std::cell::RefCell<HashMap<String, u64>> = std::cell::RefCell::new(HashMap::new());
-    /// Numbers each hold, so a hold's grace only ends that one.
-    static HOLDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    /// How many summaries of each thread have come, so a send can tell
-    /// whether one has since its click (`taken`).
-    static SUMMARIES: std::cell::RefCell<HashMap<String, u64>> = std::cell::RefCell::new(HashMap::new());
-    /// Each message on its way, by its pending id: `SUMMARIES` for its
-    /// thread when it was sent.
-    static SENT_AT: std::cell::RefCell<HashMap<String, u64>> = std::cell::RefCell::new(HashMap::new());
-}
-
-/// Notes a message as sent now, for `taken`.
-fn note_sent(thread_id: &str, pending_id: &str) {
-    let at = summaries_of(thread_id);
-    SENT_AT.with(|s| s.borrow_mut().insert(pending_id.to_owned(), at));
-}
-
-/// This Mac's runner has shown a message on its way: it sends the summary
-/// that goes with it after the event, so only one from now on counts as its
-/// word on the send. One between the click and here (opening the thread
-/// marked it seen, say) is older news (Codex's review, 18 Nov). Another
-/// runner's summary can beat its transcript here, so theirs keep the click.
-fn shown_here(thread_id: &str, pending_id: &str) {
-    let now = summaries_of(thread_id);
-    SENT_AT.with(|s| {
-        if let Some(at) = s.borrow_mut().get_mut(pending_id) {
-            *at = now;
-        }
-    });
-}
-
-/// The runner has taken a message on its way (shown, by any path, or
-/// queued): whether the thread should stay under Running until its next
-/// summary. Only if none has come since the click: one that has is the
-/// runner's word already (a turn that failed at once, or asked something,
-/// from another runner whose summary can beat its transcript here), and
-/// holding past it would hide a thread that needs Mike.
-fn taken(thread_id: &str, pending_id: &str) -> bool {
-    SENT_AT
-        .with(|s| s.borrow_mut().remove(pending_id))
-        .is_some_and(|at| at == summaries_of(thread_id))
-}
-
-/// How long a taken message holds its thread under Running if no summary
-/// comes (a dropped connection, another runner that's gone quiet): the
-/// guess never outlives this.
-const HOLD_GRACE: Duration = Duration::from_secs(5);
 
 /// The runner said something new about a thread (`thread.updated`, or a
 /// changed row in this Mac's list or another runner's): what it says now
 /// goes, and a message it took no longer holds the thread under Running.
-pub(crate) fn summary_arrived(thread_id: &str) {
-    SUMMARIES.with(|s| *s.borrow_mut().entry(thread_id.to_owned()).or_default() += 1);
-    if AWAITING.with(|a| a.borrow_mut().remove(thread_id).is_some()) {
-        OUTBOX_CHANGES.with(|c| c.set(c.get() + 1));
-    }
-}
-
-/// How many summaries of a thread have come so far.
-fn summaries_of(thread_id: &str) -> u64 {
-    SUMMARIES.with(|s| s.borrow().get(thread_id).copied().unwrap_or(0))
-}
-
-/// Holds a thread under Running until the runner's next summary of it, or
-/// `HOLD_GRACE`, whichever comes first. Returns the hold's number.
-fn hold(thread_id: &str) -> u64 {
-    let n = HOLDS.with(|h| {
-        h.set(h.get() + 1);
-        h.get()
-    });
-    AWAITING.with(|a| a.borrow_mut().insert(thread_id.to_owned(), n));
-    OUTBOX_CHANGES.with(|c| c.set(c.get() + 1));
-    n
-}
-
-/// Ends hold `n` on a thread if it's still that one: true if it did.
-fn let_go(thread_id: &str, n: u64) -> bool {
-    let gone = AWAITING.with(|a| {
-        let mut a = a.borrow_mut();
-        let ours = a.get(thread_id) == Some(&n);
-        if ours {
-            a.remove(thread_id);
-        }
-        ours
-    });
-    if gone {
-        OUTBOX_CHANGES.with(|c| c.set(c.get() + 1));
-    }
-    gone
-}
-
-/// `hold`, with its grace run out by a task of the app's own, so a pane
-/// closed meanwhile doesn't leave the thread under Running.
-fn hold_for_summary(thread_id: &str, app: WeakEntity<crate::app::Threadbear>, cx: &App) {
-    let n = hold(thread_id);
-    let id = thread_id.to_owned();
-    cx.spawn(async move |cx| {
-        cx.background_executor().timer(HOLD_GRACE).await;
-        if let_go(&id, n) {
-            app.update(cx, |_, cx| cx.notify()).ok();
-        }
-    })
-    .detach();
-}
-
-fn set_outbox(thread_id: &str, list: Vec<PendingMessage>) {
-    OUTBOX_CHANGES.with(|c| c.set(c.get() + 1));
-    OUTBOX.with(|o| {
-        let mut o = o.borrow_mut();
-        if list.is_empty() {
-            o.remove(thread_id);
-        } else {
-            o.insert(thread_id.to_owned(), list);
-        }
-    });
-}
-
-thread_local! {
-    /// What each message on its way was in the box, by its pending id with
-    /// its thread, so one still held for a restarting runner when the app
-    /// quits is kept with the drafts and comes back in the box next time
-    /// (Swift's `heldForResend` into DraftStore), rather than lost.
-    /// With whether it's not yet on its way (held, or behind another): set
-    /// from the connection's task as it says so, not from the transcript's
-    /// copy, which hears a moment later.
-    static OUTBOX_DRAFTS: std::cell::RefCell<HashMap<String, (String, crate::composer::RestoreDraft, Arc<std::sync::atomic::AtomicBool>)>> = std::cell::RefCell::new(HashMap::new());
+pub(crate) fn summary_arrived(thread_id: &str, cx: &mut App) {
+    move_outbox(
+        OutboxEvent::Summary {
+            thread: thread_id.to_owned(),
+        },
+        None,
+        cx,
+    );
 }
 
 /// The boxes' words of a thread's messages not yet on their way (held for
 /// the new runner, or behind another), oldest first, for the drafts file.
-pub(crate) fn held_drafts(thread_id: &str) -> Vec<crate::composer::RestoreDraft> {
-    use std::sync::atomic::Ordering;
-    outbox(thread_id)
-        .iter()
-        .filter_map(|m| {
-            OUTBOX_DRAFTS.with(|d| {
-                d.borrow()
-                    .get(&m.id)
-                    .filter(|(t, _, held)| t == thread_id && held.load(Ordering::SeqCst))
-                    .map(|(_, draft, _)| draft.clone())
+pub(crate) fn held_drafts(thread_id: &str, cx: &App) -> Vec<crate::composer::RestoreDraft> {
+    read_outbox(cx, |o| {
+        o.held_drafts(thread_id)
+            .into_iter()
+            // Their words as they went, a card's answers included.
+            .map(|draft| {
+                let (text, images) = draft.for_saving();
+                crate::composer::RestoreDraft::plain(text, images)
             })
-        })
-        // Their words as they went, a card's answers included.
-        .map(|draft| {
-            let (text, images) = draft.for_saving();
-            crate::composer::RestoreDraft::plain(text, images)
-        })
-        .collect()
+            .collect()
+    })
 }
 
 /// A message of the thread's on its way to the runner and not answered yet:
 /// a refusal would put its words back in a box a restart had already saved.
-pub(crate) fn sending_now(thread_id: &str) -> bool {
-    use std::sync::atomic::Ordering;
-    OUTBOX_DRAFTS.with(|d| {
-        d.borrow()
-            .values()
-            .any(|(t, _, held)| t == thread_id && !held.load(Ordering::SeqCst))
-    })
+pub(crate) fn sending_now(thread_id: &str, cx: &App) -> bool {
+    read_outbox(cx, |o| o.sending_now(thread_id))
 }
 
 /// How a send got on, as the connection's task reports it.
@@ -429,19 +332,16 @@ pub struct ThreadPane {
     pub(crate) app: WeakEntity<crate::app::Threadbear>,
     pub(crate) summary: ThreadSummary,
     pub(crate) feed: ThreadFeed,
-    loaded: bool,
+    /// How far its read has got (thread_load.rs): moved only by `move_load`.
+    load: ThreadLoad,
     error: Option<String>,
-    /// Its first read failed: the message, with Try again in place of the
-    /// transcript (`ThreadSession.state == .failed`).
-    load_failed: Option<String>,
     /// The wait before a message still queued on an idle thread is let go
     /// (`check_queued`).
     queued_check: Option<Task<()>>,
     /// A sub-agent's transcript rather than the thread's (`ThreadSession`'s
     /// `subagentId`): read whole with `threads.subagent`, no composer.
     pub(crate) subagent_id: Option<String>,
-    /// The runner has no record of what it did (-32006).
-    subagent_missing: bool,
+    /// A running sub-agent's read again for what's new is on its way.
     refreshing: bool,
     _poll: Option<Task<()>>,
     /// Following new lines was paused for a selection being dragged
@@ -456,20 +356,12 @@ pub struct ThreadPane {
     pub(crate) open_rows: HashSet<String>,
     pub(crate) chosen: HashMap<String, HashMap<usize, Vec<String>>>,
     flush_queued: bool,
-    /// An older page is on its way.
-    pub(crate) loading_older: bool,
-    /// A page that came back with nothing before the seq asked for: the next
-    /// page ends before this seq instead (`olderSkip`).
-    older_skip: Option<(i64, i64)>,
-    older_failures: u32,
+    /// Paging older history in above its rows (older_pages.rs).
+    older: OlderPages,
     /// In a panel of its own whose tab is behind another: not in front of
     /// Mike, so not read (thread_panels.rs, `isShowing`).
     pub(crate) behind: bool,
     pub(crate) timing: LoadTiming,
-    /// Kept loaded while another thread was open (pane_cache.rs) when the
-    /// connection came back, so not subscribed on the new one: it catches up
-    /// when it's next shown (`shown_again`).
-    stale: bool,
     /// The zoom when it was kept (`set_kept`).
     kept_zoom: Option<u64>,
     /// Its last messages' PRs are still to be read ahead, waiting for the
@@ -497,12 +389,10 @@ impl ThreadPane {
             app,
             summary,
             feed: ThreadFeed::new(TranscriptModel::new(None)),
-            loaded: false,
+            load: ThreadLoad::opening(),
             error: None,
-            load_failed: None,
             queued_check: None,
             subagent_id: None,
-            subagent_missing: false,
             refreshing: false,
             _poll: None,
             scroller,
@@ -512,19 +402,16 @@ impl ThreadPane {
             open_rows: HashSet::new(),
             chosen: HashMap::new(),
             flush_queued: false,
-            loading_older: false,
-            older_skip: None,
-            older_failures: 0,
+            older: OlderPages::default(),
             behind: false,
             timing: LoadTiming::default(),
-            stale: false,
             kept_zoom: None,
             prs_to_preload: false,
             entering: Default::default(),
             _subs: vec![scrolled],
         };
         // Messages still on their way to it from before it was last open.
-        let _ = pane.feed.set_pending(outbox(&pane.summary.id));
+        let _ = pane.feed.set_pending(outbox(&pane.summary.id, cx));
         // Its diagrams and pages drawing, and the web runtime (rich_boxes.rs).
         pane._subs.extend(crate::rich_boxes::watch(cx));
         pane.load(cx);
@@ -549,12 +436,10 @@ impl ThreadPane {
             app,
             summary,
             feed: ThreadFeed::new(TranscriptModel::new(None)),
-            loaded: false,
+            load: ThreadLoad::opening(),
             error: None,
-            load_failed: None,
             queued_check: None,
             subagent_id: Some(subagent_id),
-            subagent_missing: false,
             refreshing: false,
             _poll: None,
             scroller,
@@ -564,12 +449,9 @@ impl ThreadPane {
             open_rows: HashSet::new(),
             chosen: HashMap::new(),
             flush_queued: false,
-            loading_older: false,
-            older_skip: None,
-            older_failures: 0,
+            older: OlderPages::default(),
             behind: false,
             timing: LoadTiming::default(),
-            stale: false,
             kept_zoom: None,
             prs_to_preload: false,
             entering: Default::default(),
@@ -598,9 +480,9 @@ impl ThreadPane {
     #[cfg(feature = "automation")]
     pub(crate) fn read_state(&self) -> (bool, bool, Option<String>, usize) {
         (
-            self.loaded,
-            self.subagent_missing,
-            self.load_failed.clone(),
+            self.load.is_shown(),
+            self.load == ThreadLoad::NoRecord,
+            self.load.failure(),
             self.feed.model().rows().len(),
         )
     }
@@ -649,7 +531,7 @@ impl ThreadPane {
                 .text_color(secondary)
                 .child(div().flex_none().child("Started by"))
                 .child(title)
-                .when_some(line.why.clone(), |s, why| {
+                .when_some(line.why, |s, why| {
                     s.child(div().min_w_0().truncate().child(format!("\u{b7} {why}")))
                 })
                 .into_any_element(),
@@ -713,6 +595,13 @@ impl ThreadPane {
         let Some(subagent_id) = self.subagent_id.clone() else {
             return;
         };
+        // Read again under rows already shown (its thread moved runners), it
+        // only replaces them if it works: a failure stays out of sight, as it
+        // always did, and it's never caught up later, so it isn't a reread.
+        let first = !self.load.is_shown();
+        if first {
+            self.move_load(LoadEvent::Read, cx);
+        }
         let (client, id, root) = (
             self.client.clone(),
             self.summary.id.clone(),
@@ -740,19 +629,18 @@ impl ThreadPane {
                         this.feed = ThreadFeed::new(model);
                         let live = this.subagent_live();
                         let _ = this.feed.set_live_turn(live.map(|_| ""), live);
-                        this.loaded = true;
-                        this.load_failed = None;
-                        this.subagent_missing = false;
+                        this.move_load(LoadEvent::Landed, cx);
                         this.scroller
                             .update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
                         this.scroller.update(cx, |s, cx| s.scroll_to_end(cx));
                     }
-                    Err(e) if e.code == -32006 => {
-                        this.subagent_missing = true;
-                        this.load_failed =
-                            Some("There's no record of what this sub-agent did.".into());
+                    Err(e) if e.code == -32006 && first => {
+                        this.move_load(LoadEvent::NoRecord, cx);
                     }
-                    Err(e) => this.load_failed = Some(e.message),
+                    Err(e) if first => {
+                        this.move_load(LoadEvent::ReadFailed { message: e.message }, cx);
+                    }
+                    Err(_) => {}
                 }
                 cx.notify();
             })
@@ -768,7 +656,7 @@ impl ThreadPane {
         let Some(subagent_id) = self.subagent_id.clone() else {
             return;
         };
-        if !self.loaded || self.refreshing {
+        if !self.load.is_shown() || self.refreshing {
             return;
         }
         self.refreshing = true;
@@ -863,10 +751,11 @@ impl ThreadPane {
         let client = self.client.clone();
         let id = self.summary.id.clone();
         let root = self.summary.cwd.clone();
+        self.move_load(LoadEvent::Read, cx);
         self.timing = LoadTiming {
             started: Some(std::time::Instant::now()),
             reads: self.timing.reads + 1,
-            cold: !self.loaded,
+            cold: !self.load.is_shown(),
             ..Default::default()
         };
         cx.spawn(async move |this, cx| {
@@ -881,15 +770,9 @@ impl ThreadPane {
                 Err(e) => {
                     this.update(cx, |this, cx| {
                         // A reload over a transcript already shown keeps it,
-                        // and says so on the error line.
-                        if this.loaded {
-                            this.error = Some(e.message);
-                            // Not subscribed either: tried again when it's
-                            // next shown from the kept ones.
-                            this.stale = true;
-                        } else {
-                            this.load_failed = Some(e.message);
-                        }
+                        // says so on the error line, and is tried again
+                        // when it's next shown from the kept ones.
+                        this.move_load(LoadEvent::ReadFailed { message: e.message }, cx);
                         threadbear_client::log::write(
                             "switch",
                             &format!(
@@ -931,7 +814,14 @@ impl ThreadPane {
                 this.timing.decode_ms = decode_ms;
                 this.timing.fold_ms = fold_ms;
                 // Where the view was reading, if this is a reload.
-                let memory = this.loaded.then(|| this.capture_memory(cx));
+                // A place still being paged back to wins: the page on its way
+                // to it is let go with the old rows (older_pages.rs), so
+                // paging back starts again from the new ones.
+                let memory = this
+                    .rows
+                    .pending_restore
+                    .take()
+                    .or_else(|| this.load.is_shown().then(|| this.capture_memory(cx)));
                 crate::reply_buttons::fold(&buttons, &this.summary.id);
                 // What the thread's summary says now (ThreadSession.load),
                 // not as it was when the read started: what's running in
@@ -942,18 +832,17 @@ impl ThreadPane {
                 this.feed = ThreadFeed::new(model);
                 // What's still on its way stays at the end, less what this
                 // page shows arrived (a reload after a restart brings them).
-                let _ = this.feed.set_pending(outbox(&this.summary.id));
+                let _ = this.feed.set_pending(outbox(&this.summary.id, cx));
                 this.keep_outbox(cx);
                 // Another runner's thread through this Mac's runner has
                 // gaps in its seqs (`feed.sparse = viaRelay`).
                 this.feed.set_sparse(this.summary.runner_id.is_some());
                 this.feed.begin_subscribe();
-                this.loaded = true;
-                this.load_failed = None;
-                // A reload that worked puts right the one that didn't.
-                this.error = None;
-                this.loading_older = false;
-                this.older_skip = None;
+                // Its rows show; a reload that worked puts right the one that
+                // didn't, on the error line too.
+                this.move_load(LoadEvent::Landed, cx);
+                // Paging starts over from the new newest page.
+                this.older.newest_read();
                 this.scroller
                     .update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
                 this.restore_memory(memory, cx);
@@ -983,7 +872,7 @@ impl ThreadPane {
                     Some(page) => {
                         // Read and subscribed again: up to date, whatever an
                         // earlier try left (`shows_old_turn`).
-                        this.stale = false;
+                        this.move_load(LoadEvent::Subscribed, cx);
                         let action = this.feed.finish_subscribe(page.events, &page.in_progress);
                         this.handle(action, cx);
                     }
@@ -991,13 +880,34 @@ impl ThreadPane {
                     // so does showing it again from the kept ones (`shown_again`).
                     None => {
                         this.feed.catch_up_failed();
-                        this.stale = true;
+                        this.move_load(LoadEvent::SubscribeFailed, cx);
                     }
                 }
             })
             .ok();
         })
         .detach();
+    }
+
+    /// The only writer of `load` (thread_load.rs): moves it on, does what
+    /// the move says to the error line, which sends and card buttons write
+    /// too, and redraws the pane if anything changed (it's a cached view, so
+    /// its parent redrawing doesn't). A sub-agent's read never cleared the
+    /// error line.
+    fn move_load(&mut self, event: LoadEvent, cx: &mut Context<Self>) -> LoadThen {
+        let was = self.load.clone();
+        let (load, then) = std::mem::replace(&mut self.load, ThreadLoad::opening()).next(event);
+        self.load = load;
+        let error = self.error.clone();
+        match &then {
+            LoadThen::SayOnErrorLine(message) => self.error = Some(message.clone()),
+            LoadThen::ClearErrorLine if self.subagent_id.is_none() => self.error = None,
+            LoadThen::ClearErrorLine | LoadThen::CatchUp | LoadThen::Nothing => {}
+        }
+        if self.load != was || self.error != error {
+            cx.notify();
+        }
+        then
     }
 
     /// Kept loaded while another thread's shown (pane_cache.rs): not in
@@ -1017,12 +927,15 @@ impl ThreadPane {
     /// pages, and going back there would only read them in again. Also as
     /// news comes to a kept thread that's busy (`apply`).
     fn trim_kept(&mut self, cx: &mut Context<Self>) -> bool {
-        let trim = self.loaded
+        let trim = self.load.is_shown()
             && self.feed.model().events().len() > KEPT_EVENTS
             && !self.feed.has_pending();
         if trim {
             self.feed.trim(EVENTS_PAGE as usize);
-            self.older_skip = None;
+            // Back to the end of it: a place it was paging back to is given
+            // up with the page on its way there.
+            self.older.trimmed();
+            self.rows.pending_restore = None;
             self.scroller.update(cx, |s, cx| {
                 s.reset(self.feed.model().rows().len(), cx);
                 s.scroll_to_end(cx);
@@ -1040,14 +953,14 @@ impl ThreadPane {
     /// it in the Inbox (19 Nov).
     /// Catching up counts too: what it shows is old till that lands.
     pub(crate) fn shows_old_turn(&self) -> bool {
-        (self.stale || self.feed.is_catching_up()) && !self.summary.busy()
+        (self.load.shows_old() || self.feed.is_catching_up()) && !self.summary.busy()
     }
 
     /// The connection's back while this pane is kept and not shown: it
     /// catches up when it's next shown, rather than every kept thread asking
     /// at once while a restarted runner is busiest.
-    pub(crate) fn connection_back(&mut self) {
-        self.stale = true;
+    pub(crate) fn connection_back(&mut self, cx: &mut Context<Self>) {
+        self.move_load(LoadEvent::ConnectionBack, cx);
     }
 
     /// Shown again from the threads kept loaded (pane_cache.rs): straight
@@ -1066,13 +979,13 @@ impl ThreadPane {
         }
         // Behind since the connection came back, or its first read failed
         // while it was kept: read now.
-        if std::mem::take(&mut self.stale) || (!self.loaded && self.load_failed.is_some()) {
+        if self.move_load(LoadEvent::ShownAgain, cx) == LoadThen::CatchUp {
             self.resubscribe(cx);
         }
         self.mark_seen();
         // What's on its way to it as the outbox has it now.
         self.show_outbox(cx);
-        if self.loaded {
+        if self.load.is_shown() {
             self.prs_to_preload = !self.preload_recent_prs(cx);
         }
     }
@@ -1143,9 +1056,9 @@ impl ThreadPane {
         // seqs (remote.rs), so how far behind it is can't be told, and its
         // newest page is read rather than everything since.
         let remote = self.summary.runner_id.is_some();
-        if !self.loaded || remote || behind > CATCH_UP_LIMIT {
+        if !self.load.is_shown() || remote || behind > CATCH_UP_LIMIT {
             // Back to the spinner from a failed first read, as Try again does.
-            self.load_failed = None;
+            self.move_load(LoadEvent::TryAgain, cx);
             return self.load(cx);
         }
         self.feed.begin_subscribe();
@@ -1169,7 +1082,7 @@ impl ThreadPane {
             this.update(cx, |this, cx| {
                 match sub.ok().and_then(|v| EventsPage::decode(&v)) {
                     Some(page) => {
-                        this.stale = false;
+                        this.move_load(LoadEvent::Subscribed, cx);
                         crate::reply_buttons::fold(&page.events, &this.summary.id);
                         let action = this.feed.finish_subscribe(page.events, &page.in_progress);
                         this.handle(action, cx);
@@ -1177,7 +1090,7 @@ impl ThreadPane {
                     // The next connection, or the next time it's shown, tries again.
                     None => {
                         this.feed.catch_up_failed();
-                        this.stale = true;
+                        this.move_load(LoadEvent::SubscribeFailed, cx);
                     }
                 }
             })
@@ -1188,7 +1101,7 @@ impl ThreadPane {
 
     /// Try again, after the first read failed: back to Loading… at once.
     fn retry_load(&mut self, cx: &mut Context<Self>) {
-        self.load_failed = None;
+        self.move_load(LoadEvent::TryAgain, cx);
         cx.notify();
         self.load(cx);
     }
@@ -1295,7 +1208,7 @@ impl ThreadPane {
         }
         if t.id == self.summary.id {
             self.summary = t.clone();
-            if self.loaded {
+            if self.load.is_shown() {
                 self.mark_seen();
                 let change = self.feed.set_background(self.background_tasks());
                 self.apply(change, cx);
@@ -1318,12 +1231,15 @@ impl ThreadPane {
                 cx.notify();
             }
             if self.subagent_id.is_none() && self.summary.runner_id.is_none() {
-                for m in outbox(&self.summary.id)
-                    .iter()
-                    .filter(|m| !m.queued && m.is_landed_by(&event))
-                {
-                    shown_here(&self.summary.id, &m.id);
-                }
+                // This Mac's runner shows a message before its summary.
+                move_outbox(
+                    OutboxEvent::Heard {
+                        thread: self.summary.id.clone(),
+                        event: event.clone(),
+                    },
+                    None,
+                    cx,
+                );
             }
             let action = self.feed.receive(event);
             self.handle(action, cx);
@@ -1452,28 +1368,19 @@ impl ThreadPane {
         );
     }
 
-    /// What the model shows as on its way, kept in the outbox, so it
-    /// outlives this pane. A sub-agent's pane never sends.
+    /// What the model shows as on its way, told to the outbox: what it no
+    /// longer has has landed (or an edit cut it). A sub-agent's pane never
+    /// sends.
     fn keep_outbox(&self, cx: &mut Context<Self>) {
         if self.subagent_id.is_some() {
             return;
         }
-        let id = &self.summary.id;
         let list = self.feed.model().pending().to_vec();
-        // Gone from the model's list: shown, whether live, in a catch-up or
-        // in a reload (a failed send leaves the outbox before the pane hears).
-        let shown: Vec<String> = outbox(id)
-            .into_iter()
-            .filter(|m| !m.queued && !list.iter().any(|n| n.id == m.id))
-            .map(|m| m.id)
-            .collect();
-        let hold = shown
-            .iter()
-            .fold(false, |hold, pending_id| taken(id, pending_id) || hold);
-        if hold {
-            hold_for_summary(id, self.app.clone(), cx);
-        }
-        set_outbox(id, list);
+        let event = OutboxEvent::Transcript {
+            thread: self.summary.id.clone(),
+            list,
+        };
+        move_outbox(event, Some(&self.app), cx);
     }
 
     /// The outbox's messages for this thread on show again, after a send's
@@ -1482,7 +1389,7 @@ impl ThreadPane {
         if self.subagent_id.is_some() {
             return;
         }
-        let change = self.feed.set_pending(outbox(&self.summary.id));
+        let change = self.feed.set_pending(outbox(&self.summary.id, cx));
         self.apply(change, cx);
         self.check_queued(cx);
         cx.notify();
@@ -1531,13 +1438,6 @@ impl ThreadPane {
         let remote = self.summary.runner_id.is_some();
         let holding =
             !remote && self.client.connected_session().is_none() && self.client.restart_under_way();
-        // Shown straight away and put right when the runner echoes it back.
-        // Unique across panes: the outbox outlives each one.
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let pending_id = format!(
-            "local-{}",
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
-        );
         // Only a user.message after this can be it: the thread's last seq as
         // the summary has it, if the transcript hasn't caught up (a pane
         // that's still loading), so an older one with the same words isn't.
@@ -1545,20 +1445,6 @@ impl ThreadPane {
             .feed
             .accepted_seq()
             .max(i64::try_from(self.summary.last_seq).unwrap_or(i64::MAX));
-        let mut message = PendingMessage::new(&pending_id, &text, after_seq);
-        message.images = images.clone();
-        message.waiting_for_runner = holding;
-        let mut list = outbox(&thread_id);
-        list.push(message.clone());
-        // Idle when sent and the only one on its way: nothing on the runner
-        // could queue it, so one cut off by a restart can be looked for and
-        // sent again if it never arrived (`Resend::was_idle`).
-        let was_idle = !self.summary.busy() && list.len() == 1;
-        set_outbox(&thread_id, list);
-        // Not yet on its way: held for a restart, or waiting behind another
-        // message to this thread. What a quit keeps in the drafts file
-        // (`held_drafts`), as `stop_holding` stops it going.
-        let held = Arc::new(std::sync::atomic::AtomicBool::new(!remote));
         // A card's answers aren't in the box's words: the message as it
         // goes, back in the box's form, so a quit keeps them too, held or
         // given back (`RestoreDraft::for_saving`).
@@ -1573,14 +1459,22 @@ impl ThreadPane {
                     .collect(),
             ));
         }
-        if let Some(draft) = &draft {
-            OUTBOX_DRAFTS.with(|d| {
-                d.borrow_mut().insert(
-                    pending_id.clone(),
-                    (thread_id.clone(), draft.clone(), held.clone()),
-                )
-            });
-        }
+        // Shown straight away and put right when the runner echoes it back.
+        let sending = Sending {
+            thread: thread_id.clone(),
+            text: text.clone(),
+            images: images.clone(),
+            after_seq,
+            remote,
+            holding,
+            busy: self.summary.busy(),
+            draft,
+        };
+        let Some((pending_id, ticket)) =
+            move_outbox(OutboxEvent::Send(sending), Some(&self.app), cx).ticket
+        else {
+            return;
+        };
         self.show_outbox(cx);
         // The sidebar watches the app, not this pane: it moves the thread out
         // of the Inbox now (`thread::sending`).
@@ -1602,20 +1496,18 @@ impl ThreadPane {
         }
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<SendStep>();
         let told = tx.clone();
+        let gate = ticket.gate.clone();
         let progress: ProgressFn = Arc::new(move |p| {
             // At once, from the connection's task: the quit's drafts read it
             // straight after `stop_holding` (`held_drafts`).
-            held.store(p == Progress::Held, std::sync::atomic::Ordering::SeqCst);
+            gate.set(p == Progress::Held);
             let _ = told.unbounded_send(SendStep::Progress(p));
         });
-        let probe = message.clone();
-        // Whether the runner says anything about the thread before it takes
-        // the message (`taken`).
-        note_sent(&thread_id, &pending_id);
+        let probe = ticket.message.clone();
         let resend = Resend {
             thread_id: thread_id.clone(),
-            after_seq: message.after_seq,
-            was_idle,
+            after_seq: ticket.message.after_seq,
+            was_idle: ticket.was_idle,
             landed: Arc::new(move |v: &Value| {
                 Event::decode(v).is_some_and(|e| probe.is_landed_by(&e))
             }),
@@ -1646,11 +1538,13 @@ impl ThreadPane {
                 match step {
                     // Held for the new runner, or going now: the bubble's note.
                     SendStep::Progress(p) => {
-                        let id = pending_id.clone();
-                        change_outbox(&app, &thread_id, cx, move |list| {
-                            if let Some(m) = list.iter_mut().find(|m| m.id == id) {
-                                m.waiting_for_runner = p == Progress::Held;
-                            }
+                        let event = OutboxEvent::Progress {
+                            id: pending_id.clone(),
+                            still_to_go: p == Progress::Held,
+                        };
+                        cx.update(|cx| {
+                            move_outbox(event, None, cx);
+                            show_outbox_in(&app, &thread_id, cx);
                         });
                     }
                     SendStep::Done(done) => {
@@ -1659,63 +1553,41 @@ impl ThreadPane {
                     }
                 }
             }
-            // Gone or taken: no longer one to keep through a quit.
-            OUTBOX_DRAFTS.with(|d| d.borrow_mut().remove(&pending_id));
-            // Already shown in the transcript, as the runner echoed it: it
-            // went, whatever became of the answer (a stalled runner's that
-            // came too late, a lookup that failed after it, a connection
-            // that closed after it arrived).
-            let shown = !outbox(&thread_id).iter().any(|m| m.id == pending_id);
-            if shown
-                && res.as_ref().is_err_and(|e| {
-                    matches!(
+            // A connection that closed with it on its way, or no answer in
+            // time: it may have arrived, which its echo says.
+            let answer = match &res {
+                Ok(_) => Answer::Took,
+                Err(e)
+                    if matches!(
                         e.code,
                         threadbear_client::runner::TIMED_OUT | threadbear_client::runner::CLOSED
-                    )
-                })
-            {
-                SENT_AT.with(|s| s.borrow_mut().remove(&pending_id));
-                return;
-            }
-            if let Err(e) = res {
-                SENT_AT.with(|s| s.borrow_mut().remove(&pending_id));
-                // Off the end of the transcript and back in the box, and the
-                // error bar says so, naming the thread, until it's dismissed.
-                let id = pending_id.clone();
-                change_outbox(&app, &thread_id, cx, move |list| {
-                    list.retain(|m| m.id != id)
-                });
-                if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
-                    composer.update(cx, |c, cx| c.restore_draft(draft, cx));
+                    ) =>
+                {
+                    Answer::MayHaveArrived
                 }
-                let held = holding;
-                app.update(cx, |app, cx| app.show_send_failed(&e, &title, held, cx))
-                    .ok();
+                Err(_) => Answer::Refused,
+            };
+            let event = OutboxEvent::Answered {
+                id: pending_id,
+                answer,
+            };
+            let effects = cx.update(|cx| move_outbox(event, None, cx));
+            // Shown again, and the drafts file written again, whatever the
+            // answer: a message once held is in that file until then, and
+            // one that turned out to have arrived mustn't stay there to come
+            // back after a crash (Codex's review, 21 Nov). Off the end of
+            // the transcript if it failed.
+            cx.update(|cx| show_outbox_in(&app, &thread_id, cx));
+            let (Some(draft), Err(e)) = (effects.gave_back, res) else {
                 return;
+            };
+            // Back in the box, and the error bar says so, naming the thread,
+            // until it's dismissed.
+            if let (Some(composer), Some(draft)) = (composer.upgrade(), draft) {
+                composer.update(cx, |c, cx| c.restore_draft(draft, cx));
             }
-            // Taken but not shown: it's queued behind the running turn. Its
-            // user.message usually comes just before this answer, so wait a
-            // moment rather than flash the clock on every send (`markQueued`).
-            cx.background_executor()
-                .timer(Duration::from_millis(600))
-                .await;
-            // Taken with no word from the runner since the click (another
-            // runner's mirror can lag): it's queued now, which ends the
-            // guess, so it holds the thread under Running until the summary
-            // comes, as a shown one does (`AWAITING`).
-            let unshown = outbox(&thread_id)
-                .iter()
-                .any(|m| m.id == pending_id && !m.queued);
-            if unshown && taken(&thread_id, &pending_id) {
-                let app = app.clone();
-                cx.update(|cx| hold_for_summary(&thread_id, app, cx));
-            }
-            change_outbox(&app, &thread_id, cx, move |list| {
-                if let Some(m) = list.iter_mut().find(|m| m.id == pending_id) {
-                    m.queued = true;
-                    m.waiting_for_runner = false;
-                }
-            });
+            app.update(cx, |app, cx| app.show_send_failed(&e, &title, holding, cx))
+                .ok();
         })
         .detach();
     }
@@ -1735,9 +1607,10 @@ impl ThreadPane {
             this.update(cx, |this, cx| {
                 this.queued_check = None;
                 if !this.summary.busy() && this.feed.model().pending().iter().any(|m| m.queued) {
-                    let mut list = outbox(&this.summary.id);
-                    list.retain(|m| !m.queued);
-                    set_outbox(&this.summary.id, list);
+                    let event = OutboxEvent::QueuedLost {
+                        thread: this.summary.id.clone(),
+                    };
+                    move_outbox(event, None, cx);
                     this.show_outbox(cx);
                 }
             })
@@ -1927,14 +1800,14 @@ impl ThreadPane {
     /// page when the top is near, and remembers where the view is.
     fn after_list_change(&mut self, cx: &mut Context<Self>) {
         self.load_older_if_near_top(cx);
-        if self.loaded {
+        if self.load.is_shown() {
             crate::rows::remember_scroll(&self.summary.id, self.capture_memory(cx));
         }
     }
 
     /// Its first page is in (a handover waits for the open thread's).
     pub(crate) fn is_loaded(&self) -> bool {
-        self.loaded
+        self.load.is_shown()
     }
 
     /// Still bringing older pages in to get back to a remembered place.
@@ -1948,7 +1821,7 @@ impl ThreadPane {
         memory: crate::rows::ScrollMemory,
         cx: &mut Context<Self>,
     ) {
-        if !self.loaded {
+        if !self.load.is_shown() {
             return;
         }
         // The place it was still paging back to is the old one now
@@ -2017,24 +1890,18 @@ impl ThreadPane {
         }
     }
 
-    fn older_before(&self) -> i64 {
-        let first = self.feed.model().first_seq();
-        match self.older_skip {
-            Some((at, before)) if at == first => before,
-            _ => first,
-        }
-    }
-
     /// `hasMoreAbove`: there are events the runner hasn't sent.
     pub(crate) fn has_more_above(&self) -> bool {
-        self.feed.model().has_older_events() && self.older_before() > 1
+        let model = self.feed.model();
+        self.older
+            .has_more(model.first_seq(), model.has_older_events())
     }
 
     /// `loadOlderIfNearTop`: with GPUI's list every row of the loaded events
     /// is a row in the list already, so "near the top" is near its first
     /// row by count: the rows above it haven't been measured.
     fn load_older_if_near_top(&mut self, cx: &mut Context<Self>) {
-        if !self.loaded || self.loading_older || !self.has_more_above() {
+        if !self.load.is_shown() || self.older.fetching() || !self.has_more_above() {
             return;
         }
         // While it follows the tail the list reports no top row: it's at the
@@ -2052,25 +1919,24 @@ impl ThreadPane {
     /// Fetches the next older page and adds it above, keeping the rows on
     /// screen where they are (`ThreadSession.loadOlder`).
     pub(crate) fn load_older(&mut self, cx: &mut Context<Self>) {
-        if !self.loaded || self.loading_older || !self.has_more_above() {
+        if !self.load.is_shown() {
             return;
         }
-        self.loading_older = true;
-        let before = self.older_before();
-        let first_seq = self.feed.model().first_seq();
+        let model = self.feed.model();
+        let Some(ask) = self.older.ask(model.first_seq(), model.has_older_events()) else {
+            return;
+        };
         let client = self.client.clone();
         let id = self.summary.id.clone();
         cx.spawn(async move |this, cx| {
             let page = call(
                 client,
                 "threads.events",
-                json!({ "threadId": id, "beforeSeq": before, "limit": EVENTS_PAGE }),
+                json!({ "threadId": id, "beforeSeq": ask.before, "limit": EVENTS_PAGE }),
             )
             .await;
-            this.update(cx, |this, cx| {
-                this.finish_older(page, before, first_seq, cx)
-            })
-            .ok();
+            this.update(cx, |this, cx| this.finish_older(page, ask, cx))
+                .ok();
         })
         .detach();
     }
@@ -2078,40 +1944,41 @@ impl ThreadPane {
     fn finish_older(
         &mut self,
         page: Result<Value, threadbear_client::runner::RpcError>,
-        before: i64,
-        first_seq: i64,
+        ask: OlderAsk,
         cx: &mut Context<Self>,
     ) {
-        let page = match page.map(|v| EventsPage::decode(&v)) {
-            Ok(Some(page)) => page,
-            _ => {
-                self.loading_older = false;
-                // Try again a few times, further apart each time.
-                self.older_failures += 1;
-                if self.older_failures <= 3 {
-                    let delay = Duration::from_secs(u64::from(self.older_failures) * 2);
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor().timer(delay).await;
-                        this.update(cx, |this, cx| this.load_older_if_near_top(cx))
-                            .ok();
-                    })
-                    .detach();
-                }
-                return;
+        let page = page.ok().and_then(|v| EventsPage::decode(&v));
+        let answer = match &page {
+            None => OlderAnswer::Failed,
+            Some(page)
+                if !page
+                    .events
+                    .iter()
+                    .any(|e| !e.is_transient() && e.seq < ask.before) =>
+            {
+                OlderAnswer::Empty
             }
+            Some(_) => OlderAnswer::Arrived,
         };
-        self.older_failures = 0;
-        if !page
-            .events
-            .iter()
-            .any(|e| !e.is_transient() && e.seq < before)
-        {
-            // Step back past the range the page covered and go on.
-            self.older_skip = Some((first_seq, (before - EVENTS_PAGE as i64).max(1)));
-            self.loading_older = false;
-            self.load_older_if_near_top(cx);
-            return;
+        match (self.older.answered(ask, answer), page) {
+            // Try again a few times, further apart each time.
+            (OlderThen::RetryIn(delay), _) => {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(delay).await;
+                    this.update(cx, |this, cx| this.load_older_if_near_top(cx))
+                        .ok();
+                })
+                .detach();
+            }
+            // Stepped back past the range the page covered: go on.
+            (OlderThen::Skip, _) => self.load_older_if_near_top(cx),
+            (OlderThen::Prepend, Some(page)) => self.prepend_older(page, cx),
+            (OlderThen::Prepend | OlderThen::Nothing | OlderThen::Fetch, _) => {}
         }
+    }
+
+    /// An older page's rows, added above.
+    fn prepend_older(&mut self, page: EventsPage, cx: &mut Context<Self>) {
         let memory = self.capture_memory(cx);
         let mut model = self.feed.model().clone();
         let result = model.prepend(page.events);
@@ -2153,7 +2020,6 @@ impl ThreadPane {
             }
         }
         self.keep_outbox(cx);
-        self.loading_older = false;
         cx.notify();
         if let Some(memory) = self.rows.pending_restore.take() {
             // Keeps paging if its row isn't here yet (`restore_memory`).
@@ -2252,6 +2118,27 @@ impl ThreadPane {
             });
             self.light_row(step, cx);
         }
+    }
+
+    /// Brings a row into view a third of the way down and lights it up, as a
+    /// work link does: the composer's chip for a changed draft shows where
+    /// the draft is (composer_drafts.rs).
+    pub(crate) fn reveal_row(&mut self, row_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // A reply that's folded away or not loaded: a beep, so the click
+        // doesn't look missed (`open_work_link`'s).
+        let Some(index) = self.feed.model().index_of(row_id) else {
+            return crate::composer_answers::beep();
+        };
+        self.scroller
+            .update(cx, |s, cx| s.scroll_to_row(index, px(0.), cx));
+        let scroller = self.scroller.clone();
+        window.on_next_frame(move |_, cx| {
+            scroller.update(cx, |s, cx| {
+                let down = s.viewport().size.height / 3.;
+                s.back_up(down, cx);
+            });
+        });
+        self.light_row(row_id.to_owned(), cx);
     }
 
     /// Lights a row up for a moment so the eye lands on the step (`light`).
@@ -2376,6 +2263,14 @@ impl ThreadPane {
                         out["expanded"] = json!(self.row_open(row));
                     }
                 }
+                // My message's changed drafts, drawn as chips under its words
+                // (rows.rs, `edited_drafts`).
+                #[cfg(feature = "automation")]
+                if let RowContent::User(message) = &row.content {
+                    if let Some((words, drafts)) = threadbear_core::draft_block::split_edited(&message.text) {
+                        out["editedDrafts"] = json!({ "words": words, "chips": drafts.iter().map(|d| d.kind.edited_label()).collect::<Vec<_>>() });
+                    }
+                }
                 #[cfg(feature = "automation")]
                 if let RowContent::Assistant(item) = &row.content {
                     if let Some(labels) = crate::reply_buttons::dump_labels(&item.text, &self.summary.id) {
@@ -2425,16 +2320,12 @@ impl ThreadPane {
             c.map(|c| json!({ "seq": c.seq, "count": c.ends.len() }))
         };
         let loose_ends = json!({ "summary": ends(self.summary.loose_ends_check().as_ref()), "transcript": ends(self.feed.model().loose_ends()) });
-        json!({ "threadId": self.summary.id, "state": self.load_state(), "error": self.error, "atBottom": scroller.at_bottom(), "hasMoreAbove": self.has_more_above(), "spinner": !self.loaded && self.error.is_none() && self.load_failed.is_none(), "timing": self.timing_json(), "looseEnds": loose_ends, "rows": rows })
+        json!({ "threadId": self.summary.id, "state": self.load_state(), "error": self.error, "atBottom": scroller.at_bottom(), "hasMoreAbove": self.has_more_above(), "spinner": self.load.view() == View::Spinner, "timing": self.timing_json(), "looseEnds": loose_ends, "rows": rows })
     }
 
     /// The Swift dump's names, a failure with its message.
     pub(crate) fn load_state(&self) -> String {
-        match (&self.load_failed, self.loaded) {
-            (_, true) => "loaded".to_owned(),
-            (Some(message), false) => format!("failed: {message}"),
-            (None, false) => "loading".to_owned(),
-        }
+        self.load.name()
     }
 
     pub(crate) fn timing_json(&self) -> Value {
@@ -2610,6 +2501,8 @@ impl ThreadPane {
                     let _ = model.set_background(this.background_tasks());
                     let _ = model.set_loose_ends(this.summary.loose_ends_check());
                     this.feed = ThreadFeed::new(model);
+                    // A page on its way belongs to the rows that went.
+                    this.older.newest_read();
                     this.scroller
                         .update(cx, |s, cx| s.reset(this.feed.model().rows().len(), cx));
                     cx.notify();
@@ -2627,7 +2520,10 @@ impl Render for ThreadPane {
         // this frame is on screen.
         // Its read done, not only rows showing: a reload under rows already
         // shown would otherwise count the frame drawn as it started.
-        if self.loaded && self.timing.ready_ms.is_some() && self.timing.painted_ms.is_none() {
+        if self.load.is_shown()
+            && self.timing.ready_ms.is_some()
+            && self.timing.painted_ms.is_none()
+        {
             self.timing.painted_ms = Some(-1.);
             let me = cx.weak_entity();
             window.on_next_frame(move |_, cx| {
@@ -2638,9 +2534,11 @@ impl Render for ThreadPane {
                 .ok();
             });
         }
-        let loading = !self.loaded && self.error.is_none() && self.load_failed.is_none();
+        // What goes where the transcript goes, from the load state alone.
+        let view = self.load.view();
+        let loading = view == View::Spinner;
         // Coming in as it opens, once it has its rows (open_motion.rs).
-        let entering = self.entering.transcript(self.loaded, window);
+        let entering = self.entering.transcript(self.load.is_shown(), window);
         let theme = cx.theme();
         let (muted, danger, bg) = (theme.muted_foreground, theme.danger, theme.background);
         self.rows.list_width = f32::from(self.scroller.read(cx).viewport().size.width);
@@ -2786,9 +2684,9 @@ impl Render for ThreadPane {
             })
             // Which thread started it, above the transcript (nested threads).
             .children(self.render_started_strip(cx))
-            .map(|s| match self.load_failed.clone() {
+            .map(|s| match view {
                 // No record of it is a plain note, not something that failed.
-                Some(message) if !self.loaded && self.subagent_missing => s.child(
+                View::NoRecord => s.child(
                     div()
                         .flex_1()
                         .flex()
@@ -2796,12 +2694,13 @@ impl Render for ThreadPane {
                         .justify_center()
                         .text_size(px(13.))
                         .text_color(muted)
-                        .child(message),
+                        .child(threadbear_core::thread_load::NO_RECORD),
                 ),
-                Some(message) if !self.loaded => s.child(self.render_load_failure(message, cx)),
-                _ if self.loaded
-                    && self.subagent_id.is_some()
-                    && self.feed.model().rows().is_empty() =>
+                View::Failed { message } => s.child(self.render_load_failure(message, cx)),
+                View::Transcript
+                    if self.load.is_shown()
+                        && self.subagent_id.is_some()
+                        && self.feed.model().rows().is_empty() =>
                 {
                     s.child(
                         div()
@@ -2814,7 +2713,7 @@ impl Render for ThreadPane {
                             .child("Nothing yet."),
                     )
                 }
-                _ => s.child(crate::open_motion::transcript_frame(
+                View::Spinner | View::Transcript => s.child(crate::open_motion::transcript_frame(
                     div()
                         .relative()
                         .size_full()
@@ -2869,18 +2768,11 @@ impl Render for ThreadPane {
 pub(crate) const NOT_CONNECTED_TEXT: &str =
     "Not connected to the runner, so that wasn't sent. It's still in the box.";
 
-/// Changes the messages on their way to a thread, then shows them in
-/// whichever pane has the thread open now, if one does: not necessarily the
-/// one the message was sent from, which may have gone.
-fn change_outbox(
-    app: &WeakEntity<crate::app::Threadbear>,
-    thread_id: &str,
-    cx: &mut AsyncApp,
-    change: impl FnOnce(&mut Vec<PendingMessage>),
-) {
-    let mut list = outbox(thread_id);
-    change(&mut list);
-    set_outbox(thread_id, list);
+/// Shows the messages on their way to a thread in whichever pane has the
+/// thread open now, if one does: not necessarily the one the message was
+/// sent from, which may have gone. At the top of the app's updates only:
+/// from a send's task or the outbox's clock.
+fn show_outbox_in(app: &WeakEntity<crate::app::Threadbear>, thread_id: &str, cx: &mut App) {
     let pane = app
         .read_with(cx, |app, cx| app.pane_for(thread_id, cx))
         .ok()
@@ -2902,56 +2794,4 @@ fn change_outbox(
 /// `thread:` link or `tb show` takes it.
 pub(crate) fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
-}
-
-#[cfg(test)]
-mod hold_tests {
-    use super::{
-        hold, let_go, note_sent, sending, shown_here, summaries_of, summary_arrived, taken,
-    };
-
-    #[test]
-    fn on_this_macs_runner_only_a_summary_after_the_message_counts() {
-        // Opening the thread marked it seen, and that summary came after
-        // the click: older news than the message, which this runner shows
-        // before its own summary.
-        note_sent("t3", "p1");
-        summary_arrived("t3");
-        shown_here("t3", "p1");
-        assert!(taken("t3", "p1"));
-        // Nothing to move for a message that isn't on its way.
-        shown_here("t3", "p9");
-        assert!(!taken("t3", "p9"));
-    }
-
-    #[test]
-    fn a_message_taken_holds_only_if_the_runner_said_nothing_since_the_click() {
-        note_sent("t2", "p1");
-        assert!(taken("t2", "p1"));
-        // Once only: it's spoken for.
-        assert!(!taken("t2", "p1"));
-        // Another runner's "needs you" beat the message's own echo here:
-        // that's its word already, so no hold hides it.
-        note_sent("t2", "p2");
-        summary_arrived("t2");
-        assert!(!taken("t2", "p2"));
-        assert!(!taken("t2", "never-sent"));
-    }
-
-    #[test]
-    fn a_taken_message_holds_its_thread_until_the_next_summary() {
-        let n = hold("t1");
-        assert!(sending().contains(&"t1".to_string()));
-        // The runner's next word ends it, whatever it says.
-        let before = summaries_of("t1");
-        summary_arrived("t1");
-        assert_eq!(summaries_of("t1"), before + 1);
-        assert!(!sending().contains(&"t1".to_string()));
-        // An old hold's grace running out leaves a newer one be.
-        assert!(!let_go("t1", n));
-        let newer = hold("t1");
-        assert!(!let_go("t1", n));
-        assert!(let_go("t1", newer));
-        assert!(sending().is_empty());
-    }
 }

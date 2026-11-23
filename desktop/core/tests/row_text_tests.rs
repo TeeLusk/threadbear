@@ -3,7 +3,10 @@
 // CardTextTests.swift, DevToolsTests.swift (RunnerMessageTests and the row
 // excerpt), DesignReviewTests.swift, PanelsTests.swift, ScheduleTests.swift
 // and SubagentTests.swift.
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
 
 mod support;
 

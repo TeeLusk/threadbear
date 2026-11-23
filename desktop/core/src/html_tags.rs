@@ -234,9 +234,12 @@ pub(crate) mod tests {
     pub(crate) fn cpu_seconds() -> f64 {
         #[cfg(unix)]
         {
+            // SAFETY: timespec is a plain C struct of integers, so all zeros
+            // is a valid value.
             let mut at: libc::timespec = unsafe { std::mem::zeroed() };
-            // SAFETY: clock_gettime only writes the struct it's given.
             assert_eq!(
+                // SAFETY: clock_gettime only writes the timespec it's given,
+                // which is a live local borrowed mutably for the call.
                 unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut at) },
                 0
             );

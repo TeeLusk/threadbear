@@ -577,7 +577,7 @@ impl DockLayout {
             DockDrop::Window(edge) => {
                 // A new outer child takes a quarter (or its old share); the
                 // rest keeps its proportions.
-                let take = share.unwrap_or(0.25).max(0.1).min(0.9);
+                let take = share.unwrap_or(0.25).clamp(0.1, 0.9);
                 if let DockNode::Split(s) = &self.root {
                     if s.axis == edge.axis() {
                         let mut s = s.clone();
@@ -615,7 +615,7 @@ impl DockLayout {
         let Some(source) = self.group_containing(panel) else {
             return;
         };
-        let Some(other) = self.group(target).map(|g| g.selected.clone()) else {
+        let Some(other) = self.group(target).map(|g| g.selected) else {
             return;
         };
         self.root = Self::map_groups(&self.root, &mut |g: &DockGroup| {
@@ -763,7 +763,7 @@ impl DockLayout {
 
     pub fn normalised_fractions(fractions: &[f64]) -> Vec<f64> {
         let sum: f64 = fractions.iter().sum();
-        if !(sum > 0.) {
+        if sum.partial_cmp(&0.) != Some(std::cmp::Ordering::Greater) {
             return vec![1. / fractions.len().max(1) as f64; fractions.len()];
         }
         fractions.iter().map(|f| f / sum).collect()

@@ -1,4 +1,4 @@
-// Recipes (src/recipes.ts, docs/protocol.md "Recipes"): techniques worth
+// Recipes (src/recipes.ts, docs/protocol/projects.md "Recipes"): techniques worth
 // keeping, each a RECIPE.md an agent sets up for the user, switched on and
 // off from the app's Recipes view.
 import { test } from 'node:test';

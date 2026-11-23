@@ -214,7 +214,6 @@ pub(crate) fn open_in_chrome_profile(url: &str, directory: &str, cx: &mut App) {
             })
             .detach();
         });
-        return;
     }
     #[cfg(not(target_os = "macos"))]
     system_open(&web, cx);
@@ -343,7 +342,6 @@ pub(crate) fn open_simulator(cx: &mut App) {
             })
             .detach();
         });
-        return;
     }
     #[cfg(not(target_os = "macos"))]
     refuse("Simulator is only available on macOS.".to_owned(), cx);
@@ -544,7 +542,7 @@ pub(crate) fn open_file(path: &str, origin: Origin, cx: &mut App) {
             // round). Looked up only for a kind that could be remembered.
             let default = look.trustable.as_ref().is_some_and(is_default_opener);
             if default && policy::remembered(&look, &crate::reply_links::trusted_openers()) {
-                open_checked(&path, &look, &with, &url, cx);
+                open_checked(path, &look, &with, &url, cx);
                 return;
             }
             if !default {
@@ -871,6 +869,9 @@ pub(crate) fn media_thumbnail(
     let mut png = vec![0; 2 * 1024 * 1024];
     // The native function owns the descriptor on every path, reopens no original path,
     // caps its raster at 552×340 and its system thumbnail request at five seconds.
+    // SAFETY: the fd is ours to give away (into_raw_fd), `name` is a live
+    // CString, `expected` is a repr(C) MediaVersion matching TBMediaVersion,
+    // and the native side writes at most `png.len()` bytes into `png`.
     let count = unsafe {
         tb_media_thumbnail(
             checked.file.into_raw_fd(),
@@ -969,6 +970,9 @@ fn application_icon(bundle: &Path) -> Result<CheckedIcon, std::io::Error> {
         ));
     }
     let mut name = [0u8; 256];
+    // SAFETY: `plist` is `plist.len()` readable bytes, borrowed (no copy, not
+    // freed) for the call; the native side writes fewer than `name.len()`
+    // bytes into `name` and returns how many, or -1.
     let length =
         unsafe { tb_bundle_icon_file(plist.as_ptr(), plist.len(), name.as_mut_ptr(), name.len()) };
     let name = usize::try_from(length)
@@ -1006,7 +1010,7 @@ fn checked_icon_file(real: &Path, wanted: &str) -> Result<CheckedIcon, std::io::
     } else {
         got == 8
             && head.starts_with(b"icns")
-            && u32::from_be_bytes(head[4..8].try_into().unwrap()) as u64 == meta.len()
+            && u32::from_be_bytes([head[4], head[5], head[6], head[7]]) as u64 == meta.len()
     };
     if !matches {
         return Err(std::io::Error::other("That file isn't the icon it names"));
@@ -1025,14 +1029,21 @@ pub(crate) fn icon_png(icon: CheckedIcon) -> Result<Vec<u8>, std::io::Error> {
     }
     let mut output = std::ptr::null_mut();
     let CheckedIcon(file, length) = icon;
+    // SAFETY: `file` is open and owned here through the call, which only
+    // preads it; `output` is a valid out pointer the native side sets to a
+    // malloc'd buffer or null.
     let length = unsafe { tb_file_icon_png(file.as_raw_fd(), length as i64, &mut output) };
     if output.is_null() || length <= 0 {
         return Err(std::io::Error::other("That icon couldn't be decoded"));
     }
     // AppKit hands over a malloc copy, so Rust owns neither an Objective-C
     // object nor the allocation after this copy and free.
+    // SAFETY: non-null and `length` > 0, checked above; the native side
+    // returns the byte count of the malloc'd PNG it put in `output`.
     let bytes =
         unsafe { std::slice::from_raw_parts(output.cast::<u8>(), length as usize).to_vec() };
+    // SAFETY: `output` came from malloc on the native side, and is freed once
+    // here after the bytes were copied out.
     unsafe {
         free(output);
     }
@@ -1114,6 +1125,9 @@ fn open_media(
     // The view owns the open file from here, and closes it, whether or not
     // it's made.
     let file = checked.file.into_raw_fd();
+    // SAFETY: `opening.parent` is the window's live content view, called on
+    // the main thread while the window draws; the fd is handed over and
+    // closed by the native side on every path; `path` is a live CString.
     let view = unsafe {
         tb_media_open(
             opening.parent,
@@ -1125,7 +1139,7 @@ fn open_media(
             volume,
         )
     };
-    // Safety: a view tb_media_open just made, owned by nothing else.
+    // SAFETY: a view tb_media_open just made, owned by nothing else.
     unsafe { crate::media_view::Media::from_native(view, kind) }
 }
 

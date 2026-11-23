@@ -129,7 +129,7 @@ pub(crate) fn watch(pane: WeakEntity<ThreadPane>) -> impl IntoElement {
                     hide(&pressed, cx);
                 }
             });
-            let scrolled = pane.clone();
+            let scrolled = pane;
             window.on_mouse_event(move |_: &ScrollEvent, phase, _, cx| {
                 if phase.capture() {
                     hide(&scrolled, cx);
@@ -509,7 +509,7 @@ pub(crate) fn overlay(
                         now.is_some() && now != bar.placed
                     });
                     if moved {
-                        let pane = moved_pane.clone();
+                        let pane = moved_pane;
                         cx.defer(move |cx| {
                             let _ = pane.update(cx, |_, cx| cx.notify());
                         });

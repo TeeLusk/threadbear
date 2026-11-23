@@ -3,7 +3,10 @@
 // string a runner wrote, so a compromised extra Mac could name a thread
 // `remote$(…)` or `deadbeef) ![x](/tmp/x.png`. Such a row never reaches the
 // sidebar or the chips' index, and Copy debug info quotes the id anyway.
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
 
 mod support;
 

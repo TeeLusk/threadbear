@@ -191,9 +191,9 @@ impl SidePane {
             }),
             Target::Page(doc) => {
                 if back {
-                    bar.finder.previous();
+                    bar.finder.previous_match();
                 } else {
-                    bar.finder.next();
+                    bar.finder.next_match();
                 }
                 let finder = bar.finder.clone();
                 mark_page(&doc, &finder, cx);
@@ -439,7 +439,7 @@ impl SidePane {
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             this.close_find(&done_id, window, cx)
         }));
-        let escape_id = id.clone();
+        let escape_id = id;
         Some(
             h_flex()
                 .id("find-bar")

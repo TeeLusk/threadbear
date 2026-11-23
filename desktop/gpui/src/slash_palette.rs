@@ -639,7 +639,7 @@ impl Composer {
             .truncate()
             .when(on, |s| s.bg(accent).text_color(gpui_kit::white()))
             .when(!on, |s| s.text_color(fg).hover(move |s| s.bg(hover)))
-            .tip(tip.clone())
+            .tip(tip)
             // Picked on the first click, at once; a second click on the
             // picked row runs it (read from the click itself).
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
@@ -926,7 +926,7 @@ fn palette_button(
         .hover(|s| s.bg(style::primary_opacity(cx, 0.14)))
         .cursor_pointer()
         .child(title)
-        .tip(shown.clone())
+        .tip(shown)
         .on_click(on_click)
 }
 

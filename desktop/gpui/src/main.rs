@@ -3,7 +3,14 @@
 // connection runs on a runtime of its own and hands its events across on a
 // channel; requests run there too and their results come back as tasks.
 // Read-outs that exist only for the scripted control (`automation.rs`).
-#![cfg_attr(not(feature = "automation"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(feature = "automation"),
+    allow(
+        dead_code,
+        unused_imports,
+        reason = "read-outs only the scripted control uses"
+    )
+)]
 // A Windows release is a windowed program, not a console one: without this
 // Windows opens a cmd window behind the app for its stderr (Mike's Dell, 17
 // Nov). Its log goes to a file instead (app_log.rs). Debug and scripted
@@ -37,6 +44,7 @@ mod composer_answers;
 mod composer_card;
 mod composer_chips;
 mod composer_context;
+mod composer_drafts;
 mod composer_inline;
 mod composer_media;
 mod composer_send;
@@ -110,7 +118,6 @@ mod remote;
 mod remote_pictures;
 mod reply_buttons;
 mod reply_links;
-mod review_pane;
 mod review_window;
 mod rich_boxes;
 mod rich_window;
@@ -165,6 +172,10 @@ use threadbear_client::runner::{Client, RpcError, Sink, Status};
 use threadbear_core::zoom;
 use tokio::sync::mpsc;
 
+#[expect(
+    clippy::expect_used,
+    reason = "without its runtime the app can reach no runner, so it stops with why"
+)]
 pub static RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -330,7 +341,7 @@ fn main() {
     // The new copy of a handover says it's started (handover.rs).
     handover::announce_start();
     // What it was built from, for the runner to tell a thread waiting for
-    // the app to restart (docs/protocol.md, "App restarts").
+    // the app to restart (docs/protocol/updates.md, "App restarts").
     app_update::announce_build();
     // Before anything else, to catch a panic at launch. Only the installed
     // release, and a scripted app into its own folder (crash_reporting.rs).
@@ -392,6 +403,10 @@ fn main() {
                 .update_restore
                 .as_ref()
                 .is_none_or(|r| r["front"].as_bool() != Some(false));
+        #[expect(
+            clippy::expect_used,
+            reason = "with no main window there is no app to run"
+        )]
         let (window, app) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

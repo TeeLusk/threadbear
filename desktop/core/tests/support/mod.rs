@@ -2,7 +2,12 @@
 // helper (app/Tests/ThreadbearCoreTests/FakeTransport.swift), so the tests can
 // be read beside the Swift ones. Names follow the Swift: `user`, `text`,
 // `delta`, `call`, `result`, `done`.
-#![allow(dead_code)]
+#![allow(dead_code, reason = "each test file uses only some of the helpers")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test helpers: a panic is the calling test's failure"
+)]
 
 use serde_json::{json, Value};
 use threadbear_core::reducer::*;

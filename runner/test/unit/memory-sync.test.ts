@@ -1,4 +1,4 @@
-// Shared memory (memory-sync.ts, docs/protocol.md "Shared memory"): the main
+// Shared memory (memory-sync.ts, docs/protocol/settings.md "Shared memory"): the main
 // Mac puts its global CLAUDE.md and memory folders up, the other runners copy
 // them into their own logins under their own home, and their agents' saves
 // come back as offers that land beside the main Mac's memory, never in it.

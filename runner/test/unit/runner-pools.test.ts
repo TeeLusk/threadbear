@@ -1,4 +1,4 @@
-// Pools in the runner (docs/protocol.md, "Pools"), with fake adapters and
+// Pools in the runner (docs/protocol/settings.md, "Pools"), with fake adapters and
 // the fake clock: picking a pool and login on create (the named model's
 // provider decides), the move before a turn, the move after a usageLimit
 // failure and its carry-on, the wait and its timer (across a restart),

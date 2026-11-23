@@ -18,7 +18,7 @@ dashboard panel.
 
 - `convex/schema.ts`: `runners`, `threads`, `messages`, `commands`,
   `projects`, `schedules`, `accounts`, `tokens`, `devices`, `runnerKeys`,
-  `threadTombstones`, `runnerLogins` (docs/protocol.md, "Runner keys").
+  `threadTombstones`, `runnerLogins` (docs/protocol/keys.md, "Runner keys").
 - `convex/sync.ts`: the runner's mutations (`upsertThreads`,
   `removeThreads`, `prune`, `heartbeat`, `bye`, `appendMessages`,
   `setProjects`, `upsertProjects`, `setSchedules`, `setAccounts`, `takeCommand`,
@@ -29,12 +29,12 @@ dashboard panel.
   `remoteThread`, and from API 87 `picturesAtSeqs`, the pictures pasted into
   its messages) and queueing work for it (`queueCommand`, `commandState`,
   `remoteAccounts`), owner key only, so the Mac app opens other Macs'
-  threads with no link to them (docs/protocol.md, "Other runners' threads
+  threads with no link to them (docs/protocol/runners.md, "Other runners' threads
   through the backend"). Each takes `key`: the deployment's
   `RUNNER_KEY` (the owner key, the main Mac's), or a runner key from
   `runnerKeys`, which acts as its own runner alone (`convex/lib.ts`
   `runnerAuth`, `convex/runnerAccess.ts`; the table of who may call what
-  is docs/protocol.md, "Runner keys"). `tb runner add` on the main Mac
+  is docs/protocol/keys.md, "Runner keys"). `tb runner add` on the main Mac
   makes one for another Mac.
 - `convex/phone.ts`: the phone's API (section 6).
 - `convex/push.ts` (Node action) and `convex/devices.ts`: APNs over
@@ -63,16 +63,19 @@ dashboard panel.
   `pushHealth` row (`convex/pushHealth.ts`); while none get through, the
   owner runner's heartbeat answers `pushFailing` and `tb status` says so. `npx convex run push:test '{"body":"hi"}'
   --prod` sends a test; `npx convex run devices:list --prod` shows the
-  phones.
+  phones. When a thread that had a push in the last day stops needing
+  Mike (seen on the Mac, answered, archived), `upsertThreads` schedules
+  `push:clear`: a silent push that takes its notification down on the
+  phones (see the payload below; through the relay's `/clear`).
 - `convex/tokens.ts`: the token helpers, and `issue`, `revoke`, `list` to
   run from a terminal with `npx convex run tokens:issue
   '{"name":"iphone","days":90}'` (add `--prod` for the Sydney prod
   deployment). Only the SHA-256 of a token is stored, with a name and a
   kind (`phone` or `browser`). Since API 6 the Mac app issues them through
   the runner instead: `sync:issueToken`, `sync:listTokens` and
-  `sync:revokeToken` take the runner key (docs/protocol.md "Devices"), so
+  `sync:revokeToken` take the runner key (docs/protocol/moves.md "Devices"), so
   pairing needs no Convex CLI.
-- `runner/src/sync.ts`: the mirror, documented in docs/protocol.md
+- `runner/src/sync.ts`: the mirror, documented in docs/protocol/moves.md
   ("Sync"): on with `sync.url` in `runner.json` and `secrets/convex-key`;
   threads, messages (all of them, backfilled once), the pending
   approval on a row, projects, schedules and accounts; coalesced writes,
@@ -108,7 +111,7 @@ Hetzner box (`cloud`, runner `befe8df8975c`, since 07:03 UTC 5 Nov),
 which that day's rotation had cut off while it still had the old shared
 key. To rotate `RUNNER_KEY` with no gap, `tb runner
 rotate-owner` on the M5, restart its runner, then `tb runner rotate-owner
---finish` (docs/protocol.md, "Runner keys").
+--finish` (docs/protocol/keys.md, "Runner keys").
 
 **Working on it.** `npx convex dev` at the repo root runs the local
 backend and pushes `convex/` as it changes; `npx convex env set RUNNER_KEY
@@ -213,7 +216,7 @@ Queries:
   phone's inbox it was about 10 MB of Database I/O a day (7 Nov).
 - `phone:runnerStats({ token })` (API 45) → each runner's machine figures, last
   reported while someone was watching, and `phone:watchRunners({ token })` says
-  someone is (docs/protocol.md, Sync, "Runner figures").
+  someone is (docs/protocol/moves.md, Sync, "Runner figures").
 - `phone:threads({ token, view: "inbox" | "hibernating" | "den" })` →
   rows, newest `lastActivityAt` first; the den is capped at 100. A row is
   `threadId, runnerId, title, cwd, accountId, provider, model?, status,
@@ -299,12 +302,12 @@ gives it only the newest 100 of the den.
 
 Also `phone:projects({ token, archived? })`, `phone:schedules({ token })`
 and `phone:accounts({ token })`, the runner's lists as it last sent them
-(docs/protocol.md "Sync" says which fields). Since API 48 `phone:projects`
+(docs/protocol/moves.md "Sync" says which fields). Since API 48 `phone:projects`
 reads `projectHeads` and returns `goals`, `state`, `notes` and `folders` empty;
 `phone:project({ token, runnerId, id })` is one project whole, or null, read
 only when its page is open. Since API 5 a project row
 has `icon?: { symbol?, url?, by }`: the Mac's `ProjectIcon` with the
-picture as a URL into file storage (the runner uploads it, docs/protocol.md
+picture as a URL into file storage (the runner uploads it, docs/protocol/moves.md
 "Sync", "Project pictures") in place of a path on the Mac. The phone draws
 the picture, else the symbol, else the title's first letter, as the Mac
 sidebar does; a runner before API 5 sends projects without `icon`.
@@ -320,13 +323,13 @@ phone names must be one that has heartbeated (or `"any"`), else
 
 - `phone:send({ token, threadId, text, answers? })` (`answers`, API 14: the card's asks it answers, `{ action, answer }[]`)
 - `phone:press({ token, threadId, buttonId })` (API 59) → commandId: a
-  reply button's press (docs/protocol.md, "Reply buttons"), queued as a
+  reply button's press (docs/protocol/events.md, "Reply buttons"), queued as a
   `press` command with `{ buttonId }`. Its `resultThreadId` is the thread
   the button started or messaged. `phone:messages` rows carry `buttons`,
   the state of the buttons an assistant message links, since API 59.
 - `phone:slashCommands({ token, threadId })` (API 62) → commandId: asks
   the thread's runner for the slash commands it can run, for the reply
-  box's palette (docs/protocol.md, "Slash commands"). The runner answers
+  box's palette (docs/protocol/threads.md, "Slash commands"). The runner answers
   with its `threads.commands` list as the command's `result` (kept by
   `sync:finishCommand` as for a `call`); an older runner fails it as
   unknown.
@@ -336,7 +339,7 @@ phone names must be one that has heartbeated (or `"any"`), else
   86): the Reviews sheet. The first two are commands the thread's runner
   answers from its own reviews (the review comes back as the command's
   `result`); the stills go up only once the phone has opened that review
-  (docs/protocol.md, "Reviews on the phone").
+  (docs/protocol/events.md, "Reviews on the phone").
 - `phone:interrupt({ token, threadId })` (API 69) → commandId: Stop,
   queued as an `interrupt` command, which ends the thread's running turn as
   Stop on the Mac does. Runners have applied it since API 44 (the main
@@ -351,7 +354,7 @@ phone names must be one that has heartbeated (or `"any"`), else
 - `phone:secret({ token, threadId, approvalId, sealed?: { epk, nonce,
   box }, decline? })` (API 35): the answer to a `pendingApproval` of kind
   `secret`, sealed to that card's `key` so only the runner can open it
-  (docs/protocol.md, "Secrets"). `sealed` is dropped from the command
+  (docs/protocol/threads.md, "Secrets"). `sealed` is dropped from the command
   once the runner has finished it.
 - `phone:update({ token, threadId, change })` where `change` is one of
   `{ snooze: { until?, untilRestart? } }`, `{ wake: true }`, `{ archive:
@@ -367,7 +370,7 @@ phone names must be one that has heartbeated (or `"any"`), else
   heartbeating with the owner key
   (`byOwner`) seen in the last 3 minutes, the one with the most threads (the
   Mac Mike works on), or `"any"`, which only the owner key takes, so it waits
-  for that Mac (docs/protocol.md, "Runner keys").
+  for that Mac (docs/protocol/keys.md, "Runner keys").
 - `phone:quickAsk({ token, question, answer, sources?, askedAt, runnerId? })`
   (API 10): a quick ask the phone has already answered out loud, kept as a
   thread. `question` is 1 to 2,000 characters once trimmed, `answer` 1 to
@@ -401,7 +404,14 @@ phone names must be one that has heartbeated (or `"any"`), else
   as `{ aps: { alert: { title, body }, sound: "default", "thread-id":
   threadId }, threadId }` for bundle id `com.mikecann.threadbear`; the
   title is the thread's title and the body the question, the approval
-  with its input line, or the reply.
+  with its input line, or the reply. When it stops needing him, a silent
+  `{ aps: { "content-available": 1 }, clear: threadId }` (a background
+  push, priority 5; on Android the data `{ clear }`) tells the app to take
+  that thread's notifications down. It has no alert and no `threadId`, so
+  an older app ignores it. The iPhone app also takes them down when a
+  thread is opened and whenever the inbox says a thread no longer needs
+  him (`ios/Threadbear/DeliveredNotifications.swift`), as iOS may hold a
+  background push back.
 
 Changes from the proposal: `answers` values are strings, not arrays (a
 multi-select question's choices go in one string, comma-joined, which is
@@ -473,7 +483,7 @@ the rules and the withhold list, and `tb status` says so.
 ## Full sync (API 52, 6 Nov 2026)
 
 Tool output, input and diffs for a runner with `sync.full` on (the plan, 5 Nov, is
-docs/archive/full-convex.md; its step 4 built this, and docs/protocol.md "Sync" has the
+docs/archive/full-convex.md; its step 4 built this, and docs/protocol/moves.md "Sync" has the
 fields). Convex charges a read for the whole
 document, so they're in `eventBodies`, not `messages`: no list ever reads one, and
 each is fetched once, by seq, when someone opens that tool. Writes are the cost, plus

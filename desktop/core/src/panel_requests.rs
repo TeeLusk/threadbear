@@ -1,4 +1,4 @@
-//! An agent's `show_panel` (docs/protocol.md, "Showing panels"): which panel
+//! An agent's `show_panel` (docs/protocol/panels.md, "Showing panels"): which panel
 //! a request names, where it opens, and the gate that shows each one once,
 //! while Mike is looking at its thread (Swift's `PanelRequests` and
 //! `PanelRequestGate`).

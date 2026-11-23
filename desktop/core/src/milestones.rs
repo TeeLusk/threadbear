@@ -28,7 +28,7 @@ pub fn title(tier: usize) -> String {
         .chars()
         .enumerate()
         .flat_map(|(i, c)| {
-            let comma = i > 0 && (digits.len() - i) % 3 == 0;
+            let comma = i > 0 && (digits.len() - i).is_multiple_of(3);
             comma.then_some(',').into_iter().chain(std::iter::once(c))
         })
         .collect();

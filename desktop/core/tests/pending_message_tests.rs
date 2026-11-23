@@ -1,7 +1,10 @@
 // Ports of app/Tests/ThreadbearCoreTests/PendingMessageTests.swift: a
 // message sent from the app shows at once, dimmed, and gives way to the
 // runner's own `user.message` for it.
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
 
 mod support;
 

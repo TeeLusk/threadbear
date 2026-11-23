@@ -1,7 +1,7 @@
 // A GitHub pull request open as a tab in the side pane (the inlinePrs
 // experiment): a PR link clicked in a reply or in Highlights opens here
 // rather than in the browser, with what's needed to decide on it and the
-// buttons to act (docs/protocol.md, "Pull requests"; the rules and words are
+// buttons to act (docs/protocol/panels.md, "Pull requests"; the rules and words are
 // threadbear_core::pull_requests). Mike picked this layout, option A of three
 // mockups (18 Nov 2026), after trying Capy.
 //
@@ -796,7 +796,10 @@ impl SidePane {
     }
 
     /// A button that opens its menu below itself; `primary` is Merge's fill.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn menu_button(
         &self,
         id: &'static str,
@@ -983,6 +986,10 @@ impl SidePane {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 286 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn pr_overview(
         &mut self,
         thread: &ThreadSummary,
@@ -1934,7 +1941,7 @@ mod cache {
         if files.len() <= KEEP {
             return;
         }
-        files.sort_by(|a, b| b.0.cmp(&a.0));
+        files.sort_by_key(|a| std::cmp::Reverse(a.0));
         for (_, path) in files.drain(KEEP..) {
             let _ = std::fs::remove_file(path);
         }

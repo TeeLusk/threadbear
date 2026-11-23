@@ -271,7 +271,7 @@ impl Threadbear {
         for card in cards {
             grid = grid.child(self.render_project_card(card, card_width, cx));
         }
-        let probe = measured.clone();
+        let probe = measured;
         let notify = cx.entity().downgrade();
         div()
             .relative()

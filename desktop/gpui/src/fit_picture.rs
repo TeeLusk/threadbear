@@ -112,6 +112,10 @@ impl Asset for FittedPicture {
     type Source = FittedKey;
     type Output = Result<Arc<RenderImage>, ImageCacheError>;
 
+    #[expect(
+        clippy::manual_async_fn,
+        reason = "an async fn would hold on to `cx`, and GPUI's Asset wants a future that's 'static"
+    )]
     fn load(
         (path, _, _): Self::Source,
         _cx: &mut App,
@@ -122,7 +126,7 @@ impl Asset for FittedPicture {
             // it can't be shown instead.
             let mut small = shrunk(&bytes).ok_or_else(|| std::io::Error::other(TOO_BIG))?;
             // GPUI's pictures are BGRA (as `Image::to_image_data` makes them).
-            for pixel in small.chunks_exact_mut(4) {
+            for pixel in small.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
             }
             Ok(Arc::new(RenderImage::new(vec![image::Frame::new(small)])))

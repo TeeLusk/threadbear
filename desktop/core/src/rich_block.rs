@@ -369,6 +369,10 @@ impl<V: Clone> PictureBudget<V> {
     }
 
     /// Entry `at` out, its parts let go of.
+    #[expect(
+        clippy::expect_used,
+        reason = "callers pass an index they have just found in the list"
+    )]
     fn take(&mut self, at: usize) -> V {
         let (_, value, ids) = self.entries.remove(at).expect("there");
         for id in ids {
@@ -401,7 +405,7 @@ impl<V: Clone> PictureBudget<V> {
     /// The pictures kept for `key`, now the most recently used.
     pub fn get(&mut self, key: &str) -> Option<V> {
         let at = self.entries.iter().position(|(k, ..)| k == key)?;
-        let entry = self.entries.remove(at).expect("there");
+        let entry = self.entries.remove(at)?;
         let value = entry.1.clone();
         self.entries.push_back(entry);
         Some(value)

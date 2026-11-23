@@ -332,7 +332,7 @@ test('a send before start is held, then sent as turn/start with images first', a
   await h.session.end();
 });
 
-// docs/protocol.md, "Pictures in a message".
+// docs/protocol/threads.md, "Pictures in a message".
 test('pictures go to Codex where their [Picture N] markers are, the rest before the words', async () => {
   const h = await open();
   await started(h);
@@ -1086,7 +1086,7 @@ test('auto on Codex is as careful as ask, as Codex has no classifier', async () 
   h.conn.respond(req.id, threadResult('th-1'));
 });
 
-// Slash commands (docs/protocol.md, "Slash commands"): the ones Codex's
+// Slash commands (docs/protocol/threads.md, "Slash commands"): the ones Codex's
 // terminal app runs become the app-server calls that do them.
 test('/compact is thread/compact/start, and its turn (id from turn/started) answers the message', async () => {
   const h = await open();

@@ -354,7 +354,7 @@ pub fn backtrace_frames(text: &str) -> Vec<String> {
     if let Some(last) = frames.iter().take(30).rposition(entry) {
         frames.drain(..=last);
     } else {
-        let mine = frames.iter().take_while(|f| hook(*f)).count();
+        let mine = frames.iter().take_while(|f| hook(f)).count();
         frames.drain(..mine);
     }
     frames.reverse();

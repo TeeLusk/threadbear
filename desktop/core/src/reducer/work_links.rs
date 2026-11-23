@@ -108,13 +108,7 @@ fn score(row: &Row, q: &str) -> i32 {
                 0
             }
         }
-        RowContent::Note(note) => {
-            if normal(note).contains(q) {
-                3
-            } else {
-                0
-            }
-        }
+        RowContent::Note(note) if normal(note).contains(q) => 3,
         _ => 0,
     }
 }

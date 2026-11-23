@@ -1,4 +1,4 @@
-// Other runners' threads through the backend (docs/protocol.md, "Other
+// Other runners' threads through the backend (docs/protocol/runners.md, "Other
 // runners' threads through the backend"; full Convex step 5). The Mac app
 // asks its own runner about another runner's thread as it would about one of
 // this runner's, and this answers from the backend: the thread's message rows
@@ -737,7 +737,7 @@ export class Relay {
   }
 
   /**
-   * The done card's loose ends (docs/protocol.md, "Loose ends") as this
+   * The done card's loose ends (docs/protocol/threads.md, "Loose ends") as this
    * runner's summary has them, `{ seq, ends }`, from the thread's backend
    * row (API 73) and the seq of the turn.completed the relay gave the app
    * for that card. Only for a thread being watched: the sidebar's rows don't

@@ -82,6 +82,8 @@ fn hide(window: &objc2_app_kit::NSWindow) {
     window.setAlphaValue(0.);
     window.setIgnoresMouseEvents(true);
     // NSWindowAnimationBehaviorNone: no zoom as it's ordered in.
+    // SAFETY: `window` is a live NSWindow we borrow, and
+    // setAnimationBehavior: takes one NSInteger and returns void.
     let _: () = unsafe { objc2::msg_send![window, setAnimationBehavior: 2isize] };
 }
 
@@ -107,6 +109,7 @@ mod unseen_windows {
         } else {
             (place, relative)
         };
+        #[expect(clippy::expect_used, reason = "installed before AppKit can call this")]
         let original = *ORIGINAL.get().expect("installed before it's called");
         // SAFETY: the method's own implementation, of this same signature.
         let original: extern "C-unwind" fn(&NSWindow, Sel, isize, isize) =
@@ -165,6 +168,8 @@ mod banner {
                 false,
             )
         };
+        // SAFETY: `strip` is a live window we own a Retained to, so turning
+        // off release-on-close keeps that reference the only owner.
         unsafe { strip.setReleasedWhenClosed(false) };
         strip.setIgnoresMouseEvents(true);
         strip.setBackgroundColor(Some(&NSColor::systemOrangeColor()));
@@ -296,6 +301,10 @@ pub(crate) mod pasteboard {
         let board = NSPasteboard::pasteboardWithName(&NSString::from_str(&name()));
         board.clearContents();
         BOARD.store(Retained::into_raw(board), Ordering::Release);
+        #[expect(
+            clippy::expect_used,
+            reason = "every NSPasteboard has generalPasteboard"
+        )]
         let method = NSPasteboard::class()
             .class_method(sel!(generalPasteboard))
             .expect("NSPasteboard has generalPasteboard");
@@ -335,12 +344,14 @@ pub(crate) mod pasteboard {
             let general = objc2_app_kit::NSPasteboard::generalPasteboard();
             assert_eq!(general.name().to_string(), super::name());
             general.clearContents();
+            // SAFETY: NSPasteboardTypeString is an immutable extern constant.
             general.setString_forType(&objc2_foundation::NSString::from_str("private"), unsafe {
                 objc2_app_kit::NSPasteboardTypeString
             });
             let again = objc2_app_kit::NSPasteboard::generalPasteboard();
             assert_eq!(
                 again
+                    // SAFETY: NSPasteboardTypeString is an immutable extern constant.
                     .stringForType(unsafe { objc2_app_kit::NSPasteboardTypeString })
                     .map(|s| s.to_string())
                     .as_deref(),

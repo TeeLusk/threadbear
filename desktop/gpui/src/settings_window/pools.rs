@@ -67,6 +67,10 @@ pub(crate) struct PoolsDraft {
 }
 
 impl SettingsWindow {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 235 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     pub(super) fn render_pools(
         &mut self,
         window: &mut Window,
@@ -80,10 +84,7 @@ impl SettingsWindow {
             (
                 t.logins.pools.clone(),
                 t.logins.accounts.clone(),
-                matches!(
-                    t.status,
-                    threadbear_client::runner::Status::Connected { .. }
-                ),
+                t.connected(),
             )
         };
         if runner_pools.is_empty() {
@@ -374,7 +375,7 @@ impl SettingsWindow {
         let typed = name.read(cx).value().to_string();
         match pools::renaming(&pool, &typed) {
             Some(renamed) => {
-                let title = renamed.title.clone();
+                let title = renamed.title;
                 self.change_pool(&pool.id, cx, move |p| p.title = title.clone());
             }
             // Blank or unchanged: back to the name it has.
@@ -609,7 +610,7 @@ impl SettingsWindow {
         Popover::new("settings-pool-icon-popover")
             .anchor(Anchor::TopRight)
             .trigger(IconFace {
-                symbol: symbol.clone(),
+                symbol,
                 secondary,
                 hover: style::primary_opacity(cx, 0.08),
             })

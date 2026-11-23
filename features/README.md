@@ -98,7 +98,7 @@ there stick to `dev-app.sh`'s automation commands.
 - Trackpad gestures: made-up events handed to a handler never meet a scroll
   view, and a scroll view that gets any of a gesture takes the rest itself, so
   swipes passed every test and failed on Mike's trackpad twice (7 Nov).
-  `app/Tools/post-gesture.swift` sends them through the window server.
+  `features/tools/post-gesture.swift` sends them through the window server.
 - A scripted drag starts from a window of your own. It can't start from a
   screenshot's floating thumbnail, so that one still takes a person.
 - Someone else may be using that desktop: first check nothing's recording it

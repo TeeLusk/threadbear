@@ -152,7 +152,8 @@ fn collect(node: &markdown::mdast::Node, text: &str, found: &mut Vec<RichBlock>)
 pub(crate) enum Drawing {
     /// Waiting its turn, or for Chromium to start.
     Queued,
-    Drawing,
+    /// Being drawn now.
+    InProgress,
     /// In points at the zoom it was drawn for.
     Drawn {
         width: f32,
@@ -261,7 +262,7 @@ impl RichStore {
             };
             if matches!(
                 self.states.get(&oldest),
-                Some(Drawing::Queued | Drawing::Drawing)
+                Some(Drawing::Queued | Drawing::InProgress)
             ) {
                 self.state_order.push_back(oldest);
                 break;
@@ -349,7 +350,7 @@ impl RichStore {
             return;
         };
         self.busy = true;
-        self.remember(key.clone(), Drawing::Drawing, cx);
+        self.remember(key.clone(), Drawing::InProgress, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = draw(&block, zoom, cx).await;
@@ -643,7 +644,7 @@ mod disk {
     /// Written whole and renamed into place, so the Swift app or the next
     /// launch never reads half a picture, and only this user's: it's a
     /// picture of a reply (`private_file`).
-    fn write(path: &PathBuf, bytes: &[u8]) {
+    fn write(path: &std::path::Path, bytes: &[u8]) {
         let _ = threadbear_core::private_file::write(path, bytes);
     }
 
@@ -1082,7 +1083,7 @@ pub(crate) fn dump(text: &str, cx: &App) -> Option<Value> {
                 "shows": if drawn && !s.shows_source(block) { "drawn" } else { "source" },
                 "state": match state {
                     Some(Drawing::Queued) => "queued".to_owned(),
-                    Some(Drawing::Drawing) => "drawing".to_owned(),
+                    Some(Drawing::InProgress) => "drawing".to_owned(),
                     Some(Drawing::Drawn { .. }) => "drawn".to_owned(),
                     Some(Drawing::Failed(why)) => format!("failed: {why}"),
                     None => "waiting".to_owned(),

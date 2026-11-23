@@ -458,7 +458,10 @@ impl Threadbear {
 
 /// `TokensChart`: tokens by the hour today, or by the day for the last week,
 /// stacked by login. Hovering a bar shows what's in it.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn tokens_chart(
     chart: &Chart,
     accounts: &[Account],
@@ -793,7 +796,10 @@ fn stat_tile(index: usize, tile: &Tile, content: f32, p: &Palette, window: &Wind
 /// The chart itself: grid lines, the bars stacked by login, the dashed line
 /// at now on today's, and the axes' words. The pointer's slot stays as it is
 /// and the rest fade, as the Swift chart's selection does.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn paint_tokens(
     chart: &Chart,
     accounts: &[Account],
@@ -947,7 +953,10 @@ enum Align {
 }
 
 /// One line of words, its middle at `at.y`.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn paint_words(
     text: &str,
     size: f32,
@@ -1048,7 +1057,7 @@ fn hover_note(
     _cx: &App,
 ) -> AnyElement {
     let mut bars: Vec<&rules::Bar> = chart.bars_at(slot);
-    bars.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+    bars.sort_by_key(|a| std::cmp::Reverse(a.tokens));
     let total = bars
         .iter()
         .fold(0i64, |sum, b| sum.saturating_add(b.tokens));
@@ -1104,7 +1113,10 @@ fn hover_note(
 /// card with a row for each login in it (option A of Mike's 20 Nov review:
 /// the per-login cards and their charts took a screen for two or three
 /// logins). A row opens to its charts and buttons when clicked.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn pool_card(
     card: &Card,
     accounts: &[Account],
@@ -1212,7 +1224,14 @@ fn tone_colour(tone: Tone, p: &Palette) -> (Hsla, bool) {
 /// model's own week, the 5-hour window, Find work for it and the token
 /// buttons. A sign-in that's ending or gone stays in sight when it's shut,
 /// as that's the one thing that needs doing before a job fails overnight.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "baselined at 318 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+)]
 fn login_row(
     key: &str,
     open_key: &str,
@@ -1692,9 +1711,11 @@ fn meters_layout(
         return v_flex()
             .gap(px(10.))
             .children((0..meters.len()).step_by(2).map(|i| {
-                let second = (i + 1 < meters.len())
-                    .then(|| meter(i + 1))
-                    .unwrap_or_else(|| div().flex_1().min_w(px(170.)).into_any_element());
+                let second = if i + 1 < meters.len() {
+                    meter(i + 1)
+                } else {
+                    div().flex_1().min_w(px(170.)).into_any_element()
+                };
                 h_flex()
                     .items_start()
                     .gap(px(18.))
@@ -1811,7 +1832,10 @@ fn window_meter(key: &str, meter: &Meter, colour: Hsla, now: i64, p: &Palette) -
 /// `WeekChart`: what was left over the last seven days, last week's readings
 /// too, breaking at each reset, then this pace dashed on from now to the
 /// reset, a faint line at each midnight and the days along the bottom.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn paint_week(
     chart: &rules::WeekChart,
     colour: Hsla,

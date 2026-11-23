@@ -16,7 +16,7 @@ runs under is the thing being changed. Today that's fragile:
 The built-in `threadbear` MCP server every session gets (create, update,
 delete and move threads; `runner/src/threadbear-mcp.ts`) was built
 separately and merged alongside this. Both are bound to the same thread
-(see "Tools for agents" in `docs/protocol.md`). A `restart_runner` MCP
+(see "Tools for agents" in `docs/protocol/tools.md`). A `restart_runner` MCP
 tool would be a thin wrapper over `runner.restart` below; it isn't built,
 since from a thread runner changes go out through the deploy script.
 
@@ -79,7 +79,7 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   it tries again itself after 5 s. SIGTERM (launchctl, a reboot) goes to
   every child, which get 20 s before SIGKILL (the plist's ExitTimeOut is
   30). A child that loses its IPC channel stops.
-- **Handovers** (docs/protocol.md, "Handovers"). An idle restart with busy
+- **Handovers** (docs/protocol/updates.md, "Handovers"). An idle restart with busy
   threads (a deploy, the runner following main) doesn't wait for them.
   The runner lets go of its idle threads and the port, writes
   `run/drain-<pid>.json`, and sends `{ type: "handover" }`; the
@@ -164,7 +164,7 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
 
 ### 2. Restarting without killing the turn
 
-- **Protocol** (update `docs/protocol.md` first):
+- **Protocol** (update `docs/protocol/updates.md` first):
   - `runner.restart { when?: "idle" | "now", resume?: { threadId, text },
     reason?: string }` returns `{ scheduled: boolean, waitingFor: string[] }`
     (`waitingFor`: the ids of threads keeping it from restarting).
@@ -214,7 +214,7 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   filtered to one thread.
 - `tb export <id> [--out DIR]`: `thread.json`, `events.ndjson` and
   `media/` in the mock runner's fixture format, by default under
-  `app/.fixtures/threads/<id>` (private and gitignored), so a rendering bug
+  `.fixtures/threads/<id>` at the repo's top (private and gitignored), so a rendering bug
   in one of Mike's threads can be reproduced against the mock runner.
 - `tb rpc <method> [json]`: a raw call, printing the result.
 - `tb activity` (and `--summary`): what Mike has clicked, opened, chosen and
@@ -314,8 +314,16 @@ rest, and `tb <command> --help` explains one.
   copies the checkout over, runs it, brings back failed steps' logs and
   deletes the copy (`scripts/check-remote.sh`); one run at a time, so it may
   say it's waiting for another thread's. A host short of disk is passed over
-  (8 GiB free for Swift, 2 otherwise), and if none has room the check fails
-  and names them. A host that stops answering partway is dropped for the
+  (8 GiB free for Swift or desktop/'s Rust, 2 otherwise), and if none has
+  room the check fails and names them. A check that fails on a host that ran
+  under 1 GiB free during it is run again on another host (or the same one,
+  after idle build folders there are given back), twice at most; out of disk
+  every time, it ends as no host able to run it (exit 69 under `tb land`),
+  which blames no landing. Under 12 GiB free, a run first gives back idle
+  build folders, including cargo targets made by hand in
+  `~/.cache/threadbear-check` (longest unused first; any idle three days go
+  anyway), so build into those only through `desktop/scripts/remote.sh`.
+  A host that stops answering partway is dropped for the
   next one; if none can be reached it runs here at low priority. `--e2e`
   always runs here, as it needs the claude login.
 - Tinker Desk's GPUI build folder (`~/.cache/threadbear-check/gpui`) is a
@@ -611,7 +619,12 @@ rollback covers a release that doesn't come up.
   minutes, starts the fix thread in its own checkout (`RemoteUpdateFixer`
   in `runner/src/fix-update.ts`): once per runner and commit, whatever kind
   it says, at most one thread or message per runner every 10 minutes, and
-  only for a commit on its own main or GitHub's. A report the main Mac
+  only for a commit on its own main or GitHub's. Its prompt has only what
+  the main Mac checked itself (the runner's id, the kind, the commit's
+  short id and subject from its own repo), never the machine's error text,
+  log path or name: those are that key's words, and the thread starts with
+  no Start card (Codex Security, 21 Nov). It reads them on that machine,
+  through a thread there. A report the main Mac
   hasn't fixed in 12 hours (its runner older than the backend, say) is
   handed over from the machine as before.
   Before, that machine's thread asked the main Mac for one, and a runner

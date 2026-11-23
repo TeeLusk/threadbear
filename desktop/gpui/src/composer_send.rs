@@ -72,27 +72,26 @@ pub(crate) async fn menu_command(
 ) -> Result<serde_json::Value, String> {
     use gpui_kit::test::{TestEventExt as _, TestQueryExt as _, TestWindowExt as _};
     use serde_json::json;
-    let pressed = cx
-        .update_window(window, |_, window, cx| {
-            crate::thread::scripted_input(|| {
-                window.render_frame(cx);
-                // The send button, Stop or the spinner: whichever is showing,
-                // by the name each has for VoiceOver.
-                let found = window.elements().into_iter().find(|e| {
-                    e.visible() && e.label().is_some_and(|l| SEND_BUTTON_NAMES.contains(&l))
-                });
-                let Some(button) = found else {
-                    return Err("no send button on screen".to_owned());
-                };
-                let at = button.visible_bounds().center();
-                window.pointer_move(at, None, cx);
-                window.pointer_down(at, MouseButton::Right, cx);
-                window.pointer_up(at, MouseButton::Right, cx);
-                Ok(())
-            })
+    cx.update_window(window, |_, window, cx| {
+        crate::thread::scripted_input(|| {
+            window.render_frame(cx);
+            // The send button, Stop or the spinner: whichever is showing,
+            // by the name each has for VoiceOver.
+            let found = window
+                .elements()
+                .into_iter()
+                .find(|e| e.visible() && e.label().is_some_and(|l| SEND_BUTTON_NAMES.contains(&l)));
+            let Some(button) = found else {
+                return Err("no send button on screen".to_owned());
+            };
+            let at = button.visible_bounds().center();
+            window.pointer_move(at, None, cx);
+            window.pointer_down(at, MouseButton::Right, cx);
+            window.pointer_up(at, MouseButton::Right, cx);
+            Ok(())
         })
-        .map_err(|e| e.to_string())??;
-    let () = pressed;
+    })
+    .map_err(|e| e.to_string())??;
     cx.background_executor()
         .timer(std::time::Duration::from_millis(150))
         .await;

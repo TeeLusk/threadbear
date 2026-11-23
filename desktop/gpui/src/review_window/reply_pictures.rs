@@ -268,7 +268,7 @@ impl ReviewWindow {
         let prev_is_space = text[..selection.start]
             .chars()
             .next_back()
-            .map_or(true, char::is_whitespace);
+            .is_none_or(char::is_whitespace);
         let next_is_space = text[selection.end..]
             .chars()
             .next()

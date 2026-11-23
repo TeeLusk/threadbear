@@ -157,8 +157,8 @@ fn remote_partial_invalid_and_unready_indexes_cannot_remove_missing_threads() {
         json!({}),
         json!({"threads":false}),
         json!({"threads":[false]}),
-        json!({"threads":[good.clone(),false]}),
-        json!({"threads":[good.clone(),good.clone()]}),
+        json!({"threads":[good,false]}),
+        json!({"threads":[good.clone(),good]}),
     ] {
         assert!(!decode_remote_threads(&value).can_remove_missing());
     }

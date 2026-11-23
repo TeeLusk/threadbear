@@ -1,6 +1,9 @@
 // Ports of app/Tests/ThreadbearCoreTests/TranscriptModelTests.swift, test
 // for test, with the Swift names so the two can be compared.
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
 
 mod support;
 

@@ -37,7 +37,7 @@ function checkout(feature: string, typecheck = 'true') {
   put('package.json', JSON.stringify({ scripts: { 'convex:typecheck': 'true', 'web:typecheck': 'true', 'web:test': 'true', lint: 'true', 'lint:files': 'true' } }));
   put('node_modules/.keep', '');
   put('app/Tools/ok.mjs', '');
-  put('app/Tools/mock-runner/ok.mjs', '');
+  put('mock-runner/ok.mjs', '');
   put('docs/gpui-port/features.md', '| `highlights.board` | The board |\n');
   put('features/board.feature', feature);
   put('features/steps/board.steps.ts', '');

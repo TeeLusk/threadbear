@@ -47,7 +47,7 @@ export const DEV_HELP = `Working on Threadbear itself:
                                   --summary counts what's used most, over 7 days unless --since
   tb export <threadId> [--out DIR]
                                   thread.json, events.ndjson and media/ for the mock runner,
-                                  in app/.fixtures/threads/<id> by default
+                                  in .fixtures/threads/<id> by default
   tb profile [seconds] [--json]   where the runner's CPU goes: profiles its main thread for 10 s
                                   (up to 120), writes a .cpuprofile and lists the busiest code
   tb rpc <method> ['{"json": "params"}']`;
@@ -263,7 +263,7 @@ export async function runDev(client: RunnerClient, cmd: string, args: string[], 
       const out = typeof f.out === 'string' ? path.resolve(f.out) : defaultExportDir(id);
       const r = exportThread(t, await allEvents(client, id), out);
       console.log(`Exported ${plural(r.events, 'event', 'events')} and ${plural(r.media, 'image', 'images')} to ${out}`);
-      // dev-app.sh runs a debug build in a temp bundle with its window kept
+      // dev-app.sh runs a debug build of the desktop app with its window kept
       // behind Mike's, with its own mock runner that it stops again, so an
       // agent can look at the export without asking. It comes first: a
       // bare mock runner started by hand blocks the shell it runs in.
@@ -271,7 +271,7 @@ export async function runDev(client: RunnerClient, cmd: string, args: string[], 
       // without the mock's sample threads or anything beside it.
       const root = findRepoRoot() ?? '.';
       console.log(`To look at it in a debug app, then dump, shot and stop it:`);
-      console.log(`  ${shQuote(path.join(root, 'app', 'Tools', 'dev-app.sh'))} start --mock --fixtures ${shQuote(out)}`);
+      console.log(`  ${shQuote(path.join(root, 'desktop', 'scripts', 'dev-app.sh'))} start --mock --fixtures ${shQuote(out)}`);
       console.log(`Its events by seq (line N of events.ndjson is seq N): ${tbCommand()} events ${id.slice(0, 8)} --from N --to M`);
       return 0;
     }
@@ -819,10 +819,13 @@ export function formatThread(t: ThreadSummary, events: PersistedEvent[], opts: {
 // ----------------------------------------------------------------- export
 
 // The checkout to put fixtures in: the one the command runs in, else the
-// one this tb belongs to (a release snapshot has no app/ folder).
+// one this tb belongs to (a release snapshot has no mock runner). Found by
+// its mock runner, at the top since 21 Nov 2026 (app/Tools/ before, as in a
+// fork that hasn't brought that in yet).
 export function findRepoRoot(starts: string[] = [process.cwd(), path.resolve(import.meta.dirname, '..', '..')]): string | undefined {
   for (const start of starts) {
     for (let d = path.resolve(start); ; d = path.dirname(d)) {
+      if (fs.existsSync(path.join(d, 'mock-runner', 'server.mjs'))) return d;
       if (fs.existsSync(path.join(d, 'app', 'Tools', 'mock-runner', 'server.mjs'))) return d;
       if (path.dirname(d) === d) break;
     }
@@ -833,10 +836,10 @@ export function findRepoRoot(starts: string[] = [process.cwd(), path.resolve(imp
 function defaultExportDir(id: string): string {
   const root = findRepoRoot();
   if (!root) throw new Error("Couldn't find a Threadbear checkout to export into; pass --out DIR.");
-  return path.join(root, 'app', '.fixtures', 'threads', id);
+  return path.join(root, '.fixtures', 'threads', id);
 }
 
-// Writes the thread the way app/Tools/mock-runner/server.mjs reads a
+// Writes the thread the way mock-runner/server.mjs reads a
 // fixture: thread.json (the summary), events.ndjson, and the images under
 // media/ with paths relative to the fixture folder. Images that are gone
 // keep their old path.

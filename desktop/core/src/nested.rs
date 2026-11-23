@@ -1,4 +1,4 @@
-// Nested threads (docs/protocol.md, "Nested threads"; the nestedThreads
+// Nested threads (docs/protocol/threads.md, "Nested threads"; the nestedThreads
 // experiment): a thread another thread started sits indented under the thread
 // that started it in the sidebar, like a sub-agent, rather than with a row of
 // its own in the Inbox or Running. Mike picked this on 13 Nov 2026 after

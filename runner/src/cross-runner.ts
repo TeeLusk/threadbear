@@ -1,5 +1,5 @@
 // Starting a thread on another runner from an agent's create_thread
-// (docs/protocol.md, "Asking another runner").
+// (docs/protocol/runners.md, "Asking another runner").
 //
 // The main Mac's runner holds the owner key and starts it straight away,
 // through the relay. A runner on a runner key (the cloud, Bruce) may not

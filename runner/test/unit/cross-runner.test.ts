@@ -1,4 +1,4 @@
-// Starting a thread on another runner (src/cross-runner.ts, docs/protocol.md
+// Starting a thread on another runner (src/cross-runner.ts, docs/protocol/runners.md
 // "Asking another runner"): the main Mac starts it at once; a runner key
 // files a request and waits on a card; the main Mac starts exactly what was
 // filed, only while the card is open, and marks it before answering.

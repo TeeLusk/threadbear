@@ -339,7 +339,7 @@ impl Threadbear {
             rows.push(MenuRow::item(
                 "Show Original in Finder",
                 "folder",
-                MenuAction::Project(ProjectAction::RevealIcon(id.clone())),
+                MenuAction::Project(ProjectAction::RevealIcon(id)),
             ));
         }
         let face: AnyElement = if busy {
@@ -666,7 +666,7 @@ impl Threadbear {
                     .map(|t| t.url.clone())
                     .filter(|u| !u.is_empty())
                     .unwrap_or_else(|| notion.clone());
-                let refresh_id = id.clone();
+                let refresh_id = id;
                 let refresh: AnyElement = if busy {
                     div()
                         .size(px(16.))

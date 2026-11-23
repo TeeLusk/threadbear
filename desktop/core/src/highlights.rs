@@ -2,7 +2,7 @@
 // Highlights, HighlightSections, HighlightFold, HighlightProjects, PreviewRules,
 // FileIcon, HighlightText, PanelIcon, PanelItem.headings, ScheduleRows,
 // StartedThreadRows and PatchGroups, with the protocol types they read
-// (docs/protocol.md, "Highlights" and "Patches"). `desktop/gpui/src/highlights.rs`
+// (docs/protocol/panels.md, "Highlights" and "Patches"). `desktop/gpui/src/highlights.rs`
 // draws from these, and the tests are the Swift ones (HighlightsTests,
 // StartedThreadRowsTests).
 use crate::inbox::{parse_ms, Project, ThreadSummary};
@@ -975,7 +975,7 @@ pub fn started_rows<'a>(
         })
         .collect();
     // Keys worked out once per row: a time is text to read (inbox.rs, `sections_ordered`).
-    rows.sort_by_cached_key(|r| (r.state.clone(), std::cmp::Reverse(r.thread.activity_ms())));
+    rows.sort_by_cached_key(|r| (r.state, std::cmp::Reverse(r.thread.activity_ms())));
     rows
 }
 
@@ -1110,6 +1110,10 @@ pub struct Schedule {
     pub account_id: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub pool_id: Option<String>,
+    /// With `pool_id`: the kind of login its threads start on, in a pool of
+    /// several kinds.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub provider: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub model: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
@@ -1131,7 +1135,7 @@ pub struct Schedule {
     pub runs: i64,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub last_run: Option<LastRun>,
-    /// The runner it runs on, its name and icon (docs/protocol.md, "Schedules").
+    /// The runner it runs on, its name and icon (docs/protocol/projects.md, "Schedules").
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub runner_id: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
@@ -1326,7 +1330,7 @@ pub struct Panel {
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub project_id: Option<String>,
     /// The built-in Convex panel's deployment: shown as Convex's embedded
-    /// dashboard rather than `url` (docs/protocol.md, "The Convex panel").
+    /// dashboard rather than `url` (docs/protocol/patches.md, "The Convex panel").
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub convex: Option<crate::convex_panel::Deployment>,
 }
@@ -1413,6 +1417,44 @@ pub struct PatchInfo {
     pub helpers: Option<Vec<String>>,
     #[serde(default)]
     pub grants: Option<Vec<String>>,
+    /// With `untrusted` "changed": what differs from the version last
+    /// trusted there (docs/protocol/trust.md, "What changed"). Says only.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub changes: Option<PatchChanges>,
+}
+
+/// `PatchChanges`: what changed in a waiting patch since it was last trusted.
+/// Read strictly inside: anything malformed drops all of it (`changes` is
+/// read with `wire::field`), never part, so a list can't come out shorter
+/// than the runner sent or lose its "not committed" (Gemini's review).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PatchChanges {
+    pub since: Option<String>,
+    pub recheck: Option<bool>,
+    pub files: Option<Vec<ChangedFile>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFile {
+    pub path: String,
+    /// "changed", "added" or "removed".
+    pub was: String,
+    #[serde(default)]
+    pub commits: Option<Vec<ChangedCommit>>,
+    #[serde(default)]
+    pub more_commits: Option<u32>,
+    #[serde(default)]
+    pub uncommitted: Option<bool>,
+    #[serde(default)]
+    pub diff: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ChangedCommit {
+    pub sha: String,
+    pub subject: String,
 }
 
 impl PatchInfo {
@@ -1478,7 +1520,7 @@ pub struct PanelItemAction {
     pub icon: Option<String>,
 }
 
-/// A list row's switch (`PanelItem.toggle`, docs/protocol.md "Row toggles").
+/// A list row's switch (`PanelItem.toggle`, docs/protocol/patches.md "Row toggles").
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct PanelToggle {
@@ -1649,6 +1691,130 @@ pub mod patches {
         }
     }
 
+    /// One line per file a waiting patch changed in since it was last
+    /// trusted, saying where the change came from: "package.json changed, in
+    /// 2952b9c Lint with mikecann-lint (#66)", "go.sh changed, not committed".
+    /// The 6 Nov recheck says it's that, not a change. Empty when the runner
+    /// has nothing on record (or is too old to say).
+    pub fn change_lines(patch: &PatchInfo) -> Vec<String> {
+        if patch.untrusted.as_deref() != Some("changed") {
+            return vec![];
+        }
+        let Some(changes) = &patch.changes else {
+            return vec![];
+        };
+        if changes.recheck == Some(true) {
+            return vec!["This folder's trust is from before Threadbear changed how it checks patches on 6 Nov, so it can't say whether this patch was trusted before or what changed. Read the file before you trust it.".to_owned()];
+        }
+        let files = changes.files.as_deref().unwrap_or_default();
+        files
+            .iter()
+            .map(|f| {
+                let what = match f.was.as_str() {
+                    "added" => format!("{} now runs too", plain(&f.path)),
+                    "removed" => format!("{} no longer runs", plain(&f.path)),
+                    _ => format!("{} changed", plain(&f.path)),
+                };
+                if f.was == "removed" {
+                    return what;
+                }
+                let commits = f.commits.as_deref().unwrap_or_default();
+                let mut where_ = Vec::new();
+                if !commits.is_empty() {
+                    let named: Vec<String> = commits
+                        .iter()
+                        .map(|c| format!("{} {}", plain(&c.sha), plain(&c.subject)))
+                        .collect();
+                    let more = f
+                        .more_commits
+                        .filter(|n| *n > 0)
+                        .map(|n| format!(" and {n} more"))
+                        .unwrap_or_default();
+                    where_.push(format!(
+                        "in {}: {}{more}",
+                        if commits.len() == 1 && more.is_empty() {
+                            "a commit"
+                        } else {
+                            "commits"
+                        },
+                        named.join("; ")
+                    ));
+                }
+                if f.uncommitted == Some(true) {
+                    where_.push("not committed".to_owned());
+                }
+                if where_.is_empty() {
+                    what
+                } else {
+                    format!("{what}, {}", where_.join(", and "))
+                }
+            })
+            .collect()
+    }
+
+    /// The chip's tooltip for a single waiting patch that changed: which
+    /// patch, in which folder, and which files, so a re-ask after your own
+    /// merge reads differently from new code. None for anything else.
+    pub fn changed_tip(patch: &PatchInfo) -> Option<String> {
+        if patch.untrusted.as_deref() != Some("changed") || patch.source == "claude" {
+            return None;
+        }
+        let changes = patch.changes.as_ref()?;
+        // A file's name is the repo's text: one plain line.
+        let id = plain(&patch.id);
+        let folder = patch
+            .folder
+            .clone()
+            .or_else(|| {
+                let file = std::path::Path::new(patch.file.as_deref()?);
+                Some(
+                    file.parent()?
+                        .parent()?
+                        .parent()?
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
+            .map(|f| plain(&crate::inbox::folder_name(&f)))
+            .unwrap_or_default();
+        let place = if folder.is_empty() {
+            String::new()
+        } else {
+            format!(" in {folder}")
+        };
+        if changes.recheck == Some(true) {
+            return Some(format!("The {id} patch{place} is waiting. Its folder's trust is from before Threadbear changed how it checks patches on 6 Nov, so it can't say whether this patch was trusted before or what changed. A patch is code that runs on your Mac. Open Patches to read and trust it"));
+        }
+        let files = changes.files.as_deref().unwrap_or_default();
+        if files.is_empty() {
+            return None;
+        }
+        let names: Vec<String> = files.iter().take(3).map(|f| plain(&f.path)).collect();
+        let more = if files.len() > 3 {
+            format!(" and {} more", files.len() - 3)
+        } else {
+            String::new()
+        };
+        Some(format!("The {id} patch{place} changed since you trusted it: {}{more}. A patch is code that runs on your Mac. Open Patches to see what changed and trust it", names.join(", ")))
+    }
+
+    /// Repo text as one plain line: control, line-breaking and
+    /// direction-changing characters become `?`.
+    pub fn plain(s: &str) -> String {
+        s.chars()
+            .map(|c| {
+                let n = c as u32;
+                if c.is_control()
+                    || matches!(n, 0x061c | 0x200e | 0x200f | 0x2028 | 0x2029 | 0x202a..=0x202e | 0x2066..=0x2069)
+                {
+                    '?'
+                } else {
+                    c
+                }
+            })
+            .collect()
+    }
+
     /// "actions Typecheck, Reseed · panel Storybook · hook Typecheck".
     pub fn gives(
         patch_id: &str,
@@ -1780,6 +1946,57 @@ pub mod patches {
 
 #[cfg(test)]
 mod tests {
+    /// A re-ask says which files changed and where from, so his own merge
+    /// reads differently from new code (nightly retro, 20 Nov 2026).
+    #[test]
+    fn a_changed_patch_says_what_changed_and_where_from() {
+        use super::{patches as words, PatchInfo};
+        let patch: PatchInfo = serde_json::from_value(serde_json::json!({
+            "id": "cannvas", "source": "project", "untrusted": "changed", "hash": "h",
+            "file": "/Users/m/dev/cannvas/.threadbear/patches/cannvas.ts",
+            "changes": { "since": "2026-11-18T01:33:17Z", "files": [
+                { "path": "package.json", "was": "changed", "commits": [{ "sha": "2952b9c", "subject": "Lint with mikecann-lint 0.1.1 (#66)" }], "diff": "- a\n+ b" },
+                { "path": "go.sh", "was": "added", "uncommitted": true },
+                { "path": "old.sh", "was": "removed" }
+            ] }
+        }))
+        .unwrap();
+        assert_eq!(
+            words::change_lines(&patch),
+            vec![
+                "package.json changed, in a commit: 2952b9c Lint with mikecann-lint 0.1.1 (#66)",
+                "go.sh now runs too, not committed",
+                "old.sh no longer runs",
+            ]
+        );
+        assert_eq!(
+            words::changed_tip(&patch).unwrap(),
+            "The cannvas patch in cannvas changed since you trusted it: package.json, go.sh, old.sh. A patch is code that runs on your Mac. Open Patches to see what changed and trust it"
+        );
+        let recheck: PatchInfo = serde_json::from_value(serde_json::json!({
+            "id": "pool", "source": "project", "untrusted": "changed", "hash": "h",
+            "file": "/Users/m/dev/pool/.threadbear/patches/pool.ts", "changes": { "recheck": true }
+        }))
+        .unwrap();
+        assert!(words::change_lines(&recheck)[0]
+            .contains("can't say whether this patch was trusted before"));
+        // Malformed inside: none of it, never part.
+        let partial: PatchInfo = serde_json::from_value(serde_json::json!({
+            "id": "p", "source": "project", "untrusted": "changed", "hash": "h", "file": "/x/.threadbear/patches/p.ts",
+            "changes": { "files": [{ "path": "a.sh", "was": "changed" }, { "path": 5, "was": "changed" }] }
+        }))
+        .unwrap();
+        assert!(partial.changes.is_none());
+        // A runner too old to say, or a change it can't read: as before.
+        let bare: PatchInfo = serde_json::from_value(serde_json::json!({
+            "id": "p", "source": "project", "untrusted": "changed", "hash": "h", "file": "/x/.threadbear/patches/p.ts", "changes": 7
+        }))
+        .unwrap();
+        assert!(words::change_lines(&bare).is_empty());
+        assert!(words::changed_tip(&bare).is_none());
+        assert!(bare.can_trust());
+    }
+
     #[test]
     fn previews_keep_keys_and_home_dotfolders_to_themselves() {
         use super::preview_private as private;

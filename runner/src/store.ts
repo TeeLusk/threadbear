@@ -248,7 +248,7 @@ export type ThreadRecord = {
   // leaveRemovedWorktree): a resumed session keeps its old instructions.
   agentNotice?: string;
   // Started by another thread but not part of its work, so it doesn't
-  // nest under it in the sidebar (docs/protocol.md, "Nested threads").
+  // nest under it in the sidebar (docs/protocol/threads.md, "Nested threads").
   detached?: boolean;
   // Reports the threads it started sent it with send_message, kept until
   // none of them is working (runner/nested.ts).
@@ -361,7 +361,7 @@ export type ThreadRecord = {
   // show_panel's request, until the app shows it or Mike sends a message.
   panelRequest?: PanelRequest;
   // The seq ranges edits of earlier messages cut out of the conversation
-  // (docs/protocol.md, "Editing a message"), oldest first. Everything that
+  // (docs/protocol/threads.md, "Editing a message"), oldest first. Everything that
   // reads the thread for the agent or the librarian leaves them out.
   rewinds?: { from: number; to: number }[];
   // Claude: the transcript entry the next start resumes at, after an edit
@@ -610,7 +610,7 @@ export class ThreadStore {
   }
 
   // Drops the cached event log, so the next log() reads the file again:
-  // another runner (a draining one, docs/protocol.md "Handovers") may have
+  // another runner (a draining one, docs/protocol/updates.md "Handovers") may have
   // written to it since.
   forget(id: string): void {
     this.logs.delete(id);

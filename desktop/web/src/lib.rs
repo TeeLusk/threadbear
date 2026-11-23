@@ -141,7 +141,10 @@ mod elsewhere {
         pub checked: bool,
     }
 
-    pub fn popup_menu(
+    /// # Safety
+    ///
+    /// As mac/host.rs's: nothing here reads `view`.
+    pub unsafe fn popup_menu(
         _view: *mut std::ffi::c_void,
         _x: f32,
         _y: f32,
@@ -151,16 +154,28 @@ mod elsewhere {
     }
 
     /// No pages here to take the keyboard from GPUI's view.
-    pub fn keyboard_holder(_view: *mut std::ffi::c_void) -> crate::KeyboardHolder {
+    /// # Safety
+    ///
+    /// As mac/host.rs's: nothing here reads `view`.
+    pub unsafe fn keyboard_holder(_view: *mut std::ffi::c_void) -> crate::KeyboardHolder {
         crate::KeyboardHolder::App
     }
 
-    pub fn take_keyboard(_view: *mut std::ffi::c_void) -> bool {
+    /// # Safety
+    ///
+    /// As mac/host.rs's: nothing here reads `view`.
+    pub unsafe fn take_keyboard(_view: *mut std::ffi::c_void) -> bool {
         false
     }
 
-    pub fn send_keys(_view: *mut std::ffi::c_void, _text: &str) {}
-    pub fn send_click(_view: *mut std::ffi::c_void, _x: f32, _y: f32) -> String {
+    /// # Safety
+    ///
+    /// As mac/host.rs's: nothing here reads `view`.
+    pub unsafe fn send_keys(_view: *mut std::ffi::c_void, _text: &str) {}
+    /// # Safety
+    ///
+    /// As mac/host.rs's: nothing here reads `view`.
+    pub unsafe fn send_click(_view: *mut std::ffi::c_void, _x: f32, _y: f32) -> String {
         String::new()
     }
 
@@ -209,7 +224,10 @@ mod elsewhere {
             String::new()
         }
         pub fn go_back(&self) {}
-        pub fn move_to(&self, _parent: *mut std::ffi::c_void) {}
+        /// # Safety
+        ///
+        /// As mac/panel.rs's: nothing here reads `parent`.
+        pub unsafe fn move_to(&self, _parent: *mut std::ffi::c_void) {}
         pub fn set_bounds(&self, _x: f32, _y: f32, _width: f32, _height: f32, _parent_height: f32) {
         }
         pub fn bounds(&self) -> (f32, f32, f32, f32) {

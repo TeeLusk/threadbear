@@ -469,6 +469,10 @@ pub enum MouseButton {
 /// with `mouse=a`, htop): xterm's SGR form (`ESC [ < b ; x ; y M`) when it
 /// asked for that, else the old one, whose positions stop at 223. `column`
 /// and `row` count from 0.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 pub fn mouse_report(
     button: MouseButton,
     pressed: bool,

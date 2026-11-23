@@ -9,7 +9,7 @@
 /// symbols through Spotlight wherever that says they are, which on 31 Oct
 /// 2026 took the runner's copy of it deep into a Mac's external drive: a
 /// prompt left waiting there held up other apps on that drive for nearly
-/// nine hours (docs/protocol.md, "A dialog on a Mac's screen"). The stack
+/// nine hours (docs/protocol/updates.md, "A dialog on a Mac's screen"). The stack
 /// it's after doesn't need those places. Same list as `sampleSandbox` in
 /// runner/src/frozen-cli.ts and `HangSample.sandboxProfile`.
 pub fn sandbox_profile(home: &str) -> String {

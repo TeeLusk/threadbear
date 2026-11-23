@@ -231,7 +231,7 @@ impl Render for RichWindow {
                 .read(cx)
                 .state(&self.block, style::zoom_percent())
                 .cloned()),
-            Some(Drawing::Queued | Drawing::Drawing)
+            Some(Drawing::Queued | Drawing::InProgress)
         );
         let wants = match self.block.kind {
             RichKind::Mermaid => "this diagram",

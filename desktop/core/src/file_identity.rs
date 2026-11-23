@@ -82,6 +82,11 @@ mod windows_tests {
 }
 
 #[cfg(all(test, unix))]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests: a panic is the test's failure, with the line"
+)]
 mod tests {
     use super::*;
 

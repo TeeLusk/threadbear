@@ -21,6 +21,10 @@ pub(crate) struct BoardState {
 }
 
 impl SidePane {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 227 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     pub(crate) fn task_board(
         &mut self,
         project: &str,

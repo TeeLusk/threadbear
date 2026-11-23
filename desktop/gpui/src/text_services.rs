@@ -93,7 +93,7 @@ mod mac {
             }
             tag
         };
-        #[allow(deprecated)]
+        #[allow(deprecated, reason = "NSSpeechSynthesizer, which still speaks; AVSpeechSynthesizer is the replacement to move to")]
         static VOICE: Retained<objc2_app_kit::NSSpeechSynthesizer> = objc2_app_kit::NSSpeechSynthesizer::new();
     }
 
@@ -256,7 +256,10 @@ mod mac {
         }
     }
 
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "NSSpeechSynthesizer, which still speaks; AVSpeechSynthesizer is the replacement to move to"
+    )]
     pub fn speak(text: &str) {
         VOICE.with(|v| {
             v.stopSpeaking();
@@ -264,12 +267,18 @@ mod mac {
         });
     }
 
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "NSSpeechSynthesizer, which still speaks; AVSpeechSynthesizer is the replacement to move to"
+    )]
     pub fn stop_speaking() {
         VOICE.with(|v| v.stopSpeaking());
     }
 
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "NSSpeechSynthesizer, which still speaks; AVSpeechSynthesizer is the replacement to move to"
+    )]
     pub fn speaking() -> bool {
         VOICE.with(|v| v.isSpeaking())
     }
@@ -419,7 +428,10 @@ pub(crate) fn focused_text_box(window: &Window, cx: &App) -> Option<Entity<Texta
 pub(crate) fn app_has_keyboard(window: &Window) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(view) = crate::web_panels::native_view(window) {
-        return threadbear_web::keyboard_holder(view) == threadbear_web::KeyboardHolder::App;
+        // SAFETY: the content view of `window`, which is open while it's
+        // borrowed here, on the main thread GPUI's windows run on.
+        return unsafe { threadbear_web::keyboard_holder(view) }
+            == threadbear_web::KeyboardHolder::App;
     }
     let _ = window;
     true
@@ -506,7 +518,7 @@ pub(crate) fn replace_if_unchanged(
                     || state.is_sensitive()
                     || !state.presentation().is_editable()
                     || state.selected_range() != *$range
-                    || state.selected_text().to_string() != expected
+                    || state.selected_text() != expected
                 {
                     return false;
                 }

@@ -546,6 +546,65 @@ pub fn host(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.to_owned())
 }
 
+// ------------------------------------------------------ links into the thread
+
+/// A link back into the thread (docs/protocol.md, "Links into the thread"):
+/// `work:<words>` quotes a step of the turn's working, `thread:<id>` is
+/// another thread, `review:<id>` a design review, and `button:<id>` a reply
+/// button (reply_buttons.rs), which its pill presses rather than a click.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThreadLink {
+    Step(String),
+    Thread(String),
+    Review(String),
+    Button(String),
+}
+
+/// What a link in a reply opens in the app, or None for anything else (a
+/// page, a file). The scheme in any case; the rest percent-decoded as it is,
+/// so an empty or spaced one still names its (missing) step or thread, and
+/// the click says it found nothing. The phones and the website trim it and
+/// read an empty one as no link (shared/cases/thread-links.json).
+pub fn thread_link(url: &str) -> Option<ThreadLink> {
+    let (scheme, rest) = url.split_once(':')?;
+    match scheme.to_ascii_lowercase().as_str() {
+        "work" => Some(ThreadLink::Step(percent_decode(rest))),
+        "thread" => Some(ThreadLink::Thread(percent_decode(rest))),
+        "review" => Some(ThreadLink::Review(percent_decode(rest))),
+        "button" => crate::reply_buttons::id_of(url).map(|id| ThreadLink::Button(id.to_owned())),
+        _ => None,
+    }
+}
+
+/// `%20` and friends back to what a link's words were; a `%` not followed by
+/// two hex digits stays as it is, and bytes that aren't UTF-8 become U+FFFD.
+pub fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(a), Some(b)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(a * 16 + b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,5 +929,37 @@ mod tests {
         );
         assert_eq!(host("http://[::1]:3000/").as_deref(), Some("[::1]"));
         assert_eq!(host("mailto:a@b.c"), None);
+    }
+
+    /// The cases the phones and the website run too (shared/cases/thread-links.json).
+    #[test]
+    fn thread_links_match_the_shared_cases() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/thread-links.json"
+        );
+        let file: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut ran = 0;
+        for case in file["cases"].as_array().unwrap() {
+            if case["differs"].get("desktop").is_some() {
+                continue;
+            }
+            let name = case["name"].as_str().unwrap();
+            let got = thread_link(case["input"].as_str().unwrap()).map(|t| match t {
+                ThreadLink::Step(v) => ("step", v),
+                ThreadLink::Thread(v) => ("thread", v),
+                ThreadLink::Review(v) => ("review", v),
+                ThreadLink::Button(v) => ("button", v),
+            });
+            let want = case["expect"].as_object().map(|e| {
+                (
+                    e["kind"].as_str().unwrap(),
+                    e["value"].as_str().unwrap().to_owned(),
+                )
+            });
+            assert_eq!(got, want, "{name}");
+            ran += 1;
+        }
+        assert!(ran > 5);
     }
 }

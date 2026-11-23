@@ -7,7 +7,7 @@
 // folds as the line of work does: a panel's eight answered findings ran a
 // screen tall over a reply that already said what was fixed. Folded, it's the
 // heading and any finding still open (LabReview::shown_findings). The ledger
-// is `turn.completed`'s `review` (docs/protocol.md, "Review by another lab").
+// is `turn.completed`'s `review` (docs/protocol/needs-you.md, "Review by another lab").
 use super::metrics::{ROW_BOTTOM, TITLE_INDENT};
 use super::row_wrap;
 use super::work::{work_line, Runs};

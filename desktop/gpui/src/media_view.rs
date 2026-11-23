@@ -119,6 +119,9 @@ impl Media {
         }
         self.placed.set(Some(bounds));
         #[cfg(target_os = "macos")]
+        // SAFETY: `self.view` is the live view this Media owns (from_native's
+        // contract) until Drop closes it; Media isn't Send, so this is on the
+        // main thread. The rest are plain numbers.
         unsafe {
             tb_media_place(
                 self.view,
@@ -131,18 +134,26 @@ impl Media {
     }
 
     fn set_hidden(&self, hidden: bool) {
-        if self.hidden.replace(hidden) == hidden {
-            return;
-        }
+        let changed = self.hidden.replace(hidden) != hidden;
         #[cfg(target_os = "macos")]
-        unsafe {
-            tb_media_set_hidden(self.view, hidden)
-        };
+        if changed {
+            // SAFETY: `self.view` is the live view this Media owns until
+            // Drop, on the main thread, as in `place`.
+            unsafe { tb_media_set_hidden(self.view, hidden) };
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = changed;
     }
 
     pub(crate) fn state(&self) -> MediaState {
+        #[cfg_attr(
+            not(target_os = "macos"),
+            allow(unused_mut, reason = "only the Mac's view fills it in")
+        )]
         let mut out = NativeState::default();
         #[cfg(target_os = "macos")]
+        // SAFETY: `self.view` is the live view this Media owns, and `out` is a
+        // NativeState, repr(C) to match TBMediaState field for field.
         unsafe {
             tb_media_state(self.view, &mut out)
         };
@@ -164,8 +175,12 @@ impl Media {
         #[cfg(target_os = "macos")]
         {
             let mut buffer = [0 as std::ffi::c_char; 512];
+            // SAFETY: `self.view` is the live view this Media owns, and the
+            // buffer is `buffer.len()` bytes, which strlcpy stays within.
             if unsafe { tb_media_failure(self.view, buffer.as_mut_ptr(), buffer.len() as i32) } {
                 return Some(
+                    // SAFETY: tb_media_failure returned true, so strlcpy wrote
+                    // a NUL-terminated string inside the buffer.
                     unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
                         .to_string_lossy()
                         .into_owned(),
@@ -179,6 +194,8 @@ impl Media {
 impl Drop for Media {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]
+        // SAFETY: the view this Media owns, closed once here as it's dropped,
+        // and never used after.
         unsafe {
             tb_media_close(self.view)
         };
@@ -260,13 +277,24 @@ fn say(said: Said) {
 }
 
 /// native/media_views.m: a PDF's link was clicked.
+///
+/// # Safety
+///
+/// `url` and `base` are each null or a NUL-terminated string that stays
+/// alive through the call.
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn tb_media_said_link(url: *const std::ffi::c_char, base: *const std::ffi::c_char) {
+pub unsafe extern "C" fn tb_media_said_link(
+    url: *const std::ffi::c_char,
+    base: *const std::ffi::c_char,
+) {
     let text = |p: *const std::ffi::c_char| {
         if p.is_null() {
             String::new()
         } else {
+            // SAFETY: non-null, and media_views.m passes an NSString's
+            // UTF8String or a fileSystemRepresentation, both NUL-terminated
+            // and alive through this call.
             unsafe { std::ffi::CStr::from_ptr(p) }
                 .to_string_lossy()
                 .into_owned()
@@ -301,9 +329,15 @@ fn drag_folder() -> Option<std::path::PathBuf> {
 /// native/media_views.m: a private copy of the open file `fd` (still the
 /// view's, not closed here) named `name`, for a drag out, its path written
 /// into `out` (`threadbear_core::private_file::snapshot`).
+///
+/// # Safety
+///
+/// `name` is null or a NUL-terminated string, and `out` is null or writable
+/// for `capacity` bytes, both alive through the call; `fd` is an open file the
+/// caller keeps open until it returns.
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn tb_media_snapshot(
+pub unsafe extern "C" fn tb_media_snapshot(
     fd: i32,
     name: *const std::ffi::c_char,
     out: *mut std::ffi::c_char,
@@ -317,9 +351,14 @@ pub extern "C" fn tb_media_snapshot(
 
 /// Quick Look reads a private copy too, made off the main thread. It is
 /// removed after thumbnail generation; interrupted copies expire in a day.
+///
+/// # Safety
+///
+/// As `tb_media_snapshot`: `name` null or NUL-terminated, `out` null or
+/// writable for `capacity` bytes, `fd` open, all through the call.
 #[cfg(target_os = "macos")]
 #[no_mangle]
-pub extern "C" fn tb_preview_snapshot(
+pub unsafe extern "C" fn tb_preview_snapshot(
     fd: i32,
     name: *const std::ffi::c_char,
     out: *mut std::ffi::c_char,
@@ -353,10 +392,14 @@ fn snapshot_fd(
     if fd < 0 || name.is_null() || out.is_null() || capacity <= 0 {
         return Err(std::io::Error::other("No snapshot destination"));
     }
+    // SAFETY: checked non-null; callers pass a NUL-terminated name that
+    // outlives this call.
     let name = unsafe { std::ffi::CStr::from_ptr(name) }
         .to_string_lossy()
         .into_owned();
-    // Borrowed: the view still owns and closes it.
+    // SAFETY: `fd` is non-negative and an open descriptor the caller (the
+    // view) owns for this call. Borrowed: ManuallyDrop means it's never closed
+    // here, so the view still owns and closes it.
     let file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
     let meta = file.metadata()?;
     // Drag exports use an unlimited clone (limit 0); previews have a hard
@@ -388,6 +431,8 @@ fn snapshot_fd(
             "The document couldn't be previewed",
         ));
     }
+    // SAFETY: `out` is non-null with room for `capacity` bytes, checked above
+    // to be at least bytes.len() + 1, and can't overlap our own PathBuf.
     unsafe {
         std::ptr::copy_nonoverlapping(bytes.as_ptr().cast(), out, bytes.len());
         *out.add(bytes.len()) = 0;
@@ -558,6 +603,7 @@ pub(crate) fn play(key: &str) -> bool {
             .and_then(|s| s.media.as_ref().ok())
             .is_some_and(|m| {
                 #[cfg(target_os = "macos")]
+                // SAFETY: a live Media's own view, on the main thread.
                 return unsafe { tb_media_play(m.view) };
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -579,6 +625,7 @@ pub(crate) fn click_link(key: &str) -> bool {
             .and_then(|s| s.media.as_ref().ok())
             .is_some_and(|m| {
                 #[cfg(target_os = "macos")]
+                // SAFETY: a live Media's own view, on the main thread.
                 return unsafe { tb_media_click_link(m.view) };
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -817,7 +864,10 @@ mod tests {
         super::SAID.with(|s| *s.borrow_mut() = Some(tx));
         let link = std::ffi::CString::new("file:///tmp/payload.command").unwrap();
         let mut buffer = [0 as std::ffi::c_char; 1024];
+        // SAFETY: `link` is a live CString, and the buffer is
+        // `buffer.len()` bytes, which strlcpy stays within.
         unsafe { tb_media_menu_for_tests(link.as_ptr(), buffer.as_mut_ptr(), buffer.len() as i32) };
+        // SAFETY: strlcpy NUL-terminated what it wrote inside the buffer.
         let left = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
             .to_string_lossy()
             .into_owned();
@@ -864,6 +914,8 @@ mod tests {
         )
         .unwrap();
         let copied = std::path::Path::new(std::ffi::OsStr::from_bytes(
+            // SAFETY: snapshot_fd succeeded, so it wrote a NUL-terminated
+            // path inside the 4096-byte buffer.
             unsafe { CStr::from_ptr(path.as_ptr()) }.to_bytes(),
         ));
         assert_eq!(std::fs::read(copied).unwrap(), b"held document");
@@ -894,6 +946,8 @@ mod tests {
         )
         .unwrap();
         let copied = std::path::Path::new(std::ffi::OsStr::from_bytes(
+            // SAFETY: snapshot_fd succeeded, so it wrote a NUL-terminated
+            // path inside the 4096-byte buffer.
             unsafe { CStr::from_ptr(path.as_ptr()) }.to_bytes(),
         ));
         assert_eq!(
@@ -917,6 +971,8 @@ mod tests {
         )
         .unwrap();
         let copied = std::path::Path::new(std::ffi::OsStr::from_bytes(
+            // SAFETY: snapshot_fd succeeded, so it wrote a NUL-terminated
+            // path inside the 4096-byte buffer.
             unsafe { CStr::from_ptr(path.as_ptr()) }.to_bytes(),
         ));
         assert_eq!(
@@ -949,20 +1005,21 @@ mod tests {
             256 * 1024 * 1024
         )
         .is_err());
-        assert_eq!(
-            super::tb_preview_snapshot(-1, std::ptr::null(), std::ptr::null_mut(), 0, 0),
-            -1
-        );
-        assert_eq!(
+        // SAFETY: null pointers are allowed, and the limit is checked first.
+        let refused =
+            unsafe { super::tb_preview_snapshot(-1, std::ptr::null(), std::ptr::null_mut(), 0, 0) };
+        assert_eq!(refused, -1);
+        // SAFETY: null pointers are allowed, and the limit is checked first.
+        let refused = unsafe {
             super::tb_preview_snapshot(
                 -1,
                 std::ptr::null(),
                 std::ptr::null_mut(),
                 0,
-                256 * 1024 * 1024 + 1
-            ),
-            -1
-        );
+                256 * 1024 * 1024 + 1,
+            )
+        };
+        assert_eq!(refused, -1);
     }
 
     /// Stepping from one clip to the next on the stage: the next starts at

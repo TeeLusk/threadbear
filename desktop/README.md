@@ -69,12 +69,12 @@ On a flaky connection, crates.io downloads need
 `CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10`.
 
 ```bash
-npm ci --prefix ../app/Tools/mock-runner   # for the tests and the mock
+npm ci --prefix ../mock-runner   # for the tests and the mock
 cargo run -p threadbear-gpui
 ```
 
 To run it against the mock runner instead of your real one, start
-`node ../app/Tools/mock-runner/server.mjs --data-dir /tmp/tb-mock` and run
+`node ../mock-runner/server.mjs --data-dir /tmp/tb-mock` and run
 the app with `THREADBEAR_HOME=/tmp/tb-mock`.
 
 ## Installing it on a Mac
@@ -93,7 +93,7 @@ the same runner.
 The installed app then follows main as the Swift app does
 (`gpui/src/app_update.rs`, built on a check host), so after landing a change an
 agent calls `wait_for_app_restart` and hears when it's back on the new build
-(docs/protocol.md, "App restarts"), then checks it with `tb export` of the
+(docs/protocol/updates.md, "App restarts"), then checks it with `tb export` of the
 thread and the scripted app (below) rather than asking Mike.
 
 ## Hangs and crashes
@@ -153,6 +153,35 @@ they are. Everything was formatted at once in one commit, listed in
 lands across it by itself; `../scripts/replay-over-format.sh` does the same
 by hand.
 
+### Lints
+
+Clippy runs with the lints in `Cargo.toml`'s `[workspace.lints.clippy]`
+(each says why it's there) and the settings in `clippy.toml`, and
+`../check.sh` (`--quick` included, when `desktop/` changed) and the Desktop
+workflow (Mac and Linux) fail on any warning. To see what it says, on a
+check host:
+
+```bash
+scripts/remote.sh tinker-desk --build -- bash -c 'cd desktop && cargo clippy --workspace --all-targets -- -D warnings'
+```
+
+- An exception is `#[expect(clippy::<lint>, reason = "...")]` on the
+  smallest item that needs it, not `allow`: an expect that's no longer
+  needed fails, so a fixed site comes off the list. A bare `allow` without
+  a reason fails too. `allow` (with a reason) is for code where the lint
+  only fires on some platforms or features.
+- `unwrap()` and `expect()` warn outside tests: handle the error, or mark
+  the line with why it can't fail. A lock's poisoning is taken with
+  `.unwrap_or_else(|e| e.into_inner())`.
+- Every `unsafe` block has a `// SAFETY:` comment right above it saying why
+  it holds; a public function that dereferences a raw pointer it's handed is
+  an `unsafe fn` with a `# Safety` section.
+- The baselines (functions over 200 lines, more than 7 arguments, and a few
+  `expect`s) are marked "baselined ... 20 Nov 2026": take the mark off when
+  the code is split up.
+- The automation feature's code isn't in the gate (its builds differ by
+  feature), and nor is Windows'.
+
 `scripts/spec.sh` is the one-command version for use through `remote.sh`: it
 builds the app (Swift or GPUI), keeps its own copy of the GPUI binary so another
 checkout's build can't swap it mid-run (the cargo target folder is shared), and
@@ -192,7 +221,7 @@ says whose is whose. An instance quits after an hour with no command.
 - A scripted app is never in front, so opening a thread doesn't mark it read
   until you send `{"cmd":"focus"}`.
 - A bug in one of Mike's real threads: `tb export <id>`, then
-  `dev-app.sh start --mock --fixtures app/.fixtures/threads/<id>` and `open`
+  `dev-app.sh start --mock --fixtures .fixtures/threads/<id>` and `open`
   it. Exports are his private conversations: keep shots of them out of git
   and delete them when done.
 - A runner change seen in the app: start `runner/scripts/dev-runner.sh`, then

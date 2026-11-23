@@ -12,6 +12,11 @@
 // scripts, or a backdrop a click dismisses, says so with
 // `.a11y_role(Role::GenericContainer)` (gpui/src/a11y.rs): still no node, as what's inside is what
 // VoiceOver reads.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 use std::path::{Path, PathBuf};
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

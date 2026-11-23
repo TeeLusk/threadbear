@@ -207,7 +207,7 @@ pub(crate) fn tile_point_command(
         .find_all_by_label(&name)
         .into_iter()
         .filter(|e| e.visible())
-        .last()
+        .next_back()
         .ok_or("that picture isn't on screen")?;
     let (x, y) = crate::automation::whole_point(tile.visible_bounds())
         .ok_or("that picture isn't on screen")?;

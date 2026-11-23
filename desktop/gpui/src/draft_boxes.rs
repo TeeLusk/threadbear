@@ -216,6 +216,8 @@ fn copy(draft: &DraftBlock, window: &mut Window, cx: &mut App) {
 /// change not yet sent (unsent.rs).
 struct Edit {
     thread: String,
+    /// The reply's row, so the composer's chip for it can show where it is.
+    row: String,
     kind: DraftKind,
     /// The agent's words, to tell a change from none and to put back.
     original: String,
@@ -251,7 +253,14 @@ fn edit_key(thread: &str, base: &str) -> String {
 
 /// Edit: the box's words become a text box with the agent's draft (or his
 /// version from before) in it, the cursor at the end.
-fn start_edit(key: String, thread: String, draft: &DraftBlock, window: &mut Window, cx: &mut App) {
+fn start_edit(
+    key: String,
+    thread: String,
+    row: String,
+    draft: &DraftBlock,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let open = EDITS.with(|e| {
         let mut edits = e.borrow_mut();
         edits.get_mut(&key).map(|edit| {
@@ -271,16 +280,18 @@ fn start_edit(key: String, thread: String, draft: &DraftBlock, window: &mut Wind
             crate::unsent::watch_in(&editor, "a reply's draft box", Some(thread.clone()), cx);
             // ⌘Return is Done, as it saves a project's notes. Return is a new line.
             let done_key = key.clone();
-            let keys = cx.subscribe(&editor, move |_, event: &InputEvent, cx| {
-                if let InputEvent::PressEnter {
+            let keys = cx.subscribe(&editor, move |_, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter {
                     secondary: true, ..
-                } = event
-                {
-                    finish_edit(&done_key, cx);
-                }
+                } => finish_edit(&done_key, cx),
+                // The composer's chip for it (and Send) follows what's typed,
+                // in whichever window the box is (composer_drafts.rs).
+                InputEvent::Change => cx.refresh_windows(),
+                _ => {}
             });
             let edit = Edit {
                 thread,
+                row,
                 kind: draft.kind,
                 original: draft.source.clone(),
                 editor: editor.clone(),
@@ -303,9 +314,7 @@ fn start_edit(key: String, thread: String, draft: &DraftBlock, window: &mut Wind
 fn finish_edit(key: &str, cx: &mut App) {
     let dropped = EDITS.with(|e| {
         let mut edits = e.borrow_mut();
-        let Some(edit) = edits.get_mut(key) else {
-            return None;
-        };
+        let edit = edits.get_mut(key)?;
         edit.editing = false;
         if edit.changed(cx).is_none() {
             return edits.remove(key);
@@ -316,8 +325,9 @@ fn finish_edit(key: &str, cx: &mut App) {
     cx.refresh_windows();
 }
 
-/// Undo: the agent's draft back, his version gone.
-fn undo_edit(key: &str, cx: &mut App) {
+/// Undo: the agent's draft back, his version gone. The composer's chip for
+/// it does the same.
+pub(crate) fn undo_edit(key: &str, cx: &mut App) {
     let dropped = EDITS.with(|e| e.borrow_mut().remove(key));
     drop(dropped);
     cx.refresh_windows();
@@ -345,6 +355,44 @@ pub(crate) fn unsent_edits(thread: &str, cx: &App) -> String {
             .collect::<Vec<_>>()
     });
     draft_block::edited_message(&edits)
+}
+
+/// A changed draft that goes with Mike's next message to its thread, for the
+/// composer's chip that says so (composer_drafts.rs).
+pub(crate) struct PendingEdit {
+    /// Its key, for the chip's ✕, which is the box's Undo.
+    pub key: String,
+    /// The reply's row it's in, for the chip's View.
+    pub row: String,
+    pub kind: DraftKind,
+    /// How many lines his version changes.
+    pub lines: usize,
+}
+
+/// `thread`'s changed drafts not sent yet, in the order they go: the same
+/// ones `unsent_edits` puts on the end of the message.
+pub(crate) fn pending_edits(thread: &str, cx: &App) -> Vec<PendingEdit> {
+    EDITS.with(|e| {
+        let edits = e.borrow();
+        let mut mine: Vec<(&String, &Edit)> = edits
+            .iter()
+            .filter(|(_, edit)| edit.thread == thread)
+            .collect();
+        mine.sort_by(|a, b| a.0.cmp(b.0));
+        mine.into_iter()
+            .filter_map(|(key, edit)| {
+                let text = edit
+                    .changed(cx)
+                    .filter(|text| edit.sent.as_ref() != Some(text))?;
+                Some(PendingEdit {
+                    key: key.clone(),
+                    row: edit.row.clone(),
+                    kind: edit.kind,
+                    lines: draft_block::changed_lines(&edit.original, &text).max(1),
+                })
+            })
+            .collect()
+    })
 }
 
 /// The message with `thread`'s changed drafts has gone: each is marked as
@@ -435,7 +483,7 @@ fn draft_box(
         })
         .child(edit_button(
             &key,
-            &plugin.thread,
+            (&plugin.thread, &plugin.row),
             original,
             editor.is_some(),
             &base,
@@ -465,26 +513,12 @@ fn draft_box(
     // Its own selection, and somewhere for the keys to go once a drag starts
     // in its words, so ⌘C copies them (the thread pane's copy, selection_bar.rs).
     // Keyed by the words too, so his version gets a selection of its own.
-    let selection = window
-        .use_keyed_state(
-            ElementId::Name(format!("draft-selection-{base}-{}", self::key(&draft.source)).into()),
-            cx,
-            |_, cx| {
-                let handle = TextSelectionHandle::new(draft.plain_text(), cx);
-                let focus = cx.focus_handle();
-                let keys = focus.clone();
-                handle.focus_with(
-                    move |window, cx| {
-                        keys.focus(window, cx);
-                        crate::web_panels::keyboard_to_app(window);
-                    },
-                    cx,
-                );
-                DraftSelection { handle, focus }
-            },
-        )
-        .read(cx)
-        .clone();
+    let selection = draft_selection(
+        format!("draft-selection-{base}-{}", self::key(&draft.source)),
+        draft,
+        window,
+        cx,
+    );
     let body = div()
         .w_full()
         .px(px(CODE_PAD))
@@ -508,7 +542,7 @@ fn draft_box(
         None => body.child(DraftText::new(
             format!("draft-text-{base}"),
             &lines,
-            plugin,
+            (plugin.origin, plugin.cwd.clone()),
             selection.handle.clone(),
             cx,
         )),
@@ -543,6 +577,140 @@ struct DraftSelection {
     focus: FocusHandle,
 }
 
+/// A draft's own selection, kept under `key` between frames.
+fn draft_selection(
+    key: String,
+    draft: &DraftBlock,
+    window: &mut Window,
+    cx: &mut App,
+) -> DraftSelection {
+    window
+        .use_keyed_state(ElementId::Name(key.into()), cx, |_, cx| {
+            let handle = TextSelectionHandle::new(draft.plain_text(), cx);
+            let focus = cx.focus_handle();
+            let keys = focus.clone();
+            handle.focus_with(
+                move |window, cx| {
+                    keys.focus(window, cx);
+                    crate::web_panels::keyboard_to_app(window);
+                },
+                cx,
+            );
+            DraftSelection { handle, focus }
+        })
+        .read(cx)
+        .clone()
+}
+
+/// A draft's lines as one text with its looks: bold, italic, strike, code
+/// in the mono font, links in the link colour, a quote's bar.
+struct Formatted {
+    text: String,
+    highlights: Vec<(Range<usize>, HighlightStyle)>,
+    code: Vec<(Range<usize>, SharedString)>,
+    links: Vec<(Range<usize>, String)>,
+}
+
+fn formatted(lines: &[Line], cx: &App) -> Formatted {
+    // Opaque colours: GPUI blends a highlight's colour into the run's
+    // (style::over_background).
+    let (link, quoted, bar) = (
+        style::link_text(cx),
+        style::over_background(style::secondary_label(cx), cx),
+        style::over_background(style::tertiary_label(cx), cx),
+    );
+    let (code_bg, mono) = (
+        style::inline_code_background(cx),
+        cx.theme().mono_font_family.clone(),
+    );
+    let mut text = String::new();
+    let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
+    let mut code: Vec<(Range<usize>, SharedString)> = Vec::new();
+    let mut links: Vec<(Range<usize>, String)> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            text.push('\n');
+        }
+        if line.quote {
+            // The bar of a Slack quote, fainter than its words.
+            highlights.push((
+                text.len()..text.len() + QUOTE_BAR.len(),
+                HighlightStyle {
+                    color: Some(bar),
+                    ..Default::default()
+                },
+            ));
+            text.push_str(QUOTE_BAR);
+        }
+        for span in &line.spans {
+            let range = text.len()..text.len() + span.text.len();
+            text.push_str(&span.text);
+            let mut look = HighlightStyle::default();
+            if line.quote {
+                look.color = Some(quoted);
+            }
+            if span.bold {
+                look.font_weight = Some(FontWeight::SEMIBOLD);
+            }
+            if span.italic {
+                look.font_style = Some(FontStyle::Italic);
+            }
+            if span.strike {
+                look.strikethrough = Some(StrikethroughStyle {
+                    thickness: gpui_kit::px(1.),
+                    color: None,
+                });
+            }
+            if span.code {
+                look.background_color = Some(code_bg);
+                code.push((range.clone(), mono.clone()));
+            }
+            if let Some(url) = &span.link {
+                look.color = Some(link);
+                links.push((range.clone(), url.clone()));
+            }
+            if look != HighlightStyle::default() && !range.is_empty() {
+                highlights.push((range, look));
+            }
+        }
+    }
+    Formatted {
+        text,
+        highlights,
+        code,
+        links,
+    }
+}
+
+/// A draft drawn as its box draws it, formatting and links and all, and
+/// selectable with ⌘C as the box's words are, for the draft Mike sent under
+/// his bubble's chip (rows.rs, `edited_drafts`).
+pub(crate) fn sent_draft(
+    key: &str,
+    draft: &DraftBlock,
+    origin: Origin,
+    cwd: String,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let selection = draft_selection(
+        format!("sent-draft-selection-{key}-{}", self::key(&draft.source)),
+        draft,
+        window,
+        cx,
+    );
+    div()
+        .track_focus(&selection.focus)
+        .child(DraftText::new(
+            format!("sent-draft-text-{key}"),
+            &draft.drawn_lines(),
+            (origin, cwd),
+            selection.handle.clone(),
+            cx,
+        ))
+        .into_any_element()
+}
+
 /// The draft's lines as one piece of text, kept as the agent wrote them,
 /// with Slack's formatting or an email's bare addresses as links: one piece,
 /// so a drag across them selects them, a double click a word, and ⌘C copies
@@ -569,79 +737,22 @@ impl DraftText {
     fn new(
         id: String,
         lines: &[Line],
-        plugin: &DraftBoxes,
+        (origin, cwd): (Origin, String),
         handle: TextSelectionHandle,
         cx: &App,
     ) -> Self {
-        // Opaque colours: GPUI blends a highlight's colour into the run's
-        // (style::over_background).
-        let (link, quoted, bar) = (
-            style::link_text(cx),
-            style::over_background(style::secondary_label(cx), cx),
-            style::over_background(style::tertiary_label(cx), cx),
-        );
-        let (code_bg, mono) = (
-            style::inline_code_background(cx),
-            cx.theme().mono_font_family.clone(),
-        );
-        let mut text = String::new();
-        let mut highlights: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
-        let mut code: Vec<(Range<usize>, SharedString)> = Vec::new();
-        let mut links: Vec<(Range<usize>, String)> = Vec::new();
-        for (i, line) in lines.iter().enumerate() {
-            if i > 0 {
-                text.push('\n');
-            }
-            if line.quote {
-                // The bar of a Slack quote, fainter than its words.
-                highlights.push((
-                    text.len()..text.len() + QUOTE_BAR.len(),
-                    HighlightStyle {
-                        color: Some(bar),
-                        ..Default::default()
-                    },
-                ));
-                text.push_str(QUOTE_BAR);
-            }
-            for span in &line.spans {
-                let range = text.len()..text.len() + span.text.len();
-                text.push_str(&span.text);
-                let mut look = HighlightStyle::default();
-                if line.quote {
-                    look.color = Some(quoted);
-                }
-                if span.bold {
-                    look.font_weight = Some(FontWeight::SEMIBOLD);
-                }
-                if span.italic {
-                    look.font_style = Some(FontStyle::Italic);
-                }
-                if span.strike {
-                    look.strikethrough = Some(StrikethroughStyle {
-                        thickness: gpui_kit::px(1.),
-                        color: None,
-                    });
-                }
-                if span.code {
-                    look.background_color = Some(code_bg);
-                    code.push((range.clone(), mono.clone().into()));
-                }
-                if let Some(url) = &span.link {
-                    look.color = Some(link);
-                    links.push((range.clone(), url.clone()));
-                }
-                if look != HighlightStyle::default() && !range.is_empty() {
-                    highlights.push((range, look));
-                }
-            }
-        }
+        let Formatted {
+            text,
+            highlights,
+            code,
+            links,
+        } = formatted(lines, cx);
         let styled = StyledText::new(text.clone())
             .with_highlights(highlights)
             .with_font_family_overrides(code);
         let layout = styled.layout().clone();
         // Its links go where the reply's do: through the open gate, as this
         // thread's (a web page in the browser, a mail address asks first).
-        let (origin, cwd) = (plugin.origin, plugin.cwd.clone());
         let ranges: Vec<Range<usize>> = links.iter().map(|(r, _)| r.clone()).collect();
         let urls: Vec<String> = links.into_iter().map(|(_, u)| u).collect();
         let id = ElementId::Name(id.into());
@@ -972,7 +1083,7 @@ fn header_button(id: String, icon: &str, word: &'static str, color: Hsla) -> Sta
 /// thing to press next).
 fn edit_button(
     key: &str,
-    thread: &str,
+    (thread, row): (&str, &str),
     original: &DraftBlock,
     editing: bool,
     base: &str,
@@ -989,14 +1100,23 @@ fn edit_button(
         .on_click(move |_, _, cx| finish_edit(&key, cx));
         return crate::highlights::tipped(button, DONE_TIP).into_any_element();
     }
-    let (thread, original) = (thread.to_owned(), original.clone());
+    let (thread, row, original) = (thread.to_owned(), row.to_owned(), original.clone());
     let button = header_button(
         format!("draft-edit-{base}"),
         "pencil",
         "Edit",
         style::secondary_label(cx),
     )
-    .on_click(move |_, window, cx| start_edit(key.clone(), thread.clone(), &original, window, cx));
+    .on_click(move |_, window, cx| {
+        start_edit(
+            key.clone(),
+            thread.clone(),
+            row.clone(),
+            &original,
+            window,
+            cx,
+        )
+    });
     crate::highlights::tipped(button, EDIT_TIP).into_any_element()
 }
 

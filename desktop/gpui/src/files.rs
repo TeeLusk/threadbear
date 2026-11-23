@@ -276,14 +276,6 @@ pub(crate) fn media_key(thread_id: &str, path: &str, opened: u64) -> String {
 /// Whether the pane is showing a video or a PDF in the system's view, which
 /// has to be placed every frame (shell.rs draws the pane uncached then).
 pub(crate) fn shows_media(side: &SidePane, thread_id: &str) -> bool {
-    // A review's page is a page's view too (review_pane.rs).
-    if side
-        .previews
-        .get(thread_id)
-        .is_some_and(|p| matches!(p.target, Target::Review(_)))
-    {
-        return true;
-    }
     let Some(path) = side.previews.get(thread_id).and_then(|p| p.file_path()) else {
         return false;
     };
@@ -480,8 +472,6 @@ impl SidePane {
             }
             Target::Folder(_) => self.load_folder_for_preview(thread, cx),
             Target::Pr(url) => self.begin_pr(url, cx),
-            // Its page is made as it's drawn (review_pane.rs).
-            Target::Review(_) => {}
         }
     }
 
@@ -908,6 +898,10 @@ impl SidePane {
         cx.notify();
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn show_read(
         &mut self,
         thread_id: &str,
@@ -1214,7 +1208,7 @@ impl SidePane {
                 cx,
                 move |_, cx| reveal(&reveal_path.clone(), crate::open_gate::Origin::ThisMac, cx),
             ));
-            let open_path = path.clone();
+            let open_path = path;
             row = row.child(self.header_button(
                 "hl-open",
                 "arrow.up.right",
@@ -1400,7 +1394,6 @@ impl SidePane {
             }
             Target::Folder(path) => self.render_folder(thread, path, preview, window, cx),
             Target::Pr(url) => self.render_pr(thread, url, window, cx),
-            Target::Review(id) => self.render_review(thread, id, window, cx),
         }
     }
 
@@ -1487,6 +1480,10 @@ impl SidePane {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 258 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render_file(
         &mut self,
         thread: &ThreadSummary,
@@ -1670,7 +1667,7 @@ impl SidePane {
                 let (path2, entity) = (path.to_owned(), cx.entity().downgrade());
                 // Dragged, it's the file itself, from this Mac's own threads
                 // only (file_drag.rs, `FilePreviewView`'s drag).
-                let drag = Some(path.to_owned()).filter(|_| !thread.is_remote());
+                let drag = (!thread.is_remote()).then(|| path.to_owned());
                 crate::file_drag::FileDragExt::file_drag(div().id("hl-picture"), drag)
                     .size_full()
                     .flex()
@@ -1867,7 +1864,6 @@ impl SidePane {
             Target::Folder(path) => format!("folder {path}"),
             Target::Page(url) => format!("page {url}"),
             Target::Pr(url) => format!("pr {url}"),
-            Target::Review(id) => format!("review {id}"),
         }
     }
 
@@ -1887,13 +1883,6 @@ impl SidePane {
                 pane.insert("previewKind".into(), json!("pr"));
                 pane.insert("previewText".into(), json!(url));
                 pane.insert("pr".into(), self.prs.describe(url));
-            }
-            Target::Review(id) => {
-                pane.insert("previewKind".into(), json!("review"));
-                pane.insert("previewText".into(), json!(id));
-                if let Some(thread) = self.thread(cx) {
-                    pane.insert("review".into(), self.review_dump(&thread.id));
-                }
             }
             Target::Folder(path) => {
                 pane.insert("previewKind".into(), json!("folder"));

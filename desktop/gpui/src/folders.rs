@@ -891,7 +891,10 @@ impl SidePane {
     /// The bar under the rows: each folder up to this one, to click. A deep
     /// path keeps the nearest folders' names and puts the rest behind a "…"
     /// menu at the start, as many as it takes to fit (`FolderPathBar`).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn path_bar(
         &mut self,
         key: &str,
@@ -927,7 +930,7 @@ impl SidePane {
         let more = {
             let run = TextRun {
                 len: "…".len(),
-                font: font.clone(),
+                font,
                 color: p.fg,
                 background_color: None,
                 underline: None,
@@ -1174,7 +1177,10 @@ struct FolderRow {
 }
 
 impl FolderRow {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn render(
         self,
         entity: &WeakEntity<SidePane>,
@@ -1278,7 +1284,7 @@ impl FolderRow {
             .unwrap_or_else(|| "--".to_owned());
         // Dragged out, it's the file or folder itself, on this Mac only
         // (file_drag.rs, `pasteboardWriterForItemAt`).
-        let drag = Some(entry.path.clone()).filter(|_| !thread.is_remote());
+        let drag = (!thread.is_remote()).then_some(entry.path);
         crate::file_drag::FileDragExt::file_drag(div().id(("folder-row", index)), drag)
             .w_full()
             .h(px(ROW_HEIGHT))
@@ -1369,7 +1375,10 @@ struct FolderTile {
 }
 
 impl FolderTile {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn render(
         self,
         entity: &WeakEntity<SidePane>,
@@ -1393,7 +1402,7 @@ impl FolderTile {
         let (click_key, menu_key) = (key.to_owned(), key.to_owned());
         let (click_thread, menu_thread) = (thread.clone(), thread.clone());
         let click_preview = preview.clone();
-        let drag = Some(entry.path.clone()).filter(|_| !thread.is_remote());
+        let drag = (!thread.is_remote()).then(|| entry.path.clone());
         crate::file_drag::FileDragExt::file_drag(div().id(("folder-tile", index)), drag)
             .flex_none()
             .w(px(width))
@@ -1436,7 +1445,7 @@ impl FolderTile {
                             .text_size(px(style::size::SMALL))
                             .line_height(px(style::natural_line(style::size::SMALL)))
                             .text_color(p.fg)
-                            .child(entry.name.clone()),
+                            .child(entry.name),
                     ),
             )
             .on_click(move |event, _, cx| {
@@ -1621,7 +1630,10 @@ impl SidePane {
 
     /// Goes from the folder showing to `path`: in the pane, with Back to here
     /// as `memory` left it.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn leave_folder(
         &mut self,
         key: &str,

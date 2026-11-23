@@ -1,4 +1,4 @@
-// Explain (docs/protocol.md, "Explain"): words Mike selected in a thread,
+// Explain (docs/protocol/settings.md, "Explain"): words Mike selected in a thread,
 // explained by the small model in the pane beside it, with follow-ups. A mini
 // fork of the thread that lives in the app alone, one per thread: nothing
 // from it goes into the thread, so the agent never sees it and its context

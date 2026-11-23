@@ -13,6 +13,7 @@ use crate::mac_switch::MacSwitch;
 use crate::sidebar::{icon, palette, tipped, Palette, LEADING, OUTER_INSET, TRAILING};
 use crate::spinner::Spinner;
 use crate::{call, icons, now_ms, style};
+use gpui_kit::base::A11yDisabledExt as _;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
@@ -304,7 +305,7 @@ impl Threadbear {
                         .disabled(pausing)
                         .tooltip(pause_tip)
                         .on_click(cx.listener(move |this, _, _, cx| this.set_librarian_paused(!paused, cx))),
-                ),
+                ).a11y_disabled(pausing),
             )
             .child(
                 div().id("librarian-run").test_support().a11y_role(Role::GenericContainer).aria_label("Queue a look at every thread it hasn't looked at yet, newest first".to_owned()).child(
@@ -462,7 +463,7 @@ impl Threadbear {
                             .text_size(px(style::size::SIDEBAR_META))
                             .line_height(px(14.))
                             .text_color(p.faint)
-                            .tip(full.clone())
+                            .tip(full)
                             .child(due),
                     ),
             )
@@ -597,7 +598,7 @@ impl Threadbear {
                             .text_size(px(style::size::SIDEBAR_META))
                             .line_height(px(14.))
                             .text_color(p.faint)
-                            .tip(full.clone())
+                            .tip(full)
                             .child(ago),
                     )
                 }),
@@ -675,7 +676,8 @@ impl Threadbear {
                                 .ok();
                         }
                     }),
-            );
+            )
+            .a11y_disabled(pausing);
         let mut grid = v_flex().gap(px(12.)).child(
             h_flex()
                 .items_center()
@@ -768,8 +770,8 @@ impl Threadbear {
         };
         let app = cx.entity().downgrade();
         let tip = "Which pool's Claude logins it uses, the one with the most room. It waits when they're all out of room. Titles use the same pool (Settings › Models)";
-        let choices = pools.clone();
-        let set_for_menu = set.clone();
+        let choices = pools;
+        let set_for_menu = set;
         Some(
             div()
                 .id("librarian-pool")

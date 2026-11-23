@@ -43,7 +43,10 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   picture, PDF, text file or page in the pane, opens a review's window as
   its card does, and opens anything else (a
   folder, a `.tandem` project) in its own app. A review link has no
-  hover peek and isn't sent to the phone (only `http(s)` links are). Mike,
+  hover peek. The phone gets `http(s)`, `thread:` and `review:` links (a
+  review one opens its Reviews sheet; the website says it opens on the Mac
+  or iPhone), never a path: until 21 Nov 2026 a review link was dropped on
+  the way, and a pick between three mocks reached the phone as a bare question. Mike,
   30 Oct 2026: a card's buttons opened three videos, but nothing on it
   opened the stills the agent had put up to compare. The agent calls it last, after its final
   message. The tool's description says when, so a resumed session that
@@ -102,7 +105,17 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   "Nothing needed from you" line, under an `end_turn` with no asks or
   next of its own, loses it, and the card comes from it instead
   (`splitReplySection`): Sonnet wrote one there in a quarter of its eval
-  sessions. Under an `end_turn` that has asks, a "What I need from you"
+  sessions. The "Nothing needed from you" line comes off only as a closing
+  section the done card shows all of: the line says no more than that; a
+  list straight under it, with no lead-in, has every item as a row on the
+  card that is the item as written (no link's address, second sentence,
+  line under it, full stop or cut for length left out); and nothing comes
+  after.
+  Otherwise the card is still read from it and the reply stays as written,
+  as it does when the section is all the reply has: on 21 Nov 2026 a reply
+  that opened with the line lost both its paragraphs, and Mike got a blank
+  answer (thread 649fc651).
+  Under an `end_turn` that has asks, a "What I need from you"
   section loses its place too, and the card stays `end_turn`'s, so a reply
   can't say what the card under it says (`replyWithoutRepeat`; Mike took
   thread 7ac017b7's repeats on 3 Nov 2026 for it not having used the card).
@@ -830,4 +843,51 @@ type Ask = { action: string; where?: string; reply?: string; why?: string; optio
 type AskLink = { title: string; url: string }
 type AskAnswer = { action: string; answer: string } // an ask's action and the answer he picked
 type OpenAsk = Ask & { ticked?: true }
+```
+
+## The reply phase
+
+How the runner reads a turn around `end_turn`, as one state type
+(`runner/src/reply-phase.ts`, 20 Nov 2026; its header has the table of every
+event in every phase). It changes nothing on the wire: the events above are
+what the phases write. A turn starts `working`. An accepted call
+(`Noted: this thread`) moves it to `replying` when the result says "Now write
+your reply" (the text after it is the reply, `final: true`), else to `ended`
+(text after it is dropped, but for a narration's real message or the message
+bullets stood for). The Stop hook sending it back for a card under a reply
+already written (`endTurnNudge` with `reopen`) makes it `reopened`: words are
+dropped, and the next taken call is that card, with the reply written again
+under it. A message steered in, or a background job's notice the agent has
+read, opens it again (`open`): another `end_turn` is no repeat, and archive,
+snooze and waitFor asked before a message are off. Codex's bullets form
+(`Noted. Now write your final answer`) moves a working turn to `open` too.
+A refused repeat or unread-message refusal puts the call's arguments back to
+the ones before; `ARCHIVE_ADDED` and `SNOOZE_ADDED` add only that. The turn's
+end reads its card (`turnNeeds`): the reply's "What I need from you", else
+the call, else the last text's section. A Stop, an error or the CLI dying
+ends the turn with no card.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> working
+  working --> replying: accepted, "Now write your reply"
+  working --> ended: accepted, bullets or "your message above is the reply"
+  working --> open: Codex's "Noted. Now write"
+  ended --> reopened: Stop hook, reopen
+  replying --> reopened: Stop hook, reopen
+  reopened --> replying: taken, "Now write your reply"
+  reopened --> ended: taken, other
+  ended --> open: message, notice read
+  replying --> open: message, notice read (still the reply)
+  reopened --> open: message, notice read
+  open --> replying: accepted, "Now write your reply"
+  open --> ended: accepted, other
+  ended --> ended: refused, archive or snooze added
+  replying --> replying: text (the reply)
+  working --> [*]: turn ends (card from the call or the text)
+  ended --> [*]: turn ends
+  replying --> [*]: turn ends
+  reopened --> [*]: turn ends
+  open --> [*]: turn ends
 ```

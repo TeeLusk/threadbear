@@ -1,3 +1,8 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests: a panic is the test's failure, with the line"
+)]
 use super::{icon_png, read_icon, Origin};
 use std::path::Path;
 

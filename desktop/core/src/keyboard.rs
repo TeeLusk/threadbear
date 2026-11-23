@@ -337,6 +337,10 @@ impl Recorder {
     /// A key press as GPUI gives it while listening (`swallows`): Esc with
     /// nothing held stops, Delete with nothing held removes the key, anything
     /// else is a go at a new one. None when the bindings stay as they are.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     pub fn key_down(
         &mut self,
         key: &str,

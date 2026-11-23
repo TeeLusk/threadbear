@@ -2,7 +2,7 @@
 
 A recipe is a technique worth keeping (a morning brief, a nightly look back, a
 watcher), written so an agent can set it up for anyone. Threadbear lists them in
-its Recipes view (docs/protocol.md, "Recipes"). Each is a folder with a
+its Recipes view (docs/protocol/projects.md, "Recipes"). Each is a folder with a
 `RECIPE.md` and, if you like, a header picture.
 
 The ones that come with Threadbear are in `runner/src/recipes/<id>/`. Your own

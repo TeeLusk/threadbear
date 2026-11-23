@@ -1,7 +1,10 @@
 // Ports of app/Tests/ThreadbearCoreTests/StretchTests.swift, TurnGapTests.swift
 // and WorkLinksTests.swift (the reply rules and finding the step a work: link
 // quotes; link parsing belongs to the view, so it isn't here).
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
 
 mod support;
 

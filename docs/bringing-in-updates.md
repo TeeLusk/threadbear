@@ -140,7 +140,7 @@ messages and diffs, and write code that does both:
 
 Their patches (`.threadbear/patches/`, `~/.threadbear/patches/`) and
 settings (`runner.json`) aren't part of the merge. Check they still work
-against Mike's changes (docs/protocol.md, "Patches", says what a patch can
+against Mike's changes (docs/protocol/patches.md, "Patches", says what a patch can
 use), and fix them if not.
 
 In Tyler's copy, don't run `./check.sh --all`: a release only has to

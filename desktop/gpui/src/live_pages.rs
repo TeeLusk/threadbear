@@ -414,14 +414,7 @@ fn card(page: &LivePage, window: &mut Window, cx: &mut App) -> AnyElement {
         )
     });
     let button = if running.is_some() {
-        text_button(
-            format!("live-stop-{id}"),
-            "Stop",
-            STOP_TIP,
-            false,
-            cx,
-            |window, cx| stop(window, cx),
-        )
+        text_button(format!("live-stop-{id}"), "Stop", STOP_TIP, false, cx, stop)
     } else {
         let page = page.clone();
         text_button(

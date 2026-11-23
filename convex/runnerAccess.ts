@@ -1,4 +1,4 @@
-// Who a runner key is, and what it may do (docs/protocol.md, "Runner keys").
+// Who a runner key is, and what it may do (docs/protocol/keys.md, "Runner keys").
 // Plain TypeScript with no Convex imports, so the runner's unit tests can
 // check every rule without a deployment; lib.ts runnerAuth looks the key up
 // and the functions in sync.ts ask these.
@@ -427,7 +427,15 @@ export function isThreadLink(url: unknown): boolean {
   return typeof url === 'string' && /^thread:[\w-]{1,64}$/i.test(url);
 }
 
-/** A thread row with every link that isn't a web page (or, on an ask, another thread) taken out. */
+// review:<id>, a show_options review in the ask's own thread, which the phone
+// opens in its Reviews sheet (the designReviews command) and the website names
+// as opening on the Mac. Dropping it left a pick with nothing to tap (21 Nov
+// 2026: "Which way should a waiting thread show...?", its three mocks unreachable).
+export function isReviewLink(url: unknown): boolean {
+  return typeof url === 'string' && /^review:[a-zA-Z0-9-]{1,200}$/.test(url);
+}
+
+/** A thread row with every link that isn't a web page (or, on an ask, another thread or its review) taken out. */
 export function webLinksOnly<T extends Record<string, any>>(t: T): T {
   const out: Record<string, any> = { ...t };
   if (Array.isArray(out.links)) {
@@ -437,9 +445,10 @@ export function webLinksOnly<T extends Record<string, any>>(t: T): T {
   if (Array.isArray(out.asks)) {
     out.asks = out.asks.map((a: any) => {
       if (!Array.isArray(a?.links)) return a;
-      // An ask may also link another thread (thread:<id>), which the phone
-      // and the web open in place, not as an address.
-      const links = a.links.filter((l: any) => isWebLink(l?.url) || isThreadLink(l?.url));
+      // An ask may also link another thread (thread:<id>) or one of its own
+      // thread's reviews (review:<id>), which the phone and the web open in
+      // place, not as an address.
+      const links = a.links.filter((l: any) => isWebLink(l?.url) || isThreadLink(l?.url) || isReviewLink(l?.url));
       const { links: _links, ...rest } = a;
       return links.length ? { ...rest, links } : rest;
     });
@@ -497,7 +506,7 @@ export function badRunnerStats(stats: Record<string, unknown>): string | undefin
 // so none can carry text a terminal would run when an audit lists it.
 export const SCHEDULE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-// ---- shared usage readings (sync:sharedUsage, docs/protocol.md "Runner keys")
+// ---- shared usage readings (sync:sharedUsage, docs/protocol/keys.md "Runner keys")
 
 // A login as two runners compare it: the same subscription wherever it's
 // signed in.

@@ -273,7 +273,7 @@ fn rail_button(
     let color = if button.active { fg } else { secondary };
     let (tip_text, label): (SharedString, SharedString) =
         (button.tip.clone().into(), button.tip.into());
-    let tip_for_tooltip = tip_text.clone();
+    let tip_for_tooltip = tip_text;
     let badge_key = button.id.clone();
     let tapped = button.id.clone();
     let face = match button.face {
@@ -313,7 +313,7 @@ fn rail_button(
             Toggled::False
         })
         .aria_label(label)
-        .tip(tip_for_tooltip.clone())
+        .tip(tip_for_tooltip)
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             if !cx.reduce_motion() {
                 TAPS.with(|t| t.borrow_mut().insert(tapped.clone(), Instant::now()));
@@ -470,6 +470,10 @@ impl Threadbear {
     }
 
     /// The column down the left (`ActivityBar`).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 245 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     pub(crate) fn render_activity_bar(
         &mut self,
         window: &mut Window,

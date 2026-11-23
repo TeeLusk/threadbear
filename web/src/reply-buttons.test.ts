@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { buttonLook, type MessageButton } from './reply-buttons.ts';
 import { idle, step, type CommandState } from './command.ts';
 
@@ -37,4 +38,25 @@ test('a failed press shows its error and can be pressed again', () => {
 
 test('a press nothing has heard about in a while stops spinning but stays locked', () => {
   assert.equal(buttonLook(start, step(waiting, { kind: 'tick', at: 60_000 })).kind, 'slow');
+});
+
+// The cases the desktop app and the phones run too (shared/cases/reply-buttons.json).
+test('a button looks as the shared cases say', () => {
+  type Case = {
+    name: string;
+    input: { button: { kind: 'start' | 'send'; target?: string; pressedThreadId?: string; failed?: string }; press: { state: 'none' | 'sending' | 'pending' | 'taken' | 'done' | 'failed'; threadId?: string; note?: string } };
+    expect: { look: string; threadId?: string; error?: string };
+    differs?: Record<string, string>;
+  };
+  const file = new URL('../../shared/cases/reply-buttons.json', import.meta.url);
+  const { cases } = JSON.parse(readFileSync(file, 'utf8')) as { cases: Case[] };
+  const run = cases.filter((c) => !c.differs?.web);
+  assert.ok(run.length > 5);
+  for (const c of run) {
+    const { state, threadId, note } = c.input.press;
+    const press = state === 'none' ? none : state === 'sending' ? sending : at({ state, ...(threadId ? { threadId } : {}), ...(note ? { note } : {}) });
+    const look = buttonLook({ id: 'abcd1234', title: 'Go', ...c.input.button }, press);
+    const got = look.kind === 'pressed' ? { look: 'pressed', threadId: look.threadId } : look.kind === 'failed' ? { look: 'failed', error: look.error } : { look: look.kind };
+    assert.deepEqual(got, c.expect, c.name);
+  }
 });

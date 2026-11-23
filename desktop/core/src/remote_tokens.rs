@@ -1,5 +1,5 @@
 // Year-long tokens for another runner's Claude logins, from the Runners
-// panel (docs/protocol.md, Accounts, "Year-long tokens on another runner",
+// panel (docs/protocol/settings.md, Accounts, "Year-long tokens on another runner",
 // and `accounts.yearToken`). The Usage panel's Terminal helper only reaches
 // this Mac's logins; for bruce, Tinker Desk or a WSL box the runner there
 // runs `claude setup-token` itself and sends back only the claude.ai page to
@@ -395,7 +395,7 @@ mod tests {
             ..Default::default()
         };
         let logins = RunnerLogins {
-            accounts: vec![a.clone(), codex],
+            accounts: vec![a, codex],
             ..Default::default()
         };
         assert_eq!(claude_logins(&logins).len(), 1);

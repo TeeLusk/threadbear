@@ -96,6 +96,9 @@ impl Page {
             return;
         }
         self.frame.set((x, y, width, height));
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until this page closes the
+        // browser on drop; Page isn't Send, so this is on the main thread.
         unsafe {
             tb_view_set_frame(
                 self.view,
@@ -115,6 +118,9 @@ impl Page {
             return;
         }
         self.hidden.set(hidden);
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until this page closes the
+        // browser on drop; Page isn't Send, so this is on the main thread.
         unsafe { tb_view_set_hidden(self.view, hidden) };
         if let Some(host) = self.browser.host() {
             host.was_hidden(i32::from(hidden));

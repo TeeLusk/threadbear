@@ -7,7 +7,7 @@
 //
 // Each file below says which Swift type or function it ports. Events stay as
 // serde_json::Value right up to `Event::decode`, whose lenient decoders
-// mirror the Swift ones field for field (docs/protocol.md: "keep both sides
+// mirror the Swift ones field for field (AGENTS.md: "keep both sides
 // tolerant of unknown fields and event types").
 pub mod card_text;
 pub mod diff;

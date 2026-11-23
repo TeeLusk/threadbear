@@ -1,7 +1,7 @@
 package com.mikerosoft.threadbear.kit
 
 /**
- * Links from a message back into the thread (docs/protocol.md, "Links into
+ * Links from a message back into the thread (docs/protocol/needs-you.md, "Links into
  * the thread"; ThreadLinks.swift), as the Mac's WorkLinks reads them:
  * `work:<words>` quotes a step in the turn's working, `thread:<id>` is
  * another thread and `review:<id>` a design review, which only the Mac can
@@ -140,7 +140,7 @@ object ThreadLinks {
         is ThreadItem.Message -> if (matches(item.message, q)) item.message.seq else null
         is ThreadItem.Tools -> item.items.lastOrNull { matches(it, q) }?.seq
         is ThreadItem.Worked -> item.worked.items.asReversed().firstNotNullOfOrNull { step(it, q) }
-        is ThreadItem.Gap -> null
+        is ThreadItem.Gap, is ThreadItem.Note -> null
     }
 
     private val ownLink = Regex("""\]\(work:[^)\n]*(\))?""")
@@ -151,7 +151,7 @@ object ThreadLinks {
         // One with no `)` uses up its line and stays: trying every `](work:`
         // after it again was quadratic.
         Role.ASSISTANT -> !m.summary && normal(ownLink.replace(m.text) { if (it.groups[1] == null) it.value else "]" }).contains(q)
-        Role.USER -> false
+        Role.USER, Role.NOTE -> false
     }
 
     private val home = Regex("""/Users/[^/\s]+""")
@@ -170,6 +170,6 @@ object ThreadLinks {
         is ThreadItem.Message -> message.seq == seq
         is ThreadItem.Tools -> items.any { it.seq == seq }
         is ThreadItem.Worked -> worked.items.any { it.holds(seq) }
-        is ThreadItem.Gap -> false
+        is ThreadItem.Gap, is ThreadItem.Note -> false
     }
 }

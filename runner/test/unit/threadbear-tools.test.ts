@@ -524,7 +524,7 @@ test('end_turn is refused until the turn has replied to Alex in text', async () 
   assert.deepEqual(slept, []);
 });
 
-// The summary is the turn's reply (docs/protocol.md, "The summary"): in 36
+// The summary is the turn's reply (docs/protocol/needs-you.md, "The summary"): in 36
 // test sessions Opus left its final message as prose, and put bullets in
 // end_turn every time (29 Oct 2026).
 test('end_turn with a summary needs no message first, and the runner writes it as the reply', async () => {
@@ -1297,6 +1297,14 @@ test('end_turn asks once about an ask pointing at another thread with no link, a
   assert.deepEqual(toPhoneAsk({ action: 'x', links: [{ title: 'Open its thread', url: `thread:${app.id}` }, { title: 'File', url: '/tmp/a.png' }] }).links, [{ title: 'Open its thread', url: `thread:${app.id}` }]);
 });
 
+test("an ask's review link reaches the phone, which opens it in its Reviews sheet", () => {
+  // 21 Nov 2026: a pick between three mocks reached the phone as a bare
+  // question, its "Open the three mocks" link dropped on the way.
+  const review = 'review:0a7d18e2-5c14-45d3-ae06-5e1e13aa47d5';
+  assert.deepEqual(toPhoneAsk({ action: 'Which way?', links: [{ title: 'Open the three mocks', url: review }] }).links, [{ title: 'Open the three mocks', url: review }]);
+  assert.equal(toPhoneAsk({ action: 'x', links: [{ title: 'Bad', url: 'review:../../etc' }] }).links, undefined);
+});
+
 test('end_turn asks once for a try at a step a card hands over, in both forms', async () => {
   const forms = [
     { oneReply: true, offering: { asks: [{ question: 'Turn on the setting.', options: [{ label: 'Done' }, { label: 'Can you do it?' }] }] }, plain: { asks: [{ question: 'Should I sign you up for the store?', options: [{ label: 'Sign me up' }, { label: 'Hold off' }] }] } },
@@ -1831,7 +1839,7 @@ test('the patches line sends button and panel asks to a patch file, by the proto
   const { patchesLine } = await import('../../src/threadbear-mcp.ts');
   const line = patchesLine('/Users/someone/threadbear/docs/guide.md', () => true);
   assert.match(line, /\.threadbear\/patches\/<name>\.ts/);
-  assert.ok(line.includes(path.join('/Users/someone/threadbear', 'docs', 'protocol.md')), line);
+  assert.ok(line.includes(path.join('/Users/someone/threadbear', 'docs', 'protocol', 'patches.md')), line);
   assert.match(line, /Edit or Write/);
   assert.match(line, /not a pin/);
   assert.equal(patchesLine('/nowhere/docs/guide.md', () => false), '');
@@ -1955,7 +1963,7 @@ test('one reply: after hidden text, end_turn asks for the answer and evidence, i
   assert.match(r.text, /If the user needs a draft or descriptions of choices/, 'what the asks are about always goes in the reply');
 });
 
-// One reply (docs/protocol.md, "One reply"; 1 Nov 2026): end_turn carries
+// One reply (docs/protocol/needs-you.md, "One reply"; 1 Nov 2026): end_turn carries
 // the card and a headline, and the message after it is the reply.
 test('one reply: end_turn takes the card, never asks for a message first, and says the reply comes next', async () => {
   const h = makeHarness();
@@ -2017,6 +2025,29 @@ test("one reply: a reply that ends in a What I need from you section gives the c
   s.result('completed');
   await tick();
   assert.equal(h.runner.get(thread.id).needs, 'you');
+});
+
+// Thread 649fc651 (21 Nov 2026): Mike asked "Anything you need from me
+// here?", the agent called end_turn first and then answered "Nothing needed
+// from you. ..." with two paragraphs. The line took the whole reply off as a
+// closing section, the event was written with no text, and the Stop hook
+// didn't ask for a reply, as the agent had written one.
+test('one reply: a reply that opens "Nothing needed from you" reaches the thread whole', async () => {
+  const h = makeHarness();
+  const { thread, s } = start(h);
+  const { call } = tools(h, thread.id, undefined, () => true);
+  const input = { needs: 'nothing', headline: 'Nothing needed; waiting on the re-test' };
+  toolCall(s, 'e1', END_TURN, input);
+  const r = await call('end_turn', input);
+  s.out({ kind: 'event', event: { type: 'tool.result', itemId: 'e1', ok: true, text: r.text, truncated: false, images: [] } });
+  const words = 'Nothing needed from you. The sprinklers are on Auto, and the next run is Monday at 6:00.\n\nThe only thing outstanding is the re-test. This thread is asleep until then.';
+  s.text('m1', words);
+  const reply = h.events(thread.id).find((e) => e.type === 'assistant.text' && e.itemId === 'm1');
+  assert.ok(reply?.type === 'assistant.text' && reply.final);
+  assert.equal(reply.text, words);
+  s.result('completed');
+  await tick();
+  assert.equal(h.runner.get(thread.id).needs, 'nothing');
 });
 
 // ------------------------------------------------------------ other runners' threads

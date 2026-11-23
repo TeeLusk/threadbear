@@ -289,7 +289,7 @@ pub fn overlay(
                 None,
             ))
         } else if let Some(run) = &view.landing {
-            let progress = run.progress(now) as f64;
+            let progress = run.progress(now);
             // The spring's overshoot carries a little past the spot; that's the settle.
             let rect = lerp_rect(run.from, run.to, progress);
             let fade = run
@@ -396,6 +396,10 @@ fn paint_tilted_card(
 
 /// The panel itself, picked up: drawn at its real size and scaled, so it
 /// shrinks rather than reflowing, with the grab point under the pointer.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn ghost_element(
     view: &DockView,
     panel: &str,
@@ -497,6 +501,10 @@ fn ghost_element(
 }
 
 /// The accent-tinted space the panel would take, or the new tab itself, in a bar.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn drop_preview(
     view: &DockView,
     rect: dl::Rect,

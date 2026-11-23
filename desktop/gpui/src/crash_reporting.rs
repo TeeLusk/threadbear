@@ -401,6 +401,18 @@ pub(crate) fn automation() -> Result<Value, String> {
     )))
 }
 
+/// "27.2.1", from the system's own version file (no program run for it).
+fn macos_version() -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let text = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+    let after = &text[text.find("<key>ProductVersion</key>")?..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")?;
+    Some(after[start..start + end].trim().to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read as _, Write as _};
@@ -450,16 +462,4 @@ mod tests {
         );
         assert!(request.ends_with("hello"));
     }
-}
-
-/// "27.2.1", from the system's own version file (no program run for it).
-fn macos_version() -> Option<String> {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
-    let text = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
-    let after = &text[text.find("<key>ProductVersion</key>")?..];
-    let start = after.find("<string>")? + "<string>".len();
-    let end = after[start..].find("</string>")?;
-    Some(after[start..start + end].trim().to_owned())
 }

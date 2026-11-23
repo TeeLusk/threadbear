@@ -451,7 +451,7 @@ impl SettingsWindow {
                     .test_support()
                     .role(Role::Button)
                     .aria_label(format!("Reset {}", command.title()))
-                    .tip(tip.clone())
+                    .tip(tip)
                     .flex_none()
                     .cursor_pointer()
                     .text_size(px(11.))
@@ -519,7 +519,7 @@ impl SettingsWindow {
             // accessibilityLabel: "Archive, ⌘E".
             .role(Role::Button)
             .aria_label(rules::cap_label(command, bindings))
-            .tip(tip.clone())
+            .tip(tip)
             .flex_none()
             .min_w(px(78.))
             .px(px(8.))
@@ -754,7 +754,7 @@ pub(crate) fn automation(
                                 }
                             })
                     })
-                    .last();
+                    .next_back();
                 let Some(found) = found else { return false };
                 let at = found.visible_bounds().center();
                 window.pointer_move(at, None, cx);

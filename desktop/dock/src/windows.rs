@@ -604,7 +604,7 @@ impl Render for FloatingPanelView {
             .text_size(px(self.options.title_size))
             .font_weight(FontWeight::SEMIBOLD)
             .truncate()
-            .child(title.clone())
+            .child(title)
             .tooltip(|window, cx| {
                 gpui_kit::component::tooltip::Tooltip::new(
                     "Drag to move, or onto the main window to dock it",
@@ -733,7 +733,7 @@ fn float_listeners(view: WeakEntity<FloatingPanelView>, dragging: bool) -> impl 
                     let _ = moved.update(cx, |v, cx| v.pointer_moved(e, window, cx));
                 }
             });
-            let released = view.clone();
+            let released = view;
             window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
                     let _ = released.update(cx, |v, cx| v.pointer_up(true, window, cx));

@@ -654,7 +654,7 @@ impl Threadbear {
                             .text_size(px(15.))
                             .line_height(px(22.))
                             .text_color(label)
-                            .child(top.line.clone()),
+                            .child(top.line),
                     ),
             );
         let where_box = self.render_where(t, state, window, cx);
@@ -990,7 +990,7 @@ impl Threadbear {
             .text_color(style::label_text(cx))
             .when(!full, |s| s.line_clamp(3).overflow_hidden())
             .child(text);
-        let (open_id, see_key) = (t.id.clone(), key.clone());
+        let (open_id, see_key) = (t.id.clone(), key);
         let links = h_flex()
             .mt(px(4.))
             .gap(px(16.))

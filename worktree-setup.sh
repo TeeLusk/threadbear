@@ -67,7 +67,7 @@ refresh_main() {
   rmdir "$lock"
 }
 
-for dir in . runner app/Tools/mock-runner; do
+for dir in . runner mock-runner; do
   here="$ROOT/$dir"
   there="${MAIN:+$MAIN/$dir}"
   if [ -e "$here/node_modules" ] || [ -L "$here/node_modules" ]; then

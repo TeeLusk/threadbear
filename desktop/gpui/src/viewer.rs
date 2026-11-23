@@ -606,5 +606,8 @@ pub(crate) fn viewer_handle_global(entity: WeakEntity<SidePane>, cx: &mut App) {
 
 /// Value only used by the automation build.
 #[cfg(not(feature = "automation"))]
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "keeps `Value` used in builds without the automation"
+)]
 fn _unused(_: &Value) {}

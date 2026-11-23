@@ -11,7 +11,8 @@ import { ConvexError } from 'convex/values';
 import { api } from '../../convex/_generated/api';
 import { go, threadPath, useRoute } from './route';
 import { useSignInNote, useSigningIn, useToken } from './token';
-import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage } from './messages';
+import { EditedDrafts, MessageText, Pictures, PlanCard, picturesByRow, ToolRun, Worked, type PageMessage } from './messages';
+import { splitEdited } from './draft';
 import { ReplyButton } from './reply-button';
 import { OutLink } from './link-confirm';
 import { CommandNote, useCommand } from './command-state';
@@ -275,13 +276,17 @@ function ThreadView({ token, threadId }: { token: string; threadId: string }) {
       );
     }
     const from = sender(m);
+    // Drafts he changed, sent on the end of his words: chips, not the raw fences.
+    const edited = !from && m.role === 'user' ? splitEdited(m.text) : undefined;
+    const shownText = edited ? edited.words : m.text;
     return (
       <Fragment key={m.seq}>
       {m.seq === reviewAt && review ? <ReviewRow review={review} threadPath={linkTo} /> : null}
       <div className={`msg ${m.role}`}>
         {from ? <div className="origin">{from.who}</div> : m.role === 'user' && m.origin && m.origin !== 'user' && m.origin !== 'phone' ? <div className="origin">{originLabel(m.origin)}</div> : null}
-        {from ? <MessageText text={from.body} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} /> : <MessageText text={m.text} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} pictureChips={m.role === 'user'} pasted={m.role === 'user' ? pastedOf(pictures, m.seq, m.text).byNumber : undefined} button={m.role === 'assistant' ? buttonFor(m) : undefined} />}
-        <Pictures items={[...(after.get(m.seq) ?? []), ...(m.role === 'user' ? pastedOf(pictures, m.seq, m.text).unplaced : [])]} />
+        {m.plan && m.role === 'assistant' ? <PlanCard m={m} pictures={inText} rows={messages} threadPath={linkTo} button={buttonFor(m)} /> : from ? <MessageText text={from.body} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} /> : edited && !shownText.trim() ? null : <MessageText text={shownText} pictures={inText} seq={m.seq} rows={messages} threadPath={linkTo} pictureChips={m.role === 'user'} pasted={m.role === 'user' ? pastedOf(pictures, m.seq, shownText).byNumber : undefined} button={m.role === 'assistant' ? buttonFor(m) : undefined} />}
+        {edited ? <EditedDrafts drafts={edited.drafts} /> : null}
+        <Pictures items={[...(after.get(m.seq) ?? []), ...(m.role === 'user' ? pastedOf(pictures, m.seq, shownText).unplaced : [])]} />
       </div>
       </Fragment>
     );
@@ -417,7 +422,7 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
   const by = picks.card === t.asksSeq ? picks.by : {};
   const finished = !busy(t) && !t.needsYou && !t.pendingApproval && !asks.length && !t.archivedAt && !t.working;
   const next = finished ? (t.next ?? []) : [];
-  // What the runner found still open (docs/protocol.md, "Loose ends"), as
+  // What the runner found still open (docs/protocol/threads.md, "Loose ends"), as
   // on the Mac and the phone: open ones first, then booked check-ins.
   const ends = finished ? [...(t.looseEnds ?? []).filter((e) => e.kind !== 'scheduled'), ...(t.looseEnds ?? []).filter((e) => e.kind === 'scheduled')] : [];
   const follow = ticked.seq === lastSeq ? [...ticked.set].sort().map((i) => next[i]).filter((x): x is string => !!x) : [];
@@ -464,6 +469,11 @@ function Dock({ token, thread: t, lastSeq, onArchive, archiving, linkTo }: { tok
                   >
                     {l.title}
                   </a>
+                ) : /^review:/i.test(l.url) ? (
+                  // A show_options review in this thread: its window is on the Mac.
+                  <span key={l.url} className="btn inert-link" title="This review opens in Threadbear on your Mac or iPhone">
+                    {l.title} (on your Mac or iPhone)
+                  </span>
                 ) : (
                   <OutLink key={l.url} className="btn primary" href={l.url}>
                     {l.title} ↗
@@ -651,7 +661,7 @@ function ApprovalCard({ token, threadId, approval }: { token: string; threadId: 
   }
 
   if (approval.kind === 'secret') {
-    // The browser doesn't take secrets (docs/protocol.md, "Secrets"): the
+    // The browser doesn't take secrets (docs/protocol/threads.md, "Secrets"): the
     // Mac app and the iPhone app do, the phone sealing it to the runner.
     return (
       <section className="card">

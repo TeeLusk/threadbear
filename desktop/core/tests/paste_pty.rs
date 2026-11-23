@@ -120,10 +120,9 @@ fn a_pasted_signal_character_cant_run_the_paste() {
     // nothing is a broken harness, not a pass. macOS's own bash (3.2) has no
     // bracketed paste, so a Mac without a newer one skips.
     if tried == 0 {
-        assert!(
-            !cfg!(target_os = "linux"),
-            "no case could be played here, so nothing was checked"
-        );
+        if cfg!(target_os = "linux") {
+            panic!("no case could be played here, so nothing was checked");
+        }
         eprintln!("skipped: no bash with bracketed paste and a pty that runs the old bytes here");
     }
 }

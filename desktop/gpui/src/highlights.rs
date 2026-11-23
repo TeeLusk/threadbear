@@ -55,8 +55,6 @@ pub(crate) enum Target {
     Page(String),
     /// A GitHub pull request's tab, by its own URL (pr_view.rs).
     Pr(String),
-    /// A design review's page, by the review's id (review_pane.rs).
-    Review(String),
 }
 
 /// A folder's selection and open rows, kept so coming Back to it finds it as
@@ -122,8 +120,7 @@ fn remembered_open(p: &PanePreview) -> Option<crate::pane_store::Open> {
         Target::File(path) => (path.clone(), false),
         Target::Folder(path) => (path.clone(), true),
         // A PR is read from GitHub again each launch, so isn't kept.
-        // A review opens again from its card.
-        Target::Page(_) | Target::Pr(_) | Target::Review(_) => return None,
+        Target::Page(_) | Target::Pr(_) => return None,
     };
     let back = p.back.iter().filter_map(remembered_open).collect();
     Some(crate::pane_store::Open {
@@ -217,7 +214,10 @@ impl MenuItem {
     }
     /// Shown, greyed: a choice that's coming but isn't here yet. None just
     /// now (the folder's Show as icons was the last).
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "none just now; kept for the next choice that's coming"
+    )]
     pub(crate) fn disabled(title: impl Into<String>, symbol: &'static str) -> Self {
         Self {
             title: title.into(),
@@ -429,8 +429,6 @@ pub(crate) struct SidePane {
     pub(crate) browser: crate::agent_browser::BrowserPaneState,
     /// The PRs open as tabs (pr_view.rs).
     pub(crate) prs: crate::pr_view::PrPanes,
-    /// The reviews open as pages (review_pane.rs).
-    pub(crate) reviews: crate::review_pane::ReviewPanes,
     _subs: Vec<Subscription>,
 }
 
@@ -475,7 +473,6 @@ impl SidePane {
             explain: Default::default(),
             browser: Default::default(),
             prs: Default::default(),
-            reviews: Default::default(),
             _subs: vec![],
         };
         pane.chosen = pane
@@ -575,8 +572,6 @@ impl SidePane {
         if let Some(shown) = self.thread(cx) {
             self.restore_preview(&shown.id, cx);
         }
-        // Another thread on show: the pane's only wide for a review's page.
-        self.sync_review_width(cx);
         let t = app.read(cx);
         let Some(thread) = t.selected.as_ref().and_then(|id| t.threads.get(id)) else {
             return;
@@ -814,13 +809,7 @@ impl SidePane {
     pub(crate) fn choose_section(&mut self, thread_id: &str, id: &str, cx: &mut Context<Self>) {
         if self.previews.get(thread_id).is_some_and(|p| p.from != id) {
             self.leave_edit(thread_id, cx);
-            if self
-                .previews
-                .remove(thread_id)
-                .is_some_and(|p| matches!(p.target, Target::Review(_)))
-            {
-                self.review_closed(thread_id, cx);
-            }
+            self.previews.remove(thread_id);
         }
         self.chosen.insert(thread_id.to_owned(), id.to_owned());
         self.remember(thread_id);
@@ -1031,12 +1020,6 @@ impl SidePane {
         self.stop_explaining(thread_id);
         // A file being worked on is saved before anything takes its place.
         self.leave_edit(thread_id, cx);
-        // Anything but a review's page takes one's place for good.
-        let leaves_review = !matches!(preview.target, Target::Review(_))
-            && self
-                .previews
-                .get(thread_id)
-                .is_some_and(|p| matches!(p.target, Target::Review(_)));
         preview.opened = self.previews.get(thread_id).map_or(0, |p| p.opened) + 1;
         // A Markdown file opens as its bar's menu last left it, and code and
         // plain text ready to type in, on this runner's machine
@@ -1055,9 +1038,6 @@ impl SidePane {
             .entry(thread_id.to_owned())
             .or_insert_with(|| preview.from.clone());
         self.previews.insert(thread_id.to_owned(), preview);
-        if leaves_review {
-            self.review_closed(thread_id, cx);
-        }
         self.remember(thread_id);
         self.menu = None;
         if let Some(thread) = self.thread(cx) {
@@ -1073,7 +1053,6 @@ impl SidePane {
             return;
         };
         self.leave_edit(thread_id, cx);
-        let was_review = matches!(current.target, Target::Review(_));
         match current.back.split_last() {
             None => {
                 self.previews.remove(thread_id);
@@ -1088,22 +1067,13 @@ impl SidePane {
                 }
             }
         }
-        if was_review {
-            self.review_closed(thread_id, cx);
-        }
         self.remember(thread_id);
         cx.notify();
     }
 
     pub(crate) fn close_preview(&mut self, thread_id: &str, cx: &mut Context<Self>) {
         self.leave_edit(thread_id, cx);
-        let was_review = self
-            .previews
-            .remove(thread_id)
-            .is_some_and(|p| matches!(p.target, Target::Review(_)));
-        if was_review {
-            self.review_closed(thread_id, cx);
-        }
+        self.previews.remove(thread_id);
         self.remember(thread_id);
         cx.notify();
     }
@@ -1321,7 +1291,7 @@ impl SidePane {
         cx: &mut Context<Self>,
     ) {
         let entity = cx.entity().downgrade();
-        let build = items.clone();
+        let build = items;
         let view = PopupMenu::build(window, cx, move |menu, window, cx| {
             fill_menu(menu, &build, entity.clone(), window, cx)
         });
@@ -1952,7 +1922,7 @@ impl PaneRow {
         });
         let mut wrapper = div().id(self.id).px(px(OUTER_INSET)).child(row);
         if let Some(tip) = self.tip {
-            wrapper = wrapper.tip(tip.clone());
+            wrapper = wrapper.tip(tip);
         }
         let mut wrapper = wrapper
             .test_support()
@@ -2055,7 +2025,7 @@ impl SidePane {
         )
         .child(h.title.clone());
         let mut label = h_flex()
-            .group(group.clone())
+            .group(group)
             .flex_1()
             .min_w_0()
             .gap(px(6.))
@@ -2147,7 +2117,7 @@ impl SidePane {
         let mut list = v_flex();
         list = list.child(self.heading(
             Heading {
-                key: key.clone(),
+                key,
                 title: row.project.title.clone(),
                 icon: Some(
                     crate::highlights_project::project_icon(&row.project, cx).into_any_element(),
@@ -2298,6 +2268,10 @@ impl SidePane {
         pr.render(p, cx).into_any_element()
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 395 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render_highlights(
         &mut self,
         thread: &ThreadSummary,
@@ -2756,7 +2730,7 @@ impl SidePane {
             "square"
         };
         let action = crate::files::plain_markdown(&ask.action);
-        let (key, id2) = (format!("{thread_id}-{index}"), thread_id.clone());
+        let (key, id2) = (format!("{thread_id}-{index}"), thread_id);
         let button = tipped(
             div()
                 .id(SharedString::from(format!("hl-tick-{key}")))
@@ -2875,7 +2849,7 @@ impl SidePane {
                         )))
                         .indent()
                         .tip("Open in its app")
-                        .drag(Some(path.clone()).filter(|_| !thread.is_remote()))
+                        .drag((!thread.is_remote()).then(|| path.clone()))
                         .on_click(move |this, _window, cx| {
                             // Code to read in an editor, not to review. Another Mac's
                             // copy is fetched and opened by files.rs.

@@ -45,6 +45,8 @@ fn tag_srgb(window: &Window) {
     // SAFETY: the window's own NSView, alive as long as the window is, asked
     // for its backing layer on the main thread.
     let view: &AnyObject = unsafe { handle.ns_view.cast::<AnyObject>().as_ref() };
+    // SAFETY: `layer` takes no arguments and returns a retained CALayer or
+    // nil, which the Option return type matches; `view` is live as above.
     let layer: Option<Retained<AnyObject>> = unsafe { objc2::msg_send![view, layer] };
     let Some(Ok(layer)) = layer.map(|l| l.downcast::<CAMetalLayer>()) else {
         return;
@@ -79,6 +81,7 @@ pub(crate) fn describe(window: &Window) -> String {
     };
     // SAFETY: as in `tag_srgb`.
     let view: &AnyObject = unsafe { handle.ns_view.cast::<AnyObject>().as_ref() };
+    // SAFETY: as in `tag_srgb`, `layer` returns a retained CALayer or nil.
     let layer: Option<Retained<AnyObject>> = unsafe { objc2::msg_send![view, layer] };
     let Some(Ok(layer)) = layer.map(|l| l.downcast::<CAMetalLayer>()) else {
         return "no metal layer".into();

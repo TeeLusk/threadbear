@@ -4,6 +4,11 @@
 // it prints times, for docs/gpui-port/perf-hover.md. Run it in release:
 //
 //   cargo test --release -p threadbear-core --test sidebar_cost -- --ignored --nocapture
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::hint::black_box;

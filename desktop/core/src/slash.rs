@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 /// A command the palette offers, as `threads.commands` lists it
-/// (docs/protocol.md, "Slash commands").
+/// (docs/protocol/threads.md, "Slash commands").
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SlashCommand {
@@ -893,5 +893,133 @@ mod tests {
         assert_eq!((kept.width, kept.height), (Some(650.), None));
         let kept = PaletteEdge::TopTrailing.kept(PaletteLayout::default(), (650., 340.));
         assert_eq!((kept.width, kept.height), (Some(650.), Some(340.)));
+    }
+
+    fn shared_cases(path: &str) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    /// The palette's rules against the cases the iPhone and Android run too
+    /// (`shared/cases/slash-commands.json`).
+    #[test]
+    fn the_shared_cases() {
+        let file = shared_cases(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/slash-commands.json"
+        ));
+        let read = |v: &serde_json::Value| decode_commands(&json!({ "commands": v }));
+        let names = |l: Vec<SlashCommand>| json!(l.into_iter().map(|c| c.name).collect::<Vec<_>>());
+        let id = |c: Category| match c {
+            Category::All => "all",
+            Category::Threadbear => "threadbear",
+            Category::Cli => "cli",
+            Category::Skills => "skills",
+            Category::Recent => "recent",
+        };
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() > 50);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            if case["differs"].get("desktop").is_some() {
+                continue;
+            }
+            let i = &case["input"];
+            let text = i["text"].as_str().unwrap_or_default();
+            let q = i["query"].as_str().unwrap_or_default();
+            let provider = i["provider"].as_str().unwrap_or_default();
+            let list = i["list"]
+                .as_str()
+                .map(|l| read(&file["lists"][l]))
+                .unwrap_or_default();
+            let recent: Vec<String> = i["recent"]
+                .as_array()
+                .map(|r| {
+                    r.iter()
+                        .filter_map(|n| n.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let command = read(&json!([i["command"]])).pop();
+            let category = Category::ALL
+                .into_iter()
+                .find(|c| Some(id(*c)) == i["category"].as_str())
+                .unwrap_or_default();
+            let actual =
+                match i["op"].as_str().unwrap() {
+                    "query" => json!(query(text)),
+                    "typed" => json!(typed(text)
+                        .map(|t| json!({ "query": t.query, "before": &text[..t.start] }))),
+                    "midMessage" => names(mid_message(&list)),
+                    "matches" => names(matches(&list, q, category, &recent)),
+                    "counts" => json!(counts(&list, q, &recent)
+                        .into_iter()
+                        .map(|(c, n)| json!([id(c), n]))
+                        .collect::<Vec<_>>()),
+                    "usage" => json!(command.as_ref().unwrap().usage()),
+                    "fill" => json!(fill(
+                        command.as_ref().unwrap(),
+                        i["forArguments"].as_bool() == Some(true)
+                    )),
+                    "origin" => json!(origin(command.as_ref().unwrap(), provider)),
+                    "cliTitle" => json!(Category::Cli.title(provider)),
+                    "shortPath" => json!(short_path(
+                        i["path"].as_str().unwrap(),
+                        i["home"].as_str().unwrap()
+                    )),
+                    "used" => json!(used(i["name"].as_str().unwrap(), &recent)),
+                    "description" => json!(plain_description(text)),
+                    op => panic!("unknown op {op} in {name}"),
+                };
+            assert_eq!(actual, case["expect"], "{name}");
+        }
+    }
+
+    /// The palette's columns and sizes (`shared/cases/slash-palette-layout.json`),
+    /// which the iPhone kit's copy of the Swift rules runs too.
+    #[test]
+    fn the_shared_layout_cases() {
+        let file = shared_cases(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/slash-palette-layout.json"
+        ));
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() > 20);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            if case["differs"].get("desktop").is_some() {
+                continue;
+            }
+            let i = &case["input"];
+            let n = |k: &str| i[k].as_f64().unwrap();
+            let e = &case["expect"];
+            let actual = match i["op"].as_str().unwrap() {
+                "columnWidths" => {
+                    let (cats, list) = column_widths(
+                        n("total"),
+                        n("categories"),
+                        n("list"),
+                        i["chosen"].as_bool() == Some(true),
+                        200.,
+                        120.,
+                        110.,
+                    );
+                    assert_eq!(
+                        (cats, list),
+                        (
+                            e["categories"].as_f64().unwrap(),
+                            e["list"].as_f64().unwrap()
+                        ),
+                        "{name}"
+                    );
+                    continue;
+                }
+                "height" => palette_height(n("window"), 300., 560.),
+                "layoutHeight" => PaletteLayout::height_in(n("value"), n("window")),
+                "layoutWidth" => PaletteLayout::width_in(n("value"), n("window")),
+                "column" => PaletteLayout::column(n("value"), n("least"), n("others"), n("total")),
+                op => panic!("unknown op {op} in {name}"),
+            };
+            assert_eq!(actual, e.as_f64().unwrap(), "{name}");
+        }
     }
 }

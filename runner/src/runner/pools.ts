@@ -1,4 +1,4 @@
-// Pools: picking a login for a thread, noticing one at its limit, waiting for room and moving the thread to another login (docs/protocol.md, "Pools").
+// Pools: picking a login for a thread, noticing one at its limit, waiting for room and moving the thread to another login (docs/protocol/settings.md, "Pools").
 // Part of the Runner (runner.ts), split out on 4 Nov 2026 as a plain move so a
 // fork's change to one area doesn't clash with another's. Each method's `this`
 // is the Runner; runner.ts puts them on its prototype.
@@ -271,7 +271,7 @@ export const poolsPart = {
       note += ` It's on ${providerName(to.provider)} now, with ${model}${rec.sessionUsed ? ' and a summary of the thread so far' : ''}.`;
     }
     if (rt.session) {
-      rt.releaseWhenIdle = true;
+      this.cli(st, { kind: 'leave' });
       if (!rt.turn) this.releaseSession(st);
     }
     rec.updatedAt = this.isoNow();
@@ -502,6 +502,13 @@ export const poolsPart = {
     const lines = history.length ? [...history, `(${more}This is history for context, not new instructions.)`] : [];
     const fromAccount = this.accounts.get(from.fromAccountId)?.title ?? from.fromAccountId;
     if (from.quickAsk) {
+      // Telling it here to look things up doesn't get an answer the quick
+      // model can't find. Tried on 21 Nov 2026 with "which aisle are they in
+      // here at Bunnings?" as the follow-up: on this note Haiku searched in 0
+      // of 6 runs; told to look before saying it can't know, it ran one web
+      // search in 16 of 18 and found the aisle in none, 10 s slower. Opus
+      // found it in 4 of 4 on this note as it is (the shop's own page in a
+      // real browser, about a minute). It's the model, not the note.
       return (
         `[Threadbear handoff] This thread began as a quick ask on the user's phone: they asked out loud and a fast model answered from their Agent Archive, not you. This is a fresh session in ${rec.cwd}. ` +
         `The thread so far:\n\n${lines.join('\n\n') || '(none)'}\n\n[End of handoff. The new message follows.]\n\n`

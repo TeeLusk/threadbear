@@ -1,4 +1,4 @@
-// Other runners' threads (docs/protocol.md, "Other runners' threads"): what
+// Other runners' threads (docs/protocol/runners.md, "Other runners' threads"): what
 // `remoteThreads.list` answers and `remoteThreads.updated` sends, a port of
 // RemoteThreads.swift. Their sidebar rows come from this Mac's runner, marked
 // with a `runnerId`; everything else about them goes through that runner too
@@ -54,7 +54,7 @@ pub enum TokenNeed {
 }
 
 /// A thread's box on a virtual runner, as its machine has it
-/// (docs/protocol.md, "Other runners' threads" and "Virtual runners").
+/// (docs/protocol/runners.md, "Other runners' threads" and "Virtual runners").
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunnerBox {
     /// creating, starting, awake, saving, asleep, waking, needsToken and the
@@ -529,7 +529,7 @@ impl MovePreview {
 }
 
 /// What the in-thread token card shows for a box waiting on a cloud token
-/// (docs/protocol.md, "Cloud tokens on the Mac"): whose token, whether its
+/// (docs/protocol/keys.md, "Cloud tokens on the Mac"): whose token, whether its
 /// last one was refused, and this Mac's login of that email when it runs on
 /// a year-long token the card can offer to use as well.
 #[derive(Clone, Debug, PartialEq)]
@@ -840,7 +840,7 @@ mod tests {
         ]}));
         assert_eq!(list.threads[0].snoozed_until_restart, Some(true));
     }
-    // Virtual runners (docs/protocol.md, "Virtual runners"): a box's runner
+    // Virtual runners (docs/protocol/keys.md, "Virtual runners"): a box's runner
     // says its box, and the list says the virtual runners themselves.
     #[test]
     fn a_box_runner_and_the_virtual_runners_decode() {

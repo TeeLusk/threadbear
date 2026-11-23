@@ -2,7 +2,7 @@
 // Devices.swift (Device, DeviceList, DeviceText), DevicesModel.swift's
 // DefaultBrowser.shortName, RunnerStatus's `localOnly` and `pushOff`, and
 // DevicesSettings.swift's PairingQR: the phones and browsers paired with the
-// mirror as the runner lists them (docs/protocol.md, "Devices"), what each row
+// mirror as the runner lists them (docs/protocol/moves.md, "Devices"), what each row
 // says, and the QR code the iPhone app scans. A token is only ever in the QR
 // code on screen or the link the browser opens: nothing here keeps one.
 use crate::inbox::parse_ms;

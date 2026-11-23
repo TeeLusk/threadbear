@@ -226,7 +226,7 @@ pub(crate) fn drag_watch(composer: WeakEntity<Composer>) -> Option<AnyElement> {
                         });
                     }
                 });
-                let up = up.clone();
+                let up = up;
                 window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
                     if !phase.bubble() {
                         return;

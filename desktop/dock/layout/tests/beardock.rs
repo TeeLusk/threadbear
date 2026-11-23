@@ -2,7 +2,15 @@
 // BarDropTests, PanelAtPointTests) under the same names, so a test here and its
 // Swift original can be compared by name. Rust would prefer snake_case; the
 // exact names are worth more here than the style warning.
-#![allow(non_snake_case)]
+#![allow(
+    non_snake_case,
+    reason = "test names follow the Swift tests they mirror (testSomethingHappens)"
+)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 
 use std::collections::HashMap;
 use threadbear_dock_layout::*;

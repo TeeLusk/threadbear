@@ -101,9 +101,6 @@ pub(crate) struct WebPanels {
     client: Option<Arc<Client>>,
     /// Links that left a panel for the browser, newest last (the dump's).
     left: Vec<String>,
-    /// What each page the app made does with a click on one of its own
-    /// links (`made_page`), by the page's key.
-    asks: HashMap<String, Rc<dyn Fn(&str, &mut App)>>,
     /// Whether something could be over the pages in the last frame.
     covered: bool,
 }
@@ -122,7 +119,6 @@ pub(crate) fn init(cx: &mut App) {
         renewing: HashSet::new(),
         client: None,
         left: Vec::new(),
-        asks: HashMap::new(),
         covered: false,
     });
     cx.set_global(Shared(entity.clone()));
@@ -253,9 +249,13 @@ pub(crate) fn sweeper(menu_at: Option<Point<Pixels>>, popover: bool) -> AnyEleme
             // any Mac app. GPUI's view never asks for it on a click itself.
             window.on_mouse_event(|_: &MouseDownEvent, phase, window, _| {
                 if phase.capture()
-                    && threadbear_web::keyboard_holder(
-                        native_view(window).unwrap_or(std::ptr::null_mut()),
-                    ) == threadbear_web::KeyboardHolder::Page
+                    // SAFETY: null or the content view of `window`, open while
+                    // its event is handled, on the main thread.
+                    && unsafe {
+                        threadbear_web::keyboard_holder(
+                            native_view(window).unwrap_or(std::ptr::null_mut()),
+                        )
+                    } == threadbear_web::KeyboardHolder::Page
                 {
                     keyboard_to_app(window);
                 }
@@ -276,7 +276,9 @@ pub(crate) fn sweeper(menu_at: Option<Point<Pixels>>, popover: bool) -> AnyEleme
 /// does this.
 pub(crate) fn keyboard_to_app(window: &Window) {
     if let Some(view) = native_view(window) {
-        threadbear_web::take_keyboard(view);
+        // SAFETY: the content view of `window`, open while it's borrowed
+        // here, on the main thread.
+        unsafe { threadbear_web::take_keyboard(view) };
     }
 }
 
@@ -293,7 +295,9 @@ pub(crate) fn send_keys(
         })
         .map_err(|e| e.to_string())?
         .ok_or("the window has no view")?;
-    threadbear_web::send_keys(view as *mut c_void, text);
+    // SAFETY: the content view of `window`, read just now in this task on the
+    // main thread, with nothing awaited in between for it to close.
+    unsafe { threadbear_web::send_keys(view as *mut c_void, text) };
     Ok(())
 }
 
@@ -312,14 +316,21 @@ pub(crate) fn send_click(
         })
         .map_err(|e| e.to_string())?
         .ok_or("the window has no view")?;
-    Ok(threadbear_web::send_click(view as *mut c_void, x, y))
+    // SAFETY: the content view of `window`, read just now in this task on the
+    // main thread, with nothing awaited in between for it to close.
+    Ok(unsafe { threadbear_web::send_click(view as *mut c_void, x, y) })
 }
 
 /// Who has the main window's keyboard, for the dump: "app" (GPUI's own
 /// view), "page", "hidden page", "window" (nobody) or "other".
 pub(crate) fn keyboard_dump(window: &Window) -> Value {
     json!(
-        threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut())).name()
+        // SAFETY: null or the content view of `window`, open while it's
+        // borrowed here, on the main thread.
+        unsafe {
+            threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut()))
+        }
+        .name()
     )
 }
 
@@ -384,8 +395,11 @@ fn sweep(
     // and ⌘V still reaches GPUI (Mike, 12 Nov, a dictated paste and then
     // nothing he typed; features/tools/real-typing.ts plays it with real keys).
     use threadbear_web::KeyboardHolder;
-    let holder =
-        threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut()));
+    // SAFETY: null or the content view of `window`, open while it's borrowed
+    // here, on the main thread.
+    let holder = unsafe {
+        threadbear_web::keyboard_holder(native_view(window).unwrap_or(std::ptr::null_mut()))
+    };
     if matches!(
         holder,
         KeyboardHolder::HiddenPage | KeyboardHolder::Window | KeyboardHolder::Other
@@ -464,9 +478,7 @@ impl WebPanels {
                 });
                 while self.pages.len() > CAPACITY {
                     // Never the one just made: it's last.
-                    let closed = self.pages.remove(0);
-                    closed.page.set_hidden(true);
-                    self.asks.remove(&closed.key);
+                    self.pages.remove(0).page.set_hidden(true);
                 }
             }
             Err(why) => {
@@ -488,13 +500,8 @@ impl WebPanels {
                 crate::open_gate::open_web(&url, cx);
             }
             PanelEvent::Changed => {}
-            // Once this update is over: what it does may come back here.
-            PanelEvent::Asked(rest) => {
-                if let Some(ask) = self.asks.get(key).cloned() {
-                    cx.defer(move |cx| ask(&rest, cx));
-                }
-            }
         }
+        let _ = key;
         cx.notify();
     }
 
@@ -507,9 +514,6 @@ impl WebPanels {
         }
         self.pages.retain(|k| k.key != key);
         self.failed.remove(key);
-        self.asks.remove(key);
-        // One asked for this frame and closed before it was made isn't.
-        self.making.remove(key);
     }
 }
 
@@ -645,87 +649,6 @@ pub(crate) fn live_page(
     )
 }
 
-/// A page the app made itself, in the pane (a design review's,
-/// review_pane.rs): sealed like any local page, its scripts off, answered
-/// from `site` (`Site::made`). A click on one of its own links comes to
-/// `asked` with what the link named (threadbear_web::preview_rules::asked),
-/// and goes nowhere. One view a `key`.
-pub(crate) fn made_page(
-    key: &str,
-    site: Arc<threadbear_core::local_preview::Site>,
-    asked: Rc<dyn Fn(&str, &mut App)>,
-    main: bool,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let Some(panels) = panels(cx) else {
-        return note("This page can't show here.", cx);
-    };
-    let parent = match running("hl-page", "this page", main, None, window, cx) {
-        Ok(parent) => parent,
-        Err(instead) => return instead,
-    };
-    let key = key.to_owned();
-    if let Some(drawn) = panels.update(cx, |p, _| p.touch(&key)) {
-        return placed(drawn, false);
-    }
-    if let Some(why) = panels.read(cx).failed.get(&key).cloned() {
-        return note(&format!("Couldn't show this page: {why}"), cx);
-    }
-    if panels.update(cx, |p, _| p.making.insert(key.clone())) {
-        let preview = threadbear_web::PreviewSite::made(site);
-        let (panels, url) = (panels.clone(), preview.page_url());
-        // After this frame, as a panel's page is made.
-        cx.defer(move |cx| {
-            panels.update(cx, |p, cx| {
-                // Closed in the meantime (`forget`): no view left behind.
-                if !p.making.contains(&key) {
-                    return;
-                }
-                p.asks.insert(key.clone(), asked);
-                p.make(key, url, PanelKind::Preview(preview), parent, cx);
-            })
-        });
-    }
-    div().size_full().into_any_element()
-}
-
-/// Loads a made page again where it is, after its site's document changed
-/// (`Site::remake`). Nothing for a page not made yet: it loads the new one.
-pub(crate) fn reload_made_page(key: &str, cx: &App) {
-    if let Some(page) = panels(cx).and_then(|p| p.read(cx).page(key).cloned()) {
-        page.reload();
-    }
-}
-
-/// Runs a script of the app's own in a made page, through its DevTools (the
-/// page's own scripts stay off): a tick set where the page stands. If it
-/// doesn't answer true, the page is loaded again, which shows the same
-/// from its top. Nothing for a page not made yet: it loads as it now is.
-pub(crate) fn run_in_made_page(key: &str, script: String, cx: &mut App) {
-    let Some(page) = panels(cx).and_then(|p| p.read(cx).page(key).cloned()) else {
-        return;
-    };
-    let answer = page.devtools(
-        "Runtime.evaluate",
-        json!({ "expression": script, "returnByValue": true }),
-    );
-    cx.spawn(async move |_| {
-        let done = matches!(answer.await, Ok(Ok(said)) if said["result"]["value"] == json!(true));
-        if !done {
-            page.reload();
-        }
-    })
-    .detach();
-}
-
-/// Closes a made page's view, when what it showed is closed.
-pub(crate) fn close_made_page(key: &str, cx: &mut App) {
-    if let Some(panels) = panels(cx) {
-        panels.update(cx, |p, _| p.forget(key));
-    }
-}
-
 thread_local! {
     /// The height the transcript last showed a running live page's card in.
     static LIVE_ROOM: Cell<f32> = const { Cell::new(0.) };
@@ -792,6 +715,10 @@ fn placed(drawn: Rc<Cell<(u64, Bounds<Pixels>)>>, clip: bool) -> AnyElement {
     .into_any_element()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn sealed_page(
     key: &str,
     real: &str,
@@ -1115,7 +1042,7 @@ pub(crate) fn bar_buttons(app: &Threadbear, panel_id: &str, cx: &mut App) -> Opt
         // A key and a reload only mean something with the dashboard here.
         let here = web_runtime::runtime(cx).is_some_and(|r| r.read(cx).engine == Engine::Running);
         if here {
-            let (renew, reload) = (panels.clone(), page.clone());
+            let (renew, reload) = (panels, page.clone());
             let deployment = selected.clone();
             row = row.child(bar_button(
                 "web-bar-key",
@@ -1154,7 +1081,7 @@ pub(crate) fn bar_buttons(app: &Threadbear, panel_id: &str, cx: &mut App) -> Opt
         }
         return Some(row.into_any_element());
     }
-    let url = panel.url.clone().filter(|u| !u.trim().is_empty())?;
+    let url = panel.url.filter(|u| !u.trim().is_empty())?;
     let page = panels
         .read(cx)
         .page(&page_key(url.clone(), pinned))
@@ -1171,7 +1098,7 @@ pub(crate) fn bar_buttons(app: &Threadbear, panel_id: &str, cx: &mut App) -> Opt
             move |_| page.go_back(),
         ));
     }
-    if let Some(page) = page.clone() {
+    if let Some(page) = page {
         let loading = page.loading();
         row = row.child(bar_button(
             "web-bar-reload",
@@ -1451,7 +1378,7 @@ impl WebPanels {
             .map(|v| serde_json::from_value::<Login>(v).unwrap_or_default());
             if let Ok(started) = &answer {
                 if let Some(page) = started.page() {
-                    let _ = cx.update(|cx| crate::files::open_web(&page, cx));
+                    cx.update(|cx| crate::files::open_web(&page, cx));
                 }
             }
             loop {
@@ -1539,6 +1466,10 @@ fn embedded() -> String {
     convex::EMBEDDED.to_owned()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn convex_view(
     panels: &Entity<WebPanels>,
     thread: &ThreadSummary,
@@ -1726,8 +1657,13 @@ fn open_deployment_menu(
     // From a task, outside the app's update: the menu's loop runs until it's
     // closed, and the windows go on drawing behind it (as alert.rs's do).
     cx.spawn(async move |cx| {
-        let chosen =
-            threadbear_web::popup_menu(view, f32::from(at.x), f32::from(at.y) + 4., &items);
+        // SAFETY: the content view of the window the menu was clicked in
+        // (native_view), and this task runs on the main thread on its loop's
+        // next turn. The click being handled is the menu's, so nothing has
+        // asked that window to close by then.
+        let chosen = unsafe {
+            threadbear_web::popup_menu(view, f32::from(at.x), f32::from(at.y) + 4., &items)
+        };
         cx.update(|cx| {
             panels.update(cx, |p, cx| {
                 if let Some(s) = p.convex.get_mut(&state_key) {

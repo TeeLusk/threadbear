@@ -184,8 +184,7 @@ fn walk(node: &Node, tags: &Tags, out: &mut Spans) {
             out.push(tags, &math.value);
         }
         Node::List(list) => {
-            let mut number = list.start.unwrap_or(1);
-            for item in &list.children {
+            for (number, item) in (list.start.unwrap_or(1)..).zip(&list.children) {
                 out.new_line();
                 // The marker, as the reply draws it, and the item's words
                 // on the same line.
@@ -197,7 +196,6 @@ fn walk(node: &Node, tags: &Tags, out: &mut Spans) {
                         "• ".to_owned()
                     },
                 );
-                number += 1;
                 let mut first = true;
                 for child in item.children().into_iter().flatten() {
                     if first && matches!(child, Node::Paragraph(_)) {

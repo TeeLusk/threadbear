@@ -175,8 +175,8 @@ impl Composer {
             &crate::drafts::card_picks_key(thread, seq),
         ) {
             for (ask, option) in picks {
-                if !self.card.picks.contains_key(&ask) {
-                    self.card.picks.insert(ask, option);
+                if let std::collections::btree_map::Entry::Vacant(e) = self.card.picks.entry(ask) {
+                    e.insert(option);
                     any = true;
                 }
             }
@@ -1017,7 +1017,7 @@ impl Composer {
             ));
         let mut right = h_flex().flex_none().items_center();
         if paged {
-            let (this_back, this_next) = (this.clone(), this.clone());
+            let (this_back, this_next) = (this.clone(), this);
             right = right
                 .child(pager_arrow(
                     "‹",
@@ -1297,6 +1297,10 @@ pub(crate) trait AskHost: Sized + 'static {
 
     /// An ask: its paragraph (numbered on a card of several), where, its
     /// links, and its answers as buttons or rows, with Something else's box.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 295 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render_ask(
         &mut self,
         index: usize,
@@ -1614,7 +1618,7 @@ pub(crate) trait AskHost: Sized + 'static {
                         }
                     })
                     .capture_action({
-                        let this = this.clone();
+                        let this = this;
                         move |_: &gpui_kit::component::input::Cut, window, cx| {
                             if let Some(this) = this.upgrade() {
                                 if this.update(cx, |this, cx| {
@@ -1654,7 +1658,10 @@ pub(crate) trait AskHost: Sized + 'static {
 
     /// An ask's answers as rows (RowRenderer.answerRows): a circle, the label,
     /// a star and "Recommended" on the agent's, what it does under it, then "Something else…".
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn render_answer_rows(
         &mut self,
         index: usize,
@@ -2665,10 +2672,10 @@ fn drawn_tick(t: f32, colour: Hsla) -> impl IntoElement {
                     bounds.origin.y + gpui_kit::px(y * k),
                 )
             };
-            let points = [(4., 13.5), (9., 19.), (20., 3.5)];
+            let points: [(f32, f32); 3] = [(4., 13.5), (9., 19.), (20., 3.5)];
             let lengths: Vec<f32> = points
                 .windows(2)
-                .map(|w| ((w[1].0 - w[0].0) as f32).hypot(w[1].1 - w[0].1))
+                .map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1))
                 .collect();
             let mut left = t.clamp(0., 1.) * lengths.iter().sum::<f32>();
             if left <= 0. {
@@ -2996,10 +3003,10 @@ fn tick_circle(ticked: bool, popping: Option<Duration>, cx: &App) -> impl IntoEl
                         .border_widths(gpui_kit::px(2. * k))
                         .border_color(accent),
                 );
-                let points = [(9., 12.), (11., 14.), (15., 10.)];
+                let points: [(f32, f32); 3] = [(9., 12.), (11., 14.), (15., 10.)];
                 let lengths: Vec<f32> = points
                     .windows(2)
-                    .map(|w| ((w[1].0 - w[0].0) as f32).hypot(w[1].1 - w[0].1))
+                    .map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1))
                     .collect();
                 let mut left = drawn.clamp(0., 1.) * lengths.iter().sum::<f32>();
                 if left <= 0. {

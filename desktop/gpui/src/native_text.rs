@@ -43,7 +43,7 @@ mod mac {
     }
     thread_local! {
         #[cfg(feature="automation")]
-        static LOOKUP_WORDS: RefCell<Option<String>> = RefCell::new(None);
+        static LOOKUP_WORDS: RefCell<Option<String>> = const { RefCell::new(None) };
         static WATCHED: RefCell<HashMap<u64, WatchedInput>> = RefCell::new(HashMap::new());
         static CURRENT: RefCell<HashMap<u64, Snapshot>> = RefCell::new(HashMap::new());
         static REQUESTS: RefCell<HashMap<u64, Snapshot>> = RefCell::new(HashMap::new());
@@ -174,7 +174,7 @@ mod mac {
         gpui_kit::base::Root::register_plugin(cx, |_, _| SelectionServices);
         gpui_kit::component::input::set_default_context_menu_extension(field_context_items, cx);
         let (tx, mut rx) = mpsc::channel(32);
-        *ANSWERS.lock().unwrap() = Some(tx);
+        *ANSWERS.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
         cx.spawn(async move |cx| {
             while let Some((request, answer)) = rx.next().await {
                 let original = REQUESTS.with_borrow_mut(|requests| requests.remove(&request));
@@ -255,6 +255,8 @@ mod mac {
         let bytes = if length == 0 {
             &[][..]
         } else {
+            // SAFETY: non-null and within LIMIT (checked above), and the
+            // caller passes `length` initialised bytes alive through the call.
             unsafe { std::slice::from_raw_parts(words, length) }
         };
         let Ok(words) = std::str::from_utf8(bytes) else {
@@ -262,7 +264,7 @@ mod mac {
         };
         ANSWERS
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .as_mut()
             .is_some_and(|tx| tx.try_send((request, words.to_owned())).is_ok())
     }
@@ -342,6 +344,9 @@ mod mac {
         if !changed {
             // Also install for an empty selection, so closing the native view
             // releases the per-window input observer. This call copies no text.
+            // SAFETY: `view` is this window's live NSView, on the main thread
+            // (the native side returns early otherwise); the words are borrowed
+            // from CURRENT through the call and copied into an NSString there.
             CURRENT.with_borrow(|all| unsafe {
                 match all.get(&key) {
                     Some(s) => tb_selection_update(
@@ -367,6 +372,8 @@ mod mac {
                 source,
                 window: Window::window_handle(window),
             };
+            // SAFETY: as above: the window's live view on the main thread, and
+            // `snapshot.words` is alive through the call, which copies it.
             unsafe {
                 tb_selection_update(
                     view,
@@ -384,6 +391,8 @@ mod mac {
             CURRENT.with_borrow_mut(|all| {
                 all.remove(&key);
             });
+            // SAFETY: the window's live view on the main thread; null words
+            // with length 0 clear the selection.
             unsafe { tb_selection_update(view, key, 0, std::ptr::null(), 0, false) };
         }
     }
@@ -456,6 +465,8 @@ mod mac {
             return;
         }
         let Some(view) = view(window) else { return };
+        // SAFETY: `view` is this window's live NSView; the retain keeps it alive
+        // until the native call in the task below releases it.
         let retained = unsafe { tb_selection_retain(view) } as usize;
         cx.spawn(async move |_| {
             #[cfg(feature = "automation")]
@@ -463,6 +474,9 @@ mod mac {
                 LOOKUP_REQUESTS.fetch_add(1, Ordering::Relaxed);
                 LOOKUP_WORDS.with_borrow_mut(|last| *last = Some(words.clone()));
             }
+            // SAFETY: `retained` is the +1 retain from above, released exactly
+            // once by this call; `words` is owned by the task and outlives it.
+            // GPUI's foreground tasks run on the main thread, as AppKit needs.
             unsafe {
                 tb_selection_lookup(
                     retained as *mut c_void,
@@ -554,10 +568,14 @@ mod mac {
     pub(super) fn services(window: &mut Window, cx: &mut App) {
         refresh(window, cx);
         let Some(view) = view(window) else { return };
+        // SAFETY: `view` is this window's live NSView; the retain keeps it alive
+        // until the native call in the task below releases it.
         let retained = unsafe { tb_selection_retain(view) } as usize;
         let at = window.mouse_position();
         let handle = Window::window_handle(window);
         cx.spawn(async move |cx| {
+            // SAFETY: `retained` is the +1 retain from above, released exactly
+            // once by this call, on the main thread (a foreground task).
             let shown = unsafe {
                 tb_selection_services(
                     retained as *mut c_void,
@@ -581,8 +599,12 @@ mod mac {
             return;
         };
         let Some(view) = view(window) else { return };
+        // SAFETY: `view` is this window's live NSView; the retain keeps it alive
+        // until the native call in the task below releases it.
         let retained = unsafe { tb_selection_retain(view) } as usize;
         let at = window.mouse_position();
+        // SAFETY: `retained` is the +1 retain from above, released exactly once
+        // by this call on the main thread; `words` is owned by the task.
         cx.spawn(async move |_| unsafe {
             tb_selection_share(
                 retained as *mut c_void,
@@ -595,6 +617,7 @@ mod mac {
         .detach();
     }
     pub(super) fn translate_available() -> bool {
+        // SAFETY: takes nothing and only checks the macOS version.
         unsafe { tb_selection_translate_available() }
     }
     pub(super) fn translate(window: &mut Window, cx: &mut App) {
@@ -607,11 +630,16 @@ mod mac {
         if request == 0 {
             return;
         }
+        // SAFETY: `view` is this window's live NSView; the retain keeps it alive
+        // until the native call in the task below releases it.
         let retained = unsafe { tb_selection_retain(view) } as usize;
         let at = window.mouse_position();
         let editable = snapshot.source.is_editable(cx) && !snapshot.words.contains('\u{fffc}');
         let handle = Window::window_handle(window);
         cx.spawn(async move |cx| {
+            // SAFETY: `retained` is the +1 retain from above, released exactly
+            // once by this call on the main thread; `snapshot.words` is owned by
+            // the task and outlives the call.
             let shown = unsafe {
                 tb_selection_translate(
                     retained as *mut c_void,
@@ -636,9 +664,13 @@ mod mac {
     pub(super) fn writing_tools(window: &mut Window, cx: &mut App) {
         refresh(window, cx);
         let Some(view) = view(window) else { return };
+        // SAFETY: `view` is this window's live NSView; the retain keeps it alive
+        // until the native call in the task below releases it.
         let retained = unsafe { tb_selection_retain(view) } as usize;
         let handle = Window::window_handle(window);
         cx.spawn(async move |cx| {
+            // SAFETY: `retained` is the +1 retain from above, released exactly
+            // once by this call, on the main thread (a foreground task).
             let shown = unsafe { tb_selection_writing(retained as *mut c_void) };
             if !shown {
                 let _ = cx.update(|cx| {
@@ -654,6 +686,7 @@ mod mac {
         .detach();
     }
     pub(super) fn writing_tools_available() -> bool {
+        // SAFETY: takes nothing and only checks what this macOS offers.
         unsafe { tb_selection_writing_available() }
     }
     pub(super) fn watch() -> AnyElement {
@@ -772,7 +805,7 @@ pub(crate) fn init(cx: &mut App) {
 pub(crate) fn watch() -> AnyElement {
     #[cfg(target_os = "macos")]
     {
-        return mac::watch();
+        mac::watch()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -789,7 +822,7 @@ pub(crate) fn lookup(window: &mut Window, cx: &mut App) {
 pub(crate) fn has_selection(window: &mut Window, cx: &mut App) -> bool {
     #[cfg(target_os = "macos")]
     {
-        return mac::has_selection(window, cx);
+        mac::has_selection(window, cx)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -800,7 +833,7 @@ pub(crate) fn has_selection(window: &mut Window, cx: &mut App) -> bool {
 pub(crate) fn has_lookup(window: &mut Window, cx: &mut App) -> bool {
     #[cfg(target_os = "macos")]
     {
-        return mac::has_lookup(window, cx);
+        mac::has_lookup(window, cx)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -917,7 +950,7 @@ pub(crate) fn context_items(
         } else {
             menu
         };
-        return if writing_tools_available() {
+        if writing_tools_available() {
             menu.item(
                 PopupMenuItem::new("Writing Tools").on_click(move |_, window, cx| {
                     after_menu(window, cx, written.clone(), mac::writing_tools)
@@ -926,7 +959,7 @@ pub(crate) fn context_items(
             .separator()
         } else {
             menu.separator()
-        };
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -938,7 +971,7 @@ pub(crate) fn context_items(
 pub(crate) fn writing_tools_available() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return mac::writing_tools_available();
+        mac::writing_tools_available()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -949,7 +982,7 @@ pub(crate) fn writing_tools_available() -> bool {
 pub(crate) fn translate_available() -> bool {
     #[cfg(target_os = "macos")]
     {
-        return mac::translate_available();
+        mac::translate_available()
     }
     #[cfg(not(target_os = "macos"))]
     {

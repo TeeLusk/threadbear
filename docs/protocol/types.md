@@ -205,6 +205,12 @@ type ThreadSummary = {
                         // what this thread landed (wait_for_app_restart);
                         // only while snoozedUntil is set. With an unfinished
                         // waitingOn, the sidebar puts it under Running.
+  awaitingApp?: { commit?, short? } // waiting to hear the app restarted onto
+                        // a build with this commit (wait_for_app_restart),
+                        // hibernating or not, and under a day old; {} when
+                        // there's no commit to look for. The Updates panel
+                        // lists these threads with whether the running,
+                        // ready or building app has the commit.
   startedBy?: { kind, label, icon?, threadId?, threadTitle?, why? } // who
                         // started it when Mike didn't (Who started a thread)
   detached?: true       // a thread another thread started that doesn't
@@ -358,6 +364,15 @@ type PatchInfo = {
   hash?: string         // with untrusted: the version patches.trust would trust
   helpers?: string[]    // with untrusted: the local files it imports or names
                         // (absolute), whose text the hash covers too
+  changes?: {          // with untrusted "changed": what differs from the version
+                        // last trusted there (see "What changed"). Says only
+    since?: string      // ISO time that version was trusted
+    recheck?: true      // only hashes from before 6 Nov's version 3 there
+    files?: { path: string; was: "changed" | "added" | "removed";
+              commits?: { sha: string; subject: string }[]; moreCommits?: number;
+              uncommitted?: true; diff?: string }[] // path from the folder holding
+                        // .threadbear/; diff: "- ", "+ ", "  " lines, "…" between hunks
+  }
   editsAsk?: string     // a patch that loads without a hash runs something
                         // Threadbear can't follow, so threads in Ask and Auto
                         // ask before every file edit: which, why, and what to
@@ -590,6 +605,9 @@ type Schedule = {
   poolId?: string       // or this pool picks the login each run (see
                         // Pools); never both. Neither: the folder's pool,
                         // as threads.create picks it
+  provider?: Provider   // with poolId only: the kind of login a pool of
+                        // several kinds starts it on (threads.create's
+                        // provider). Absent: the model's kind
   model?: string
   effort?: EffortLevel
   permissionMode?: "full" | "ask" | "auto" // absent: the runner's

@@ -53,8 +53,7 @@ pub fn build(r: &RunnerInfo) -> Option<String> {
         return Some(
             release
                 .split('-')
-                .filter(|s| !s.is_empty())
-                .last()
+                .rfind(|s| !s.is_empty())
                 .unwrap_or(release)
                 .to_owned(),
         );
@@ -780,7 +779,7 @@ mod tests {
             online: false,
             ..Default::default()
         };
-        let others = [mini.clone(), cloud.clone()];
+        let others = [mini, cloud];
         let lines = |rows: Vec<SettingsRow>| rows.iter().map(settings_line).collect::<Vec<_>>();
         // Not orderable yet: this Mac first, the rest as the backend has them.
         assert_eq!(
@@ -801,9 +800,9 @@ mod tests {
             settings_rows(None, &[], None, None, false)[0].name,
             "This Mac"
         );
-        assert!(can_order(true, &others, &[me.clone()]));
+        assert!(can_order(true, &others, std::slice::from_ref(&me)));
         assert!(
-            !can_order(false, &others, &[me.clone()]),
+            !can_order(false, &others, std::slice::from_ref(&me)),
             "no order from the backend yet"
         );
         assert!(

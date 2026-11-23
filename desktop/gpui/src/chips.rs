@@ -361,6 +361,10 @@ fn lay_out(pieces: Vec<Piece>, max: Pixels, window: &Window) -> Vec<Vec<Token>> 
     // What the line's taken up to its last piece's end, its trailing spaces
     // counted (they hang past the edge when it wraps).
     let mut used = Pixels::ZERO;
+    #[expect(
+        clippy::expect_used,
+        reason = "the list starts with a line and only grows"
+    )]
     let add = |lines: &mut Vec<Vec<Token>>,
                used: &mut Pixels,
                token: Token,
@@ -516,6 +520,10 @@ impl ThreadPane {
     /// One chip in the bubble (PictureChip.draw, CardChip.draw): a small
     /// rounded tag with its symbol and label, which opens what it stands
     /// for and shows its card after a moment.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn bubble_chip(
         &self,
         ix: usize,
@@ -600,7 +608,7 @@ impl ThreadPane {
                     .filter(|_| card_shown(&key, QUICK))
                     .map(|p| under_chip(picture_card(p, cx)));
                 let images = images.to_vec();
-                let hover_key = key.clone();
+                let hover_key = key;
                 chip.on_hover(move |on, window, cx| hover(&hover_key, *on, QUICK, window, cx))
                     // The in-app viewer, as a click on the picture over the words does.
                     .on_click(move |_, window, cx| {
@@ -617,7 +625,7 @@ impl ThreadPane {
                     ))
                 });
                 let cwd = self.summary.cwd.clone();
-                let hover_key = key.clone();
+                let hover_key = key;
                 chip.on_hover(move |on, window, cx| hover(&hover_key, *on, SLOWER, window, cx))
                     // Through the open gate, as the reply's links go.
                     .on_click(move |_, _, cx| open_gate::open_link(&url, origin, &cwd, cx))
@@ -642,7 +650,7 @@ impl ThreadPane {
                         cx,
                     ))
                 });
-                let hover_key = key.clone();
+                let hover_key = key;
                 chip.on_hover(move |on, window, cx| hover(&hover_key, *on, SLOWER, window, cx))
                     .on_click(move |_, _, cx| open_gate::open_file(&path, origin, cx))
                     .children(shown)
@@ -652,7 +660,7 @@ impl ThreadPane {
                     .then(|| self.thread_card_for(&id, cx))
                     .flatten()
                     .map(under_chip);
-                let hover_key = key.clone();
+                let hover_key = key;
                 chip.on_hover(move |on, window, cx| hover(&hover_key, *on, QUICK, window, cx))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.open_thread_link(&id, window, cx)

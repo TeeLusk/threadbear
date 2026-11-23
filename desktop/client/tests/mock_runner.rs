@@ -1,7 +1,12 @@
-// The Rust client against the mock runner (app/Tools/mock-runner), the same
+// The Rust client against the mock runner (mock-runner/), the same
 // stand-in the Mac app's tests use: it signs in with the challenge, says
 // hello, lists the inbox and reads a thread. Needs Node, and the mock's
-// node_modules (`npm ci` in app/Tools/mock-runner).
+// node_modules (`npm ci` in mock-runner).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -33,7 +38,7 @@ fn start_mock() -> (Mock, RunnerConfig) {
     std::fs::create_dir_all(&home).unwrap();
     let ready = home.join("ready");
     let child = Command::new("node")
-        .arg(repo.join("app/Tools/mock-runner/server.mjs"))
+        .arg(repo.join("mock-runner/server.mjs"))
         .args(["--port", "0", "--quiet", "--data-dir"])
         .arg(&home)
         .arg("--ready-file")
@@ -71,7 +76,8 @@ fn rand_suffix() -> u32 {
 
 enum Seen {
     Status(Status),
-    Note(String, Value),
+    // A note arrived (no test reads what it said yet).
+    Note,
 }
 
 struct ChannelSink(mpsc::UnboundedSender<Seen>);
@@ -80,8 +86,8 @@ impl Sink for ChannelSink {
     fn status(&self, status: &Status) {
         let _ = self.0.send(Seen::Status(status.clone()));
     }
-    fn notification(&self, method: &str, params: &Value) {
-        let _ = self.0.send(Seen::Note(method.to_string(), params.clone()));
+    fn notification(&self, _method: &str, _params: &Value) {
+        let _ = self.0.send(Seen::Note);
     }
 }
 

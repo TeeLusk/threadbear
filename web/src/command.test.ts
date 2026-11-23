@@ -1,6 +1,7 @@
 // node --test web/src/command.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { COMMAND_SLOW_MS, commandNote, idle, locked, step, type CommandState } from './command.ts';
 
 type P = { text: string };
@@ -125,4 +126,67 @@ test('failed can be pressed again, done once it settles, and both dismissed', ()
   assert.equal(step(d, { kind: 'send', payload: { text: 'again' }, at: 0 }), d);
   assert.equal(step(d, { kind: 'send', payload: { text: 'again' }, at: 0, again: true }).attempt, 2);
   assert.equal(step(step(d, { kind: 'settle' }), { kind: 'send', payload: { text: 'again' }, at: 0 }).attempt, 2);
+});
+
+// The same machine the phones run (PendingCommand in each kit), against the
+// cases all three share (shared/cases/pending-commands.json). The website's
+// waiting is the phones' queued or taken, and its slow their timedOut.
+type SharedEvent = { event: string; at?: number; id?: string; reason?: string; state?: string | null; note?: string; threadId?: string };
+type SharedCase = { name: string; input: SharedEvent[]; expect: Record<string, unknown>; differs?: Record<string, string> };
+
+function shared(s: CommandState<P>): Record<string, unknown> {
+  const out: Record<string, unknown> = { locked: locked(s) };
+  switch (s.kind) {
+    case 'idle':
+    case 'sending':
+      out.state = s.kind;
+      break;
+    case 'waiting':
+      out.state = s.taken ? 'taken' : 'queued';
+      out.id = s.id;
+      break;
+    case 'slow':
+      out.state = 'timedOut';
+      out.taken = s.taken;
+      if (s.id) out.id = s.id;
+      break;
+    case 'done':
+      out.state = 'done';
+      out.id = s.id;
+      if (s.threadId) out.threadId = s.threadId;
+      break;
+    case 'failed':
+      out.state = 'failed';
+      if (s.id) out.id = s.id;
+      out.reason = s.error;
+      break;
+  }
+  return out;
+}
+
+test('moves match the cases the phones run too', () => {
+  const file = new URL('../../shared/cases/pending-commands.json', import.meta.url);
+  const { cases } = JSON.parse(readFileSync(file, 'utf8')) as { cases: SharedCase[] };
+  const run = cases.filter((c) => !c.differs?.web);
+  assert.ok(run.length > 10);
+  for (const c of run) {
+    let s: CommandState<P> = idle();
+    for (const e of c.input) {
+      const at = e.at ?? 0;
+      const id = 'id' in s && s.id ? s.id : (e.id ?? 'c1');
+      switch (e.event) {
+        case 'tap': s = step(s, { kind: 'send', payload: { text: 'x' }, at }); break;
+        case 'sent': s = step(s, { kind: 'queued', attempt: s.attempt, id: e.id!, at }); break;
+        case 'sendFailed': s = step(s, { kind: 'queueFailed', attempt: s.attempt, error: e.reason! }); break;
+        case 'row':
+          assert.ok(e.state, `${c.name}: the website has no gone row`);
+          s = step(s, { kind: 'report', id, report: { state: e.state as 'pending' | 'taken' | 'done' | 'failed', ...(e.note ? { note: e.note } : {}), ...(e.threadId ? { threadId: e.threadId } : {}) }, at });
+          break;
+        case 'deadline': s = step(s, { kind: 'tick', at }); break;
+        case 'settle': s = step(s, { kind: 'settle' }); break;
+        default: assert.fail(`${c.name}: the website has no ${e.event} event; say so in the case's differs`);
+      }
+    }
+    assert.deepEqual(shared(s), c.expect, c.name);
+  }
 });

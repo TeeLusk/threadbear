@@ -375,6 +375,10 @@ impl gpui_kit::component::menu::DropdownMenu for MenuLabel {}
 
 /// Words that work as a button, in the accent (`.buttonStyle(.link)`), or
 /// grey and borderless ("Check now"). Spins in place while `busy`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 pub(crate) fn text_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,

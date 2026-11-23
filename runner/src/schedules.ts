@@ -11,7 +11,7 @@
 // its own file up once, keeps a live copy of the whole table (and a copy on
 // disk for when the backend can't be reached), and sends only its own,
 // each run taken with a claim first so it's sent once.
-import type { CheckCard } from './patch-trust.ts';
+import { CheckRefused, type CheckCard } from './patch-trust.ts';
 import { type KeptCheck, CHECK_TIMEOUT_MS, checkLimitMs, checkOutcome, checkRunningElsewhere, checksRunningElsewhere, clearCheckRunning, dropKeptCheck, HELD_EXTRA, HELD_SKIP, heldToldAbout, keepCheck, markCheckRunning, MAX_CHECK_CHARS, MAX_CHECK_TIMEOUT_SECS, noteHeldTold, readKeptCheck, runCheck, type CheckResult } from './schedule-check.ts';
 import { forbiddenText } from './sync.ts';
 import fs from 'node:fs';
@@ -20,8 +20,8 @@ import crypto from 'node:crypto';
 import type { Runner } from './runner.ts';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
-import type { EffortLevel, PermissionMode, Schedule } from './protocol.ts';
-import { EFFORT_LEVELS, ErrorCode, RpcError, isEffortLevel } from './protocol.ts';
+import type { EffortLevel, PermissionMode, Provider, Schedule } from './protocol.ts';
+import { EFFORT_LEVELS, ErrorCode, PROVIDERS, RpcError, isEffortLevel, isProvider } from './protocol.ts';
 import { atomicWriteFileSync, isDirectory, readJsonSync } from './fsutil.ts';
 import { expandHome } from './config.ts';
 import { standInFor } from './pools.ts';
@@ -137,6 +137,8 @@ export type CreateScheduleParams = {
   cwd?: string;
   accountId?: string;
   poolId?: string;
+  // With poolId: the kind of login in a pool of several kinds.
+  provider?: Provider;
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
@@ -166,6 +168,9 @@ export type UpdateScheduleParams = {
   accountId?: string;
   // null takes it out of its pool (back to the folder's or the default).
   poolId?: string | null;
+  // null: the model's kind again. A new pool or model without one drops
+  // it, so it never sends a model to a login of another kind.
+  provider?: Provider | null;
   model?: string | null;
   effort?: EffortLevel | null;
   permissionMode?: PermissionMode;
@@ -218,7 +223,7 @@ export class Scheduler {
   private names = new Map<string, string>();
   private icons = new Map<string, string>();
   private namesDue = false;
-  // Threads a draining runner still has (docs/protocol.md, "Handovers"):
+  // Threads a draining runner still has (docs/protocol/updates.md, "Handovers"):
   // they're real threads, just not loaded here yet.
   private elsewhere: (threadId: string) => boolean;
   private folderElsewhere?: (threadId: string) => string | undefined;
@@ -463,7 +468,7 @@ export class Scheduler {
   }
 
   // adoptSchedules is the main key's only (it clears mirrored rows from
-  // before API 9, docs/protocol.md "Runner keys"): a runner key's runner
+  // before API 9, docs/protocol/keys.md "Runner keys"): a runner key's runner
   // saves its schedules one by one instead, which is all it needs.
   // Any held back means nothing moved: the file stays this runner's copy,
   // its schedules keep running from it, and nothing is lost (HeldLocal).
@@ -536,7 +541,7 @@ export class Scheduler {
     const me: RunnerInfo = { id, name, ...(icon ? { icon } : {}), online: true, self: true, ...(version ? { version } : {}), ...(release ? { release } : {}), ...(startedAt ? { startedAt } : {}) };
     if (!this.backend) return [me];
     const now = this.clock.now();
-    // Only the main key lists every runner (docs/protocol.md, "Runner keys"):
+    // Only the main key lists every runner (docs/protocol/keys.md, "Runner keys"):
     // on a runner key, this runner is the only one there is.
     let all: BackendRunner[];
     try {
@@ -677,6 +682,7 @@ export class Scheduler {
     const runnerId = p.runnerId?.trim() ? await this.resolveRunner(p.runnerId) : this.self.id;
     const away = runnerId !== this.self.id;
     if (p.accountId && p.poolId) throw bad('Give accountId or poolId, not both: a pool picks the login.');
+    if (p.provider && !p.poolId) throw bad('provider is for a schedule with a poolId: a login has its own.');
     if (away && p.threadId) throw bad("A schedule that sends to a thread runs on that thread's runner; leave runnerId out.");
     const now = this.iso();
     const rec: ScheduleRecord = {
@@ -700,6 +706,7 @@ export class Scheduler {
       if (p.cwd?.trim()) rec.cwd = p.cwd.trim();
       if (p.accountId) rec.accountId = p.accountId;
       if (p.poolId) rec.poolId = p.poolId;
+      if (p.poolId && p.provider) rec.provider = p.provider;
       if (p.model) rec.model = p.model;
       if (p.effort) rec.effort = p.effort;
       if (p.permissionMode) rec.permissionMode = p.permissionMode;
@@ -707,6 +714,7 @@ export class Scheduler {
       rec.cwd = this.checkedFolder(p.cwd);
       if (p.accountId) rec.accountId = this.checkedAccount(p.accountId);
       if (p.poolId) rec.poolId = this.checkedPool(p.poolId);
+      if (p.poolId && p.provider) rec.provider = p.provider;
       if (p.model) rec.model = p.model;
       if (p.effort) rec.effort = p.effort;
       if (p.permissionMode) rec.permissionMode = p.permissionMode;
@@ -795,9 +803,20 @@ export class Scheduler {
         delete rec.accountId;
       }
       if (p.model !== undefined) setOrDelete(rec, 'model', p.model);
+      // The kind goes with the pool and model it was picked with: one
+      // changed without it is the new model's kind again, not a model of
+      // one kind sent to a login of another.
+      if (p.provider !== undefined) {
+        if (p.provider === null) delete rec.provider;
+        else rec.provider = p.provider;
+      } else if (p.poolId !== undefined || p.model !== undefined || p.accountId !== undefined) delete rec.provider;
+      if (!rec.poolId) {
+        if (p.provider) throw bad('provider is for a schedule with a poolId: a login has its own.');
+        delete rec.provider;
+      }
       if (p.effort !== undefined) setOrDelete(rec, 'effort', p.effort);
       if (p.permissionMode !== undefined) rec.permissionMode = p.permissionMode;
-    } else if ([p.cwd, p.accountId, p.poolId, p.model, p.effort, p.permissionMode].some((x) => x !== undefined)) {
+    } else if ([p.cwd, p.accountId, p.poolId, p.provider, p.model, p.effort, p.permissionMode].some((x) => x !== undefined)) {
       throw bad("This schedule sends to a thread, so it has no folder, account or model of its own; change the thread's.");
     }
     rec.updatedAt = this.iso();
@@ -1477,8 +1496,9 @@ export class Scheduler {
     try {
       this.runner.patchTrust.approveCheck(rec.check, cwd, card);
     } catch (e) {
-      // A card's approval that doesn't hold changes nothing.
-      if (card) throw bad(e instanceof Error ? e.message : String(e));
+      // A card's approval that doesn't hold changes nothing, and nor does
+      // one of a check nobody can approve (it writes what it runs).
+      if (card || e instanceof CheckRefused) throw bad(e instanceof Error ? e.message : String(e));
       this.log.warn("could not approve a schedule's check", { scheduleId: rec.id, error: String(e) });
     }
   }
@@ -1607,6 +1627,7 @@ export class Scheduler {
         cwd: rec.cwd ? path.resolve(expandHome(rec.cwd)) : undefined,
         accountId: rec.accountId,
         poolId: rec.poolId,
+        ...(rec.poolId && rec.provider ? { provider: rec.provider } : {}),
         model: rec.model,
         effort: rec.effort,
         permissionMode: rec.permissionMode,
@@ -1843,6 +1864,7 @@ export function scheduleMethods(s: Scheduler): Record<string, (p: Record<string,
         cwd: str(p, 'cwd'),
         accountId: str(p, 'accountId'),
         poolId: str(p, 'poolId'),
+        provider: provider(p.provider) ?? undefined,
         model: str(p, 'model'),
         effort: effort(p.effort) ?? undefined,
         permissionMode: mode(p.permissionMode),
@@ -1865,6 +1887,7 @@ export function scheduleMethods(s: Scheduler): Record<string, (p: Record<string,
       if (p.timezone !== undefined) upd.timezone = p.timezone === null ? null : str(p, 'timezone');
       if (p.poolId !== undefined) upd.poolId = p.poolId === null ? null : str(p, 'poolId');
       if (p.model !== undefined) upd.model = p.model === null ? null : str(p, 'model');
+      if (p.provider !== undefined) upd.provider = provider(p.provider);
       if (p.effort !== undefined) upd.effort = effort(p.effort);
       if (p.permissionMode !== undefined) upd.permissionMode = mode(p.permissionMode);
       if (p.paused !== undefined) upd.paused = bool(p, 'paused');
@@ -1920,6 +1943,13 @@ function num(p: Record<string, unknown>, k: string): number | undefined {
   const v = p[k];
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'number') throw bad(`${k} must be a number`);
+  return v;
+}
+
+function provider(v: unknown): Provider | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  if (!isProvider(v)) throw bad(`provider must be one of ${PROVIDERS.join(', ')}`);
   return v;
 }
 

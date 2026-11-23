@@ -1,4 +1,4 @@
-// Reply buttons (docs/protocol.md, "Reply buttons"): a reply's
+// Reply buttons (docs/protocol/events.md, "Reply buttons"): a reply's
 // [title](button:<id>) link drawn as a button that starts a thread with a
 // brief the agent wrote, or sends a message to a thread. The part with no
 // React or Convex in it, so it can be tested alone:

@@ -23,6 +23,10 @@
 // - Nothing downloads; Chromium's View Source isn't offered; what a page
 //   logs to its console stays out of Chromium's log.
 // - The app hears when it can go back, and when it's loading.
+#![expect(
+    clippy::too_many_arguments,
+    reason = "cef's wrap_client! makes PreviewClient::new take every handler, nine of them"
+)]
 use super::host::{
     tb_view_has_keyboard, tb_view_input_count, tb_view_note_input, tb_view_picture_size,
     tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent, tb_view_watch_input,
@@ -72,7 +76,7 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn send(&self, event: Event) {
+    fn send(&self, event: Event) {
         if let Some(tx) = self.events.lock().ok().and_then(|e| e.clone()) {
             let _ = tx.unbounded_send(event);
         }
@@ -89,6 +93,10 @@ impl Shared {
     /// A page for the browser, one for each click and at most one a second
     /// from this panel; any more are dropped without a word (`LeaveGate`).
     fn leave(&self, url: String) {
+        // SAFETY: the address is 0 until open stores the page's NSView, and
+        // the shim returns 0 for null. Handlers run on Chromium's UI thread,
+        // the main thread here. It relies on no handler running after the
+        // PanelPage's drop removes the view, as the address isn't cleared.
         let inputs =
             unsafe { tb_view_input_count(self.view.load(Ordering::Acquire) as *mut c_void) };
         let allowed = self
@@ -215,7 +223,7 @@ impl PanelPage {
                     ..Default::default()
                 };
                 let client = PreviewClient::new(
-                    super::preview::PreviewRequests::new(preview.clone(), shared.clone()),
+                    super::preview::PreviewRequests::new(preview.clone()),
                     super::preview::PreviewLife::new(shared.clone()),
                     PanelLoads::new(shared.clone()),
                     PanelDisplay::new(shared.clone()),
@@ -276,10 +284,15 @@ impl PanelPage {
         let view = host.window_handle();
         // A person's clicks and keys in it, counted for the gate.
         shared.view.store(view as usize, Ordering::Release);
+        // SAFETY: `view` is the new browser's NSView from window_handle (the
+        // shim ignores null), alive in `parent`, and open runs on the main
+        // thread. The shim's map holds it weakly.
         unsafe { tb_view_watch_input(view) };
         let mut observer = Answers::new(shared.clone());
         let registration = host.add_dev_tools_message_observer(Some(&mut observer));
         // Out of sight until the app puts it somewhere.
+        // SAFETY: same live NSView as above, on the main thread; messaging
+        // nil is a no-op if window_handle gave null.
         unsafe { tb_view_set_hidden(view, true) };
         let page = PanelPage {
             browser,
@@ -424,11 +437,20 @@ impl PanelPage {
 
     /// Into another window's view: the panel was moved to a window of its
     /// own, or back. AppKit moves the view; Chromium follows its window.
-    pub fn move_to(&self, parent: *mut c_void) {
+    ///
+    /// # Safety
+    ///
+    /// `parent` must be null or an `NSView` that stays alive while the panel
+    /// is in it (a window's content view), and this must run on the main
+    /// thread.
+    pub unsafe fn move_to(&self, parent: *mut c_void) {
         if parent.is_null() || parent == self.parent.get() {
             return;
         }
         self.parent.set(parent);
+        // SAFETY: the caller guarantees `parent` (non-null here) is a live
+        // NSView and that we're on the main thread; self.view is this page's
+        // view, alive until drop removes it.
         unsafe { tb_view_set_parent(self.view, parent) };
         self.frame.set((0., 0., 0., 0., 0.));
     }
@@ -446,6 +468,9 @@ impl PanelPage {
             return;
         }
         self.frame.set(frame);
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until drop removes it; PanelPage
+        // isn't Send, so this is on the main thread.
         unsafe {
             tb_view_set_frame(
                 self.view,
@@ -476,6 +501,9 @@ impl PanelPage {
             return;
         }
         self.hidden.set(hidden);
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until drop removes it; PanelPage
+        // isn't Send, so this is on the main thread.
         unsafe { tb_view_set_hidden(self.view, hidden) };
         if hidden {
             self.pause_media();
@@ -537,24 +565,36 @@ impl PanelPage {
     /// own, unless its layer has drifted (appkit_hooks.m, `tb_pin_page_layers`).
     pub fn picture_size(&self) -> Option<(f64, f64)> {
         let (mut width, mut height) = (0., 0.);
+        // SAFETY: self.view is this page's NSView, alive until drop removes
+        // it, on the main thread (PanelPage isn't Send); the shim writes only
+        // the two local f64s it's given.
         unsafe { tb_view_picture_size(self.view, &mut width, &mut height) }
             .then_some((width, height))
     }
 
     /// Whether the page's view, or one inside it, has the keyboard.
     pub fn has_keyboard(&self) -> bool {
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until drop removes it; PanelPage
+        // isn't Send, so this is on the main thread.
         unsafe { tb_view_has_keyboard(self.view) }
     }
 
     /// How many clicks and keys a person has given the page's view so far:
     /// one changing says it's being used (an update's restart waits for it).
     pub fn input_count(&self) -> u64 {
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until drop removes it; PanelPage
+        // isn't Send, so this is on the main thread.
         unsafe { tb_view_input_count(self.view) }
     }
 
     /// A scripted app's stand-in for a person's click in the page: the
     /// specs click through DevTools, which AppKit never sees (`LeaveGate`).
     pub fn note_input(&self) {
+        // SAFETY: self.view is the browser's own NSView (or null, which the shim
+        // ignores), kept alive by its parent until drop removes it; PanelPage
+        // isn't Send, so this is on the main thread.
         unsafe { tb_view_note_input(self.view) };
     }
 
@@ -580,6 +620,9 @@ impl Drop for PanelPage {
         // with it (11 Nov). The view's parent holds the only reference to
         // it, so taking it out ends the browser (CefBrowserHostView's
         // dealloc tells CEF its window is gone, and CEF destroys it).
+        // SAFETY: self.view is this page's NSView, still alive in its parent
+        // until this call takes it out; drop runs on the main thread, as
+        // PanelPage isn't Send.
         unsafe { tb_view_remove(self.view) };
     }
 }

@@ -50,7 +50,7 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
         .px(px(2.5))
         .py(px(1.))
         .text_size(px(size::CODE))
-        .font_family(mono.clone())
+        .font_family(mono)
         .text_color(label);
     // A rule under the header and hairlines between rows, none around them
     // (renderTable). No cell backgrounds.
@@ -913,30 +913,7 @@ fn encode_component(text: &str) -> String {
 
 /// `%20` and friends back to what the link's words were.
 pub(crate) fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(a), Some(b)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push(a * 16 + b);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn hex(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
+    threadbear_core::reply_links::percent_decode(text)
 }
 
 impl ThreadPane {

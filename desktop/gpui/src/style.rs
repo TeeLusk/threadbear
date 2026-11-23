@@ -1,7 +1,7 @@
 // The Swift app's sizes and colours (Transcript/Theme.swift, TypeScale), so the
 // two apps look alike and there's one place to change them. Colours take the
 // light or dark value from the window's theme.
-#![allow(dead_code)] // Filled in ahead of the views that use each value.
+#![allow(dead_code, reason = "filled in ahead of the views that use each value")]
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -597,7 +597,10 @@ fn system_increase_contrast() -> bool {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
+#[allow(
+    deprecated,
+    reason = "NSAppearance's current-appearance calls, which AppKit still honours and has no per-thread replacement for"
+)]
 fn system_contrast_colours(dark: bool, contrast: bool) -> Option<[Hsla; 4]> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{
@@ -606,6 +609,9 @@ fn system_contrast_colours(dark: bool, contrast: bool) -> Option<[Hsla; 4]> {
         NSAppearanceNameDarkAqua, NSApplication, NSColor, NSColorSpace,
     };
     use objc2_foundation::NSArray;
+    // SAFETY: the unsafe parts are reads of AppKit's appearance name
+    // constants, which are immutable extern statics. The current appearance
+    // is per thread and is put back before the block ends.
     unsafe {
         let name = if dark {
             NSAppearanceNameDarkAqua
@@ -705,7 +711,7 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
     use gpui_kit::component::Theme;
     use std::rc::Rc;
     let chosen = accent_choice().rgb().map(|hex| {
-        let c = Rgba::from(rgb(hex));
+        let c = rgb(hex);
         (c, c)
     });
     #[cfg(target_os = "macos")]
@@ -787,11 +793,17 @@ pub(crate) fn refresh_system_accent(cx: &mut App) {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
+#[allow(
+    deprecated,
+    reason = "NSAppearance's current-appearance calls, which AppKit still honours and has no per-thread replacement for"
+)]
 fn system_control_accent(dark: bool) -> Option<Rgba> {
     use objc2_app_kit::{
         NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSColor, NSColorSpace,
     };
+    // SAFETY: the unsafe parts are reads of AppKit's appearance name
+    // constants, which are immutable extern statics. The current appearance
+    // is per thread and is put back before the colour is used.
     unsafe {
         let name = if dark {
             NSAppearanceNameDarkAqua
@@ -839,11 +851,16 @@ fn srgb_rgba(r: f32, g: f32, b: f32) -> Rgba {
 // (performAsCurrentDrawingAppearance) needs block2; setting it is deprecated
 // but does the same for a moment on the main thread.
 #[cfg(target_os = "macos")]
-#[allow(deprecated)]
+#[allow(
+    deprecated,
+    reason = "NSAppearance's current-appearance calls, which AppKit still honours and has no per-thread replacement for"
+)]
 fn system_window_background(dark: bool) -> Option<Rgba> {
     use objc2_app_kit::{
         NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSColor, NSColorSpace,
     };
+    // SAFETY: as in `system_control_accent`: immutable extern appearance name
+    // constants, and a per-thread current appearance that's put back.
     unsafe {
         let name = if dark {
             NSAppearanceNameDarkAqua

@@ -452,7 +452,7 @@ impl TranscriptModel {
         }
         if rewound {
             // The runner drops messages queued behind an edited one
-            // (docs/protocol.md, "Editing a message").
+            // (docs/protocol/threads.md, "Editing a message").
             self.pending.retain(|m| !m.queued);
             let before = self.rows.len();
             self.rebuild();
@@ -935,6 +935,10 @@ impl TranscriptModel {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 729 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn reduce(&mut self, event: &Event) {
         let seq = event.seq;
         let turn_id = event.turn_id.clone();
@@ -2103,7 +2107,7 @@ impl TranscriptModel {
             .copied()
             .filter(|&k| {
                 text(k).is_some_and(|t| !t.is_summary)
-                    && last_step.map_or(true, |last| k > last)
+                    && last_step.is_none_or(|last| k > last)
                     && self.items[k].seq > last_result
             })
             .collect();
@@ -2481,6 +2485,10 @@ impl TranscriptModel {
 
     /// The rows for items from `start` (a run boundary) up to `end`, with
     /// the working line after them while a turn runs.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 309 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn build_rows(
         &self,
         start: usize,
@@ -2617,11 +2625,9 @@ impl TranscriptModel {
                             out.push(row.clone());
                             starts.push(turn.start);
                         }
-                    } else if !self.stays_out(k, &replies) {
-                        continue;
-                    } else if matches!(&row.content, RowContent::Asks(card) if !card.is_open) {
-                        continue;
-                    } else if matches!(&row.content, RowContent::Tool(tool) if Self::is_taken_end_turn(tool))
+                    } else if !self.stays_out(k, &replies)
+                        || matches!(&row.content, RowContent::Asks(card) if !card.is_open)
+                        || matches!(&row.content, RowContent::Tool(tool) if Self::is_taken_end_turn(tool))
                     {
                         continue;
                     } else if matches!(row.content, RowContent::Gap(_)) {
@@ -2677,7 +2683,7 @@ impl TranscriptModel {
                             done.usage = tokens
                                 .iter()
                                 .copied()
-                                .reduce(TurnTokens::add)
+                                .reduce(std::ops::Add::add)
                                 .map(TurnTokens::usage);
                             out.push(derived(
                                 &row.id,

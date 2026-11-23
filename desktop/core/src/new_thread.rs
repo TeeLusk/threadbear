@@ -32,7 +32,7 @@ pub struct AccountUsage {
 /// The account's usage, if the runner sent any.
 pub fn usage_of(account: &Account) -> Option<AccountUsage> {
     // A signed-out login has no room for anything, as the runner's pools
-    // have it (docs/protocol.md, Pools, "Signed out").
+    // have it (docs/protocol/settings.md, Pools, "Signed out").
     if (account.signed_out || account.plan_ended) && account.usage.is_none() {
         return Some(AccountUsage {
             windows: Vec::new(),
@@ -595,7 +595,7 @@ pub fn has_room(account: &Account) -> bool {
     !usage.blocked && !room(&usage).is_some_and(|r| r < PICK_FLOOR)
 }
 
-/// `usage.resets`: a Codex login's usage resets left (docs/protocol.md,
+/// `usage.resets`: a Codex login's usage resets left (docs/protocol/settings.md,
 /// Pools, "Usage resets"), and when the soonest expires (ms).
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsageResets {
@@ -1265,7 +1265,7 @@ mod tests {
             .iter_mut()
             .find(|a| a.id == "claude-main")
             .unwrap()
-            .usage = Some(out.clone());
+            .usage = Some(out);
         assert_eq!(
             reset_target(l.accounts.iter().filter(|a| a.id == "claude-main"))
                 .map(|a| a.id.as_str()),
@@ -1488,7 +1488,7 @@ mod tests {
             id: "e".into(),
             provider: "claude".into(),
             plan_ended: true,
-            usage: out.usage.clone(),
+            usage: out.usage,
             ..Default::default()
         };
         assert_eq!(chip_badge(Some(&ended)), Some(ChipBadge::PlanEnded));
@@ -1536,7 +1536,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            pick_account(&[unknown.clone()], Some("x")).as_deref(),
+            pick_account(std::slice::from_ref(&unknown), Some("x")).as_deref(),
             Some("x")
         );
         // Nothing eligible on the provider: the last used, if there is one.

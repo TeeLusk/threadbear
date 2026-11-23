@@ -194,6 +194,10 @@ pub(crate) fn start(file: DraggedFile, window: &mut Window, cx: &mut App) {
         grabbed,
     });
     let leaving = file.clone();
+    #[expect(
+        clippy::arc_with_non_send_sync,
+        reason = "GPUI's AnyDrag holds its value as an Arc, and a drag never leaves the main thread"
+    )]
     let drag = AnyDrag {
         view: view.into(),
         value: std::sync::Arc::new(file),
@@ -259,7 +263,7 @@ pub(crate) async fn file_drag_command(
             let at = found
                 .into_iter()
                 .filter(|e| e.visible())
-                .last()
+                .next_back()
                 .map(|e| e.visible_bounds().center())
                 .ok_or("nothing like that on screen to drag")?;
             crate::thread::scripted_input(|| {

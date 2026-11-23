@@ -31,7 +31,7 @@ export function isProvider(v: unknown): v is Provider {
 // blocks each action, and asks only when it can't decide. Codex has no such
 // thing, so there it behaves like ask. plan is "Plan first": the agent
 // reads and plans but changes nothing until Mike approves its plan
-// (docs/protocol.md, "Plan first").
+// (docs/protocol/threads.md, "Plan first").
 export type PermissionMode = 'full' | 'ask' | 'auto' | 'plan';
 export const PERMISSION_MODES: readonly PermissionMode[] = ['full', 'ask', 'auto', 'plan'];
 
@@ -44,7 +44,7 @@ export function isPermissionMode(v: unknown): v is PermissionMode {
 }
 
 // A new thread's mode in a `create` command another runner takes through
-// the backend (docs/protocol.md, "Other runners' threads through the
+// the backend (docs/protocol/runners.md, "Other runners' threads through the
 // backend"). Plan first goes as Ask with `plan: true`: a runner or backend
 // from before it knew Plan first drops the flag and starts the thread on
 // Ask, never on the full access a missing mode means. Unknown modes are
@@ -96,12 +96,12 @@ export type AccountUsage = {
   windows: UsageWindow[];
   readAt: string; // when the newest reading in it was taken
   // 'shared': another runner's reading of the same login (by email) was the
-  // newest (docs/protocol.md, Accounts, "Shared readings").
+  // newest (docs/protocol/settings.md, Accounts, "Shared readings").
   source: 'tokenStats' | 'live' | 'shared';
   stale?: boolean; // Token Stats has gone quiet and there's no live reading since
   blocked?: boolean; // the provider says this login is at its limit
   notice?: string; // Token Stats' own note
-  // Codex: the usage-limit resets the login has left (docs/protocol.md,
+  // Codex: the usage-limit resets the login has left (docs/protocol/settings.md,
   // "Usage resets"), from its last account/rateLimits/read.
   resets?: UsageResets;
 };
@@ -175,7 +175,7 @@ export type CliStatus = {
   };
 };
 
-// A named, ordered list of logins of any provider (docs/protocol.md,
+// A named, ordered list of logins of any provider (docs/protocol/settings.md,
 // "Pools"). A thread in a pool runs each turn on whichever of its logins
 // has room; the order of accountIds only decides which provider comes
 // first.
@@ -218,7 +218,7 @@ export type ArchiveVerdict = 'worked' | 'didntWork' | 'notNeeded' | 'didntNeedTo
 export const ARCHIVE_VERDICTS: readonly ArchiveVerdict[] = ['worked', 'didntWork', 'notNeeded', 'didntNeedToSee', 'gladISaw', 'notSure'];
 
 // What fills a thread's context, in Claude's own words (threads.contextUsage,
-// docs/protocol.md "Context breakdown"). Rows are the CLI's /context rows:
+// docs/protocol/threads.md "Context breakdown"). Rows are the CLI's /context rows:
 // `id` names a row (absent from a CLI that predates it, and a later CLI may
 // add ids), `kind` says whether it counts: 'used' is in the window, 'buffer'
 // the autocompact reserve, 'free' the rest, 'deferred' tool schemas kept out
@@ -254,7 +254,7 @@ export type ThreadSummary = {
   live: boolean;
   needsYou: boolean;
   // What the last completed turn said it needs from Mike, and its open
-  // asks (docs/protocol.md, "Needs you").
+  // asks (docs/protocol/needs-you.md, "Needs you").
   needs?: NeedsWho;
   asks?: OpenAsk[];
   asksSeq?: number;
@@ -270,6 +270,7 @@ export type ThreadSummary = {
   wakeWhen?: { said: string; topic?: string; pending?: true; agent?: true };
   waitingOn?: { threadId: string; title: string; until?: string; done?: true }[]; // hibernating until these finish (or do `until`)
   awaitingAppRestart?: true; // hibernating until the Mac app restarts onto what this thread landed
+  awaitingApp?: { commit?: string; short?: string }; // waiting to hear the app restarted onto this commit (wait_for_app_restart), for the Updates panel
   woke?: { at: string; since?: string }; // woke from hibernating by itself, not looked at yet
   onOldRunner?: boolean; // finishing a turn on a runner that handed over (Handovers)
   archivedAt?: string;
@@ -305,37 +306,37 @@ export type ThreadSummary = {
   // Its own git worktree (docs/thread-worktrees.md). Absent when it has
   // none, or once that was removed.
   worktree?: ThreadWorktree;
-  // The schedule that started it (docs/protocol.md, "Schedules"). Absent
+  // The schedule that started it (docs/protocol/projects.md, "Schedules"). Absent
   // for a thread a person or an agent started.
   schedule?: ThreadSchedule;
-  // Who started it, when that wasn't Mike (docs/protocol.md, "Who started
+  // Who started it, when that wasn't Mike (docs/protocol/threads.md, "Who started
   // a thread"). Absent for his own threads.
   startedBy?: ThreadStartedBy;
   // Started by another thread but kept out from under it in the sidebar
-  // (docs/protocol.md, "Nested threads").
+  // (docs/protocol/threads.md, "Nested threads").
   detached?: true;
   // Mike's last message to it, one line, for the sidebar's "You: ..."
-  // (docs/protocol.md, "What Mike last asked"). Absent until he's sent one.
+  // (docs/protocol/threads.md, "What Mike last asked"). Absent until he's sent one.
   asked?: string;
   // His first message to it, one line of up to 200 chars, for the Feed's
-  // card (docs/protocol.md, "What Mike first asked"). It stays once set.
+  // card (docs/protocol/threads.md, "What Mike first asked"). It stays once set.
   request?: string;
-  // The librarian's search words for it, space-separated (docs/protocol.md,
+  // The librarian's search words for it, space-separated (docs/protocol/threads.md,
   // "Search"): searches match them as well as the title and preview.
   keywords?: string;
   // A panel the agent asked to show Mike (show_panel), waiting for him to
-  // look at the thread (docs/protocol.md, "Showing panels").
+  // look at the thread (docs/protocol/panels.md, "Showing panels").
   panelRequest?: PanelRequest;
   // Whether anyone with its link can read it on the website
-  // (docs/protocol.md, "Sharing"). Absent until it's first shared; "off"
+  // (docs/protocol/runners.md, "Sharing"). Absent until it's first shared; "off"
   // keeps the link for when it's shared again.
   share?: ThreadShare;
-  // Moving to another runner (docs/protocol.md, "Moving a thread to another
+  // Moving to another runner (docs/protocol/moves.md, "Moving a thread to another
   // runner"): while it goes, and for a minute after it fails, with why.
   moving?: { moveId: string; to: string; toName: string; state: string; note?: string };
   sample?: true; // one of the tour's sample threads (threads.samples): made up, never sent to
   // What's still open on the done card of its last turn (experiment
-  // looseEnds; docs/protocol.md, "Loose ends"): seq is that card's
+  // looseEnds; docs/protocol/threads.md, "Loose ends"): seq is that card's
   // turn.completed. ends empty: checked, and nothing's left. Absent: not
   // checked (the experiment's off, the last turn needs Mike, or it's
   // still being checked).
@@ -390,7 +391,7 @@ export type ThreadStartedBy = {
   why?: string; // a few words: why it exists, then how it came out
 };
 
-// Projects (docs/protocol.md, "Projects"): a grouping above folders that
+// Projects (docs/protocol/projects.md, "Projects"): a grouping above folders that
 // carries goals, state and notes forward, made by the librarian, agents or
 // Mike.
 export type ProjectMaker = 'mike' | 'agent' | 'librarian';
@@ -429,7 +430,7 @@ export type Project = {
   // the board as last read (see "Project tasks").
   notion?: string;
   tasks?: ProjectTasks;
-  // The project it's a part of (docs/protocol.md, Projects, "Parts"). One
+  // The project it's a part of (docs/protocol/projects.md, Projects, "Parts"). One
   // level: a part has no parts.
   parentId?: string;
   threadCount: number;
@@ -603,22 +604,40 @@ export type PatchInfo = {
   liveError?: string; // a when or badge function that threw or took too long
   // A patch that loads without a hash (home's) runs something Threadbear
   // can't follow, so threads that ask first ask before every file edit:
-  // what, where, and what to change (docs/protocol.md, "Agent writes that
+  // what, where, and what to change (docs/protocol/trust.md, "Agent writes that
   // run as code").
   editsAsk?: string;
   // A project's patch file that isn't trusted yet, so wasn't loaded and
-  // gives nothing (docs/protocol.md, "Trusting a folder's patches"): "new"
+  // gives nothing (docs/protocol/trust.md, "Trusting a folder's patches"): "new"
   // when nothing from its folder is trusted, "changed" when an earlier
   // version was. `hash` is the version patches.trust would trust.
   untrusted?: 'new' | 'changed';
   hash?: string;
   helpers?: string[]; // with untrusted: the local files it imports, which the hash covers too
+  // With untrusted "changed": what differs from the version last trusted
+  // there (docs/protocol/trust.md, "What changed"). Says only; trusts nothing.
+  changes?: PatchChanges;
   grants?: string[]; // with untrusted, a folder's Claude settings in a thread that asks first: what they'd let run without asking, in words
   icon?: string; // the patch file's icon, an SF Symbol
   iconFile?: string; // or its picture (absolute path: an image or a .app)
 };
 
-// A panel a patch gives a thread (docs/protocol.md, "Panels"). The runner
+// What changed in a waiting patch since the version last trusted in its
+// folder (docs/protocol/trust.md, "What changed").
+export type PatchChanges = {
+  since?: string; // ISO time that version was trusted
+  recheck?: true; // nothing on record, and all that was trusted there was before 6 Nov's change to how patches are checked
+  files?: {
+    path: string; // relative to the folder holding .threadbear/ (absolute outside it)
+    was: 'changed' | 'added' | 'removed'; // added: now in the hash, not then (a new helper, or one Threadbear now follows)
+    commits?: { sha: string; subject: string }[]; // commits since then that touched it, newest first
+    moreCommits?: number;
+    uncommitted?: true; // what's on disk isn't what HEAD has (or git doesn't track it)
+    diff?: string; // `- `, `+ ` and `  ` lines, `…` between hunks; only when both sides could be checked against their hashes
+  }[];
+};
+
+// A panel a patch gives a thread (docs/protocol/patches.md, "Patches"). The runner
 // works them out from the thread's folder; nothing is persisted.
 export type PanelKind = 'url' | 'image' | 'list';
 export type Panel = {
@@ -650,7 +669,7 @@ export type PanelItem = {
   // Short, faint, at the end of the title's line: a date or a count.
   trailing?: string;
   // A switch at the end of the title's line; a press sends panels.toggle
-  // (docs/protocol.md, Patches, "Row toggles").
+  // (docs/protocol/patches.md, Patches, "Row toggles").
   toggle?: { id: string; on: boolean; icon?: string; title?: string };
   // Buttons at the end of the row (panels.runItemAction). The command each
   // runs stays on the runner, kept from this draw.
@@ -674,7 +693,7 @@ export type BackgroundTask = {
 // Agents are still working for this thread: sub-agents, or a workflow's
 // (kind "other"), including ones just finished whose result is still to be
 // read. What they find can change what the thread's agent asks Mike, so a
-// card it left open isn't his to answer yet (docs/protocol.md, "Needs you";
+// card it left open isn't his to answer yet (docs/protocol/needs-you.md, "Needs you";
 // Mike, 2 Nov). Shells and monitors don't count: one is often a watcher
 // waiting for Mike to do what he was asked, as with the SD card on 1 Nov.
 export function agentsStillWorking(tasks: BackgroundTask[] | undefined): boolean {
@@ -810,7 +829,7 @@ export type DesignReview = {
   replyTurnId?: string;
 };
 
-// A button an agent put in its reply (docs/protocol.md, "Reply buttons"):
+// A button an agent put in its reply (docs/protocol/events.md, "Reply buttons"):
 // pressing it starts a thread with the brief, sends a message to a
 // thread, or opens another folder's patch panel beside this one. Exactly one
 // of start, send and panel.
@@ -882,10 +901,10 @@ export type EventBody =
       reason?: string;
     }
   // The agent's other calls from the same reply, waiting behind this card
-  // (docs/protocol.md, "Queued calls"). A later one replaces the list.
+  // (docs/protocol/threads.md, "Queued calls"). A later one replaces the list.
   | { type: 'approval.queued'; approvalId: string; calls: QueuedCall[] }
   | { type: 'question.requested'; approvalId: string; itemId?: string; questions: Question[] }
-  // An agent's ask_secret (docs/protocol.md, "Secrets"): never the value.
+  // An agent's ask_secret (docs/protocol/threads.md, "Secrets"): never the value.
   | { type: 'secret.requested'; approvalId: string; itemId?: string; label: string; reason: string; placeholder?: string }
   | { type: 'approval.resolved'; approvalId: string; decision: ApprovalDecision; message?: string }
   | { type: 'plan.updated'; entries: PlanEntry[] }
@@ -911,7 +930,7 @@ export type EventBody =
       needsFrom?: 'tool' | 'text';
       // Review by another lab: what the reviewer found so far and what the
       // agent did about each, on the turn that answered them
-      // (runner/lab-review.ts; docs/protocol.md, "Review by another lab").
+      // (runner/lab-review.ts; docs/protocol/needs-you.md, "Review by another lab").
       review?: LabReviewLedger;
     }
   // The ticks on a card of asks, the whole set each time. Outside any turn.
@@ -940,7 +959,7 @@ export type EventBody =
       durationMs: number;
       trigger?: HookTrigger | 'worktree.setup' | 'worktree.teardown'; // set when a hook, a new worktree's setup or an archived one's teardown ran it, absent for a chip or tb run
     }
-  // Mike edited the message at fromSeq (docs/protocol.md, "Editing a
+  // Mike edited the message at fromSeq (docs/protocol/threads.md, "Editing a
   // message"): fromSeq..toSeq are gone from the conversation. Outside any turn.
   | { type: 'thread.rewound'; fromSeq: number; toSeq: number; files: RewoundFiles };
 
@@ -960,9 +979,9 @@ export type Envelope = {
   turnId?: string;
 };
 
-// What a finished turn needs from Mike (docs/protocol.md, "Needs you").
+// What a finished turn needs from Mike (docs/protocol/needs-you.md, "Needs you").
 export type NeedsWho = 'you' | 'nothing';
-// One thing a turn needs from Mike (docs/protocol.md, "Needs you"). With
+// One thing a turn needs from Mike (docs/protocol/needs-you.md, "Needs you"). With
 // options it's a decision the app steps him through, the agent's pick
 // (suggested, an index into options) marked; he can always write his own.
 // optionNotes: with one reply, what each option does if Mike picks it, in
@@ -1028,6 +1047,9 @@ export type Schedule = {
   // A pool picks its login each run instead (docs/protocol.md, Pools).
   // Never set with accountId.
   poolId?: string;
+  // With poolId only: the kind of login a pool of several kinds starts its
+  // threads on, as the picker's heading had it (else the model's kind).
+  provider?: Provider;
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;

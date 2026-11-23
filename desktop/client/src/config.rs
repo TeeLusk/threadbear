@@ -255,10 +255,7 @@ mod tests {
                 .unwrap()
                 .contains("port")
         );
-        assert_eq!(
-            scripted_refusal(&at(other.clone(), 1234), &real, false),
-            None
-        );
+        assert_eq!(scripted_refusal(&at(other, 1234), &real, false), None);
         // Told it may.
         assert_eq!(scripted_refusal(&at(real.clone(), 9555), &real, true), None);
         std::fs::remove_dir_all(&base).unwrap();

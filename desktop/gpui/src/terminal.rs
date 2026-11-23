@@ -580,7 +580,7 @@ impl Render for Terminals {
             // No shell for this thread yet: one starts on a click here or ⌘J,
             // not just from looking.
             None => {
-                let key = target.key.clone();
+                let key = target.key;
                 // Its tip is what a spec presses it by, as in the Swift app.
                 let tip = format!("Start your login shell in {folder}");
                 let start = div()
@@ -893,6 +893,10 @@ impl Session {
         let shell = std::env::var("SHELL").ok();
         let lang = std::env::var("LANG").ok();
         let launch = rules::launch(rules::Os::current(), shell.as_deref(), lang.as_deref());
+        #[allow(
+            clippy::needless_update,
+            reason = "Windows' tty::Options has a field more than the others"
+        )]
         let options = tty::Options {
             shell: Some(tty::Shell::new(launch.program, launch.args)),
             working_directory: Some(std::path::PathBuf::from(&self.target.cwd)),
@@ -1008,7 +1012,8 @@ impl Session {
     /// The shell's process, while it's running.
     #[cfg(unix)]
     fn process(&self) -> Option<(i32, Born)> {
-        Some((self.pid?, self.born?)).filter(|_| self.running())
+        let (pid, born) = (self.pid?, self.born?);
+        self.running().then_some((pid, born))
     }
 
     fn running(&self) -> bool {
@@ -1028,6 +1033,8 @@ impl Session {
             if !self.running() {
                 return false;
             }
+            // SAFETY: takes a descriptor by value and touches no memory of
+            // ours; `pty` is borrowed from self, so the fd is open.
             let group = unsafe { libc::tcgetpgrp(pty.as_raw_fd()) };
             // Its own group has the terminal, and it's still the shell:
             // `exec ssh` and `exec vim` keep both its pid and its group.
@@ -1680,6 +1687,7 @@ impl Session {
 #[cfg(unix)]
 fn system_hostname() -> String {
     let mut name = [0u8; 256];
+    // SAFETY: gethostname writes at most `name.len()` bytes into `name`.
     if unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len()) } != 0 {
         return String::new();
     }
@@ -1698,6 +1706,8 @@ fn system_hostname() -> String {
     }
     let mut name = [0u16; 256];
     let mut size = name.len() as u32;
+    // SAFETY: `size` holds the buffer's length in u16s, and the call writes
+    // no more than that into `name`.
     if unsafe { GetComputerNameExW(1, name.as_mut_ptr(), &mut size) } == 0 {
         return String::new();
     }
@@ -1961,13 +1971,19 @@ pub(crate) fn dump(app: &Threadbear, cx: &App) -> Value {
 /// the signal a pid could in theory be reaped and handed on, but both
 /// systems give pids out in turn, so that needs every pid used in between.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "only Unix reads when a process was born")
+)]
 struct Born(u64, u64);
 
 #[cfg(target_os = "macos")]
 fn born(pid: i32) -> Option<Born> {
+    // SAFETY: proc_bsdinfo is a plain C struct of integers and char arrays,
+    // for which all zero bytes is a valid value.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    // SAFETY: `info` is `size` bytes, and proc_pidinfo writes no more.
     let read = unsafe {
         libc::proc_pidinfo(
             pid,
@@ -2005,6 +2021,7 @@ fn born(_pid: i32) -> Option<Born> {
 fn alone_in_group(pid: i32) -> bool {
     let mut pids = [0 as libc::pid_t; 64];
     let size = std::mem::size_of_val(&pids) as i32;
+    // SAFETY: `pids` is `size` bytes, and proc_listpgrppids writes no more.
     let read = unsafe { libc::proc_listpgrppids(pid, pids.as_mut_ptr().cast(), size) };
     // Read from what's filled in rather than the count, so a group too big
     // for the list still has someone else in it.
@@ -2046,6 +2063,7 @@ fn alone_in_group(_pid: i32) -> bool {
 fn program_of(pid: i32) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStringExt as _;
     let mut path = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: `path` is `path.len()` bytes, and proc_pidpath writes no more.
     let read = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
     if read <= 0 {
         return None;
@@ -2067,6 +2085,8 @@ fn program_of(_pid: i32) -> Option<PathBuf> {
 /// `signal` to the shell, if `pid` is still it.
 #[cfg(unix)]
 fn signal(pid: i32, when: Born, signal: i32) -> bool {
+    // SAFETY: kill takes plain numbers and touches no memory; the start-time
+    // check above is what keeps it to the same process.
     born(pid) == Some(when) && unsafe { libc::kill(pid, signal) } == 0
 }
 
@@ -2154,7 +2174,7 @@ pub(crate) fn automation(
         app.update(cx, |a, cx| toggle(a, window, cx));
     }
     if cmd["show"].as_bool() == Some(true) {
-        app.update(cx, |a, cx| show_panel(a, cx));
+        app.update(cx, show_panel);
     }
     let target = target_of(app.read(cx));
     terminals.update(cx, |t, cx| t.set_target(target.clone(), cx));

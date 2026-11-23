@@ -529,6 +529,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::single_range_in_vec_init,
+        reason = "a selection of one range, as the editor passes them"
+    )]
     fn chips_and_substitutions_arent_marked() {
         let f = [
             found(0..3, Kind::Spelling, None),

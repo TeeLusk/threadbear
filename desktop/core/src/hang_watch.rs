@@ -330,7 +330,7 @@ mod tests {
             // Never came back: a force-quit.
             ("hang-3", Record { at: old.clone(), ..Default::default() }, BUSY),
             // Sampled after it was over.
-            ("hang-4", Record { at: old.clone(), recovered_after: Some(16.), ..Default::default() }, "Call graph:\n    5 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 5 _DPSNextEvent  (in AppKit)\n    + ! 5 __CFRunLoopServiceMachPort  (in CoreFoundation)\n"),
+            ("hang-4", Record { at: old, recovered_after: Some(16.), ..Default::default() }, "Call graph:\n    5 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 5 _DPSNextEvent  (in AppKit)\n    + ! 5 __CFRunLoopServiceMachPort  (in CoreFoundation)\n"),
             // Still settling: the next launch's.
             ("hang-5", Record { at: "2026-11-11T09:59:50Z".into(), ..Default::default() }, BUSY),
         ];

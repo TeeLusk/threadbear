@@ -108,6 +108,16 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // 21 Nov 2026: the review link was dropped on the way to the phone, so a
+    // pick between three mocks showed there as a bare question.
+    name: 'a pick between mockups, linking their review',
+    shows: ['Which way should a waiting thread show its fix?', 'Open the three mocks'],
+    play: (p) => {
+      p.say('Three mocks are up.');
+      p.endTurn({ needs: 'you', asks: [{ question: 'Which way should a waiting thread show its fix?', links: [{ title: 'Open the three mocks', url: 'review:0a7d18e2-5c14-45d3-ae06-5e1e13aa47d5' }] }] });
+    },
+  },
+  {
     name: 'a done card with follow-ups',
     shows: ['Landed it.', 'Make the phone show Stop on a running thread', 'Check the website draws the new card'],
     play: (p) => {
@@ -172,6 +182,20 @@ export const SCENARIOS: Scenario[] = [
     shows: ['Just an answer.'],
     play: (p) => {
       p.say('Just an answer.');
+      p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
+    // Mike changes the agent's email in its box on the Mac and sends it with
+    // his answer: his bubble shows his words and a chip, not the line to the
+    // agent and the raw fence (20 Nov).
+    name: 'a message with an edited email draft on its end',
+    shows: ['Send it', 'Your edited email', 'Sent your version.'],
+    play: (p) => {
+      p.say("Here's a reply:\n\n```email\nHi Geoff,\n\nCan you send it again?\n```");
+      p.endTurn({ needs: 'nothing' });
+      p.send("Send it\n\nI edited your draft. Use my version below exactly as it is, not yours:\n\n```email\nHi Geoff,\n\nI don't think it came through. Can you send it again please?\n```");
+      p.say('Sent your version.');
       p.endTurn({ needs: 'nothing' });
     },
   },

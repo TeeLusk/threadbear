@@ -51,11 +51,13 @@ pub(crate) fn image_frames(
     let mut rows: Vec<Vec<usize>> = vec![];
     let mut x = 0.;
     for (index, &(w, _)) in fitted.iter().enumerate() {
-        if rows.is_empty() || (x > 0. && x + w > max_width) {
-            rows.push(vec![]);
-            x = 0.;
+        match rows.last_mut() {
+            Some(row) if !(x > 0. && x + w > max_width) => row.push(index),
+            _ => {
+                rows.push(vec![index]);
+                x = 0.;
+            }
         }
-        rows.last_mut().unwrap().push(index);
         x += w + gap;
     }
     let mut frames = vec![
@@ -118,9 +120,7 @@ impl ThreadPane {
         if self.rows.list_width <= 0. {
             return MAX_CONTENT_WIDTH;
         }
-        (self.rows.list_width - SIDE_INSET * 2.)
-            .min(MAX_CONTENT_WIDTH)
-            .max(200.)
+        (self.rows.list_width - SIDE_INSET * 2.).clamp(200., MAX_CONTENT_WIDTH)
     }
 
     fn image_grid(

@@ -103,7 +103,7 @@ When('I tick follow-up {int} on the card', async function (this: ThreadbearWorld
 // A sample picture the runner can read, as sending.steps.ts has it.
 const samplePicture = fileURLToPath(new URL('../support/sample.png', import.meta.url));
 
-// What another lab's review left on the turn that answered it (docs/protocol.md,
+// What another lab's review left on the turn that answered it (docs/protocol/needs-you.md,
 // "Review by another lab"), through the mock's streamed turn.
 When('the agent there finishes a turn another lab reviewed', async function (this: ThreadbearWorld) {
   const d = await this.app.dump();

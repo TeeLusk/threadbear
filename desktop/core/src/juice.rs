@@ -430,7 +430,7 @@ fn mix(mut x: u64) -> u64 {
 pub fn paw_move(seed: u64, n: u64) -> PawMove {
     let pick = |i: u64| mix(seed ^ i.wrapping_mul(0x9e37_79b9_7f4a_7c15).wrapping_add(1));
     let free = |i: u64| PawMove::ALL[(pick(i) % 5) as usize];
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         return free(n);
     }
     let (before, after) = (free(n - 1), free(n.wrapping_add(1)));

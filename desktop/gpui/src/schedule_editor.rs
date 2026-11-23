@@ -32,7 +32,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use threadbear_client::runner::Client;
-use threadbear_client::runner::Status;
 use threadbear_core::chrono::{Local, NaiveTime, TimeZone as _, Timelike as _};
 use threadbear_core::composer::effort_title;
 use threadbear_core::inbox::{iso_time, parse_ms};
@@ -72,6 +71,9 @@ pub(crate) struct EditorState {
     /// The box's pool, which then picks each run's login rather than the one
     /// it happened to be on (`account_id` goes unsent).
     pub(crate) pool_id: Option<String>,
+    /// The kind of login in that pool the model was picked under: a pool of
+    /// several kinds lists each one's models under its name.
+    pub(crate) provider: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
     /// The box's mode as it was: the editor has no control for it.
@@ -134,6 +136,8 @@ enum Choice {
         pick: Rc<dyn Fn(&mut ScheduleEditor, &mut Window, &mut Context<ScheduleEditor>)>,
     },
     Separator,
+    /// A heading over the rows after it: a kind of login's name.
+    Label(String),
 }
 
 fn choice(
@@ -176,12 +180,13 @@ impl Threadbear {
             },
             account_id: Some(settings.account_id.clone()).filter(|a| !a.is_empty()),
             pool_id: settings.pool_id.clone(),
+            provider: Some(settings.provider.clone()).filter(|p| !p.is_empty()),
             model: settings.model.clone(),
             effort: settings.effort.clone(),
             permission_mode: if settings.permission_mode.is_empty() {
                 "full".into()
             } else {
-                settings.permission_mode.clone()
+                settings.permission_mode
             },
             ..EditorState::default()
         };
@@ -217,12 +222,13 @@ impl Threadbear {
             cwd: settings.cwd.clone(),
             account_id: Some(settings.account_id.clone()).filter(|a| !a.is_empty()),
             pool_id: settings.pool_id.clone(),
+            provider: Some(settings.provider.clone()).filter(|p| !p.is_empty()),
             model: settings.model.clone(),
             effort: settings.effort.clone(),
             permission_mode: if settings.permission_mode.is_empty() {
                 "full".into()
             } else {
-                settings.permission_mode.clone()
+                settings.permission_mode
             },
             ..EditorState::default()
         };
@@ -255,6 +261,7 @@ impl Threadbear {
             // sent back, so the login stays as it was.
             account_id: schedule.account_id.clone(),
             pool_id: schedule.pool_id.clone(),
+            provider: schedule.provider.clone(),
             model: schedule.model.clone(),
             effort: schedule.effort.clone(),
             permission_mode: schedule
@@ -267,12 +274,11 @@ impl Threadbear {
             Some(name) => {
                 state.runner_id = schedule.runner_id.clone();
                 state.runner_name = Some(name);
-                state.cwd = schedule.cwd.clone().unwrap_or_default();
+                state.cwd = schedule.cwd.unwrap_or_default();
             }
             None => {
                 state.cwd = schedule
                     .cwd
-                    .clone()
                     .unwrap_or_else(|| self.logins.defaults.cwd.clone())
             }
         }
@@ -596,12 +602,15 @@ impl ScheduleEditor {
     /// Picking the default row stores None, so the schedule follows the
     /// default if it changes; a level the new model hasn't got goes back to
     /// its default.
-    fn set_model(&mut self, model: Option<String>, cx: &mut Context<Self>) {
+    /// `provider`: the kind whose list it was picked from.
+    fn set_model(&mut self, model: Option<String>, provider: String, cx: &mut Context<Self>) {
         self.state.model = model;
+        self.state.provider = Some(provider);
         if let Some(app) = self.app_read(cx) {
             let levels = ScheduleModels::new(
                 self.state.account_id.as_deref(),
                 self.state.pool_id.as_deref(),
+                self.state.provider.as_deref(),
                 self.state.model.as_deref(),
                 &app.logins,
             )
@@ -671,7 +680,7 @@ impl ScheduleEditor {
         let Some(app) = self.app.upgrade() else {
             return;
         };
-        if !matches!(app.read(cx).status, Status::Connected { .. }) {
+        if !app.read(cx).connected() {
             self.save_error = Some("Not connected to the runner.".into());
             cx.notify();
             return;
@@ -679,6 +688,16 @@ impl ScheduleEditor {
         let text = self.message_text(cx).trim().to_owned();
         let title = self.title.read(cx).value().trim().to_owned();
         let away_folder = self.away_folder.read(cx).value().trim().to_owned();
+        // The kind its model was picked under, only for a pool of several
+        // kinds (as threads.create has it): the runner takes one only with
+        // a pool.
+        let kind = self.state.pool_id.as_deref().and_then(|id| {
+            let t = app.read(cx);
+            let pool = t.logins.pool(id)?;
+            let many =
+                threadbear_core::new_thread::pool_providers(pool, &t.logins.accounts).len() > 1;
+            many.then(|| self.state.provider.clone()).flatten()
+        });
         let s = &self.state;
         let mut params = if s.once {
             json!({ "at": iso_time(s.at_ms) })
@@ -700,6 +719,7 @@ impl ScheduleEditor {
                 if !s.is_away() {
                     params["model"] = json!(s.model);
                     params["effort"] = json!(s.effort);
+                    params["provider"] = json!(kind);
                 }
             }
             "schedules.update"
@@ -719,7 +739,12 @@ impl ScheduleEditor {
                     params["cwd"] = json!(s.cwd);
                     // The runner takes one or the other; a pool picks the login.
                     match (&s.pool_id, &s.account_id) {
-                        (Some(pool), _) => params["poolId"] = json!(pool),
+                        (Some(pool), _) => {
+                            params["poolId"] = json!(pool);
+                            if let Some(kind) = &kind {
+                                params["provider"] = json!(kind);
+                            }
+                        }
                         (None, Some(account)) => params["accountId"] = json!(account),
                         (None, None) => {}
                     }
@@ -840,6 +865,7 @@ impl ScheduleEditor {
                 for choice in &choices {
                     match choice.clone() {
                         Choice::Separator => menu = menu.separator(),
+                        Choice::Label(title) => menu = menu.label(title),
                         Choice::Item {
                             title,
                             symbol,
@@ -1047,6 +1073,10 @@ fn form_row(label: &'static str, control: impl IntoElement, cx: &App) -> Div {
 }
 
 impl Render for ScheduleEditor {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 508 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(app) = self.app.upgrade() else {
             return div().into_any_element();
@@ -1264,6 +1294,7 @@ impl Render for ScheduleEditor {
                 let models = ScheduleModels::new(
                     state.account_id.as_deref(),
                     state.pool_id.as_deref(),
+                    state.provider.as_deref(),
                     state.model.as_deref(),
                     &t.logins,
                 );
@@ -1364,7 +1395,7 @@ impl Render for ScheduleEditor {
                     .child(
                         div()
                             .id("schedule-away-folder")
-                            .tip(tip.clone())
+                            .tip(tip)
                             .child(Input::new(&self.away_folder).small()),
                     )
                     .child(crate::home_page::info_tip(
@@ -1426,14 +1457,20 @@ impl Render for ScheduleEditor {
                     .as_ref()
                     .and_then(|id| models.rows.iter().find(|r| &r.id == id))
                     .map_or_else(|| models.default_model_title(), |r| r.title.clone());
+                let kind = models.provider.clone();
                 let mut model_choices = vec![
                     choice(
                         models.default_model_title(),
                         picked.is_none(),
-                        |e, _, cx| e.set_model(None, cx),
+                        move |e, _, cx| e.set_model(None, kind.clone(), cx),
                     ),
                     Choice::Separator,
                 ];
+                // A pool of several kinds: each one's models under its name,
+                // this kind's first (its default is the row above).
+                if let Some(title) = &models.title {
+                    model_choices.push(Choice::Label(title.clone()));
+                }
                 let main: Vec<_> = models
                     .rows
                     .iter()
@@ -1445,22 +1482,41 @@ impl Render for ScheduleEditor {
                     .filter(|r| !r.is_default && r.is_older)
                     .collect();
                 for row in main {
-                    let id = row.id.clone();
+                    let (id, kind) = (row.id.clone(), models.provider.clone());
                     model_choices.push(choice(
                         row.title.clone(),
                         picked.as_deref() == Some(row.id.as_str()),
-                        move |e, _, cx| e.set_model(Some(id.clone()), cx),
+                        move |e, _, cx| e.set_model(Some(id.clone()), kind.clone(), cx),
                     ));
                 }
                 if !older.is_empty() {
                     model_choices.push(Choice::Separator);
                     for row in older {
-                        let id = row.id.clone();
+                        let (id, kind) = (row.id.clone(), models.provider.clone());
                         model_choices.push(choice(
                             row.title.clone(),
                             picked.as_deref() == Some(row.id.as_str()),
-                            move |e, _, cx| e.set_model(Some(id.clone()), cx),
+                            move |e, _, cx| e.set_model(Some(id.clone()), kind.clone(), cx),
                         ));
+                    }
+                }
+                // Picking one of another kind's runs it on that kind.
+                for section in &models.others {
+                    model_choices.push(Choice::Separator);
+                    if let Some(title) = &section.title {
+                        model_choices.push(Choice::Label(title.clone()));
+                    }
+                    let (newer, older): (Vec<_>, Vec<_>) =
+                        section.rows.iter().partition(|r| !r.is_older);
+                    for row in newer.into_iter().chain(older) {
+                        // Its default row follows that kind's default, as
+                        // the Default row above does for this one (Gemini's
+                        // review, 21 Nov).
+                        let id = (!row.is_default).then(|| row.id.clone());
+                        let kind = section.provider.clone();
+                        model_choices.push(choice(row.title.clone(), false, move |e, _, cx| {
+                            e.set_model(id.clone(), kind.clone(), cx)
+                        }));
                     }
                 }
                 let effort_label = state
@@ -1580,6 +1636,74 @@ impl Render for ScheduleEditor {
 /// The editor in the dump, for the specs: what it's set to and says.
 #[cfg(feature = "automation")]
 impl ScheduleEditor {
+    fn models(&self, cx: &App) -> Option<ScheduleModels> {
+        let s = &self.state;
+        if s.thread_id.is_some() || s.is_away() {
+            return None;
+        }
+        let app = self.app_read(cx)?;
+        Some(ScheduleModels::new(
+            s.account_id.as_deref(),
+            s.pool_id.as_deref(),
+            s.provider.as_deref(),
+            s.model.as_deref(),
+            &app.logins,
+        ))
+    }
+
+    /// The model menu as tests read it: "## Codex" over each kind's rows in
+    /// a pool of several, "[x]" on the one picked.
+    fn model_lines(&self, cx: &App) -> Vec<String> {
+        let Some(models) = self.models(cx) else {
+            return Vec::new();
+        };
+        let mut lines = vec![models.default_model_title()];
+        lines.extend(models.title.iter().map(|t| format!("## {t}")));
+        for r in models.rows.iter().filter(|r| !r.is_default) {
+            let tick = if r.is_selected { "[x]" } else { "[ ]" };
+            lines.push(format!("{tick} {}", r.title));
+        }
+        for section in &models.others {
+            lines.extend(section.title.iter().map(|t| format!("## {t}")));
+            lines.extend(section.rows.iter().map(|r| format!("[ ] {}", r.title)));
+        }
+        lines
+    }
+
+    /// The automation's pick: a row by its title, under the kind named
+    /// `under` (its heading) when given.
+    pub(crate) fn pick_model_titled(
+        &mut self,
+        title: &str,
+        under: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let models = self.models(cx).ok_or("the editor has no model menu")?;
+        let own = (models.provider.clone(), models.title.clone(), models.rows);
+        let found = std::iter::once(own)
+            .chain(
+                models
+                    .others
+                    .into_iter()
+                    .map(|s| (s.provider, s.title, s.rows)),
+            )
+            .filter(|(_, heading, _)| under.is_none() || heading.as_deref() == under)
+            .find_map(|(kind, _, rows)| {
+                rows.into_iter()
+                    .find(|r| r.title == title)
+                    .map(|r| ((!r.is_default).then_some(r.id), kind))
+            });
+        // A kind's default row follows its default, as the menu's does.
+        let (id, kind) = found.ok_or_else(|| format!("no model \"{title}\" in the menu"))?;
+        self.set_model(id, kind, cx);
+        Ok(json!("ok"))
+    }
+
+    pub(crate) fn send_to_new_threads(&mut self, cx: &mut Context<Self>) {
+        self.state.thread_id = None;
+        cx.notify();
+    }
+
     pub(crate) fn dump(&self, cx: &App) -> Value {
         json!({
             "isNew": self.state.is_new(),
@@ -1589,6 +1713,11 @@ impl ScheduleEditor {
             "preview": match &self.preview { Some(Ok(p)) => json!(p.when_text), Some(Err(e)) => json!(format!("error: {e}")), None => Value::Null },
             "canSave": self.can_save(cx),
             "error": self.save_error,
+            "models": self.model_lines(cx),
+            "provider": self.state.provider,
+            "sendsToThread": self.state.thread_id.is_some(),
+            "poolId": self.state.pool_id,
+            "accountId": self.state.account_id,
         })
     }
 }

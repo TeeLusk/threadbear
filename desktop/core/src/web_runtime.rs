@@ -939,7 +939,7 @@ mod tests {
             &layout,
             &Pin {
                 sha256: "0".repeat(64),
-                ..pin.clone()
+                ..pin
             }
         ));
         let _ = std::fs::remove_dir_all(&dir);

@@ -57,6 +57,9 @@ fn copy_directory(
                 Err(io::Error::last_os_error())
             };
         }
+        // SAFETY: readdir returned a non-null entry that stays valid until the
+        // next readdir or closedir on `listing`, and d_name is NUL-terminated;
+        // the name is copied out before either happens.
         let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
         if name == b"." || name == b".." {
             continue;
@@ -107,6 +110,8 @@ fn open_at(parent: &File, name: &std::ffi::OsStr) -> io::Result<File> {
     let name = CString::new(name.as_bytes()).map_err(io::Error::other)?;
     // A held parent and O_NOFOLLOW keep a link swap from reaching outside
     // the package. NONBLOCK makes a pipe fail the metadata check at once.
+    // SAFETY: `parent` is a borrowed File, so its fd is open for the call, and
+    // `name` is a NUL-terminated CString that outlives it.
     let fd = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -117,6 +122,8 @@ fn open_at(parent: &File, name: &std::ffi::OsStr) -> io::Result<File> {
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: openat just returned this fd (checked non-negative above) and
+    // nothing else holds it, so the File can own it.
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
@@ -128,9 +135,13 @@ impl Directory {
         let file = open_at(parent, std::ffi::OsStr::new("."))?;
         use std::os::fd::IntoRawFd;
         let fd = file.into_raw_fd();
+        // SAFETY: `fd` is an open directory fd we own, released from `file`
+        // just above; on success the DIR stream takes it over.
         let stream = unsafe { libc::fdopendir(fd) };
         if stream.is_null() {
             let error = io::Error::last_os_error();
+            // SAFETY: fdopendir failed, so `fd` is still ours alone and open,
+            // and it's closed exactly once here.
             unsafe {
                 libc::close(fd);
             }
@@ -141,6 +152,8 @@ impl Directory {
 }
 impl Drop for Directory {
     fn drop(&mut self) {
+        // SAFETY: self.0 is the non-null stream fdopendir gave Directory::open,
+        // owned only by this Directory and closed only here.
         unsafe {
             libc::closedir(self.0);
         }
@@ -149,17 +162,25 @@ impl Drop for Directory {
 
 #[cfg(target_os = "macos")]
 fn errno_pointer() -> *mut libc::c_int {
+    // SAFETY: __error takes no arguments and returns this thread's errno
+    // slot, which is always valid.
     unsafe { libc::__error() }
 }
 #[cfg(target_os = "linux")]
 fn errno_pointer() -> *mut libc::c_int {
+    // SAFETY: __errno_location takes no arguments and returns this thread's
+    // errno slot, which is always valid.
     unsafe { libc::__errno_location() }
 }
 fn set_errno(value: libc::c_int) {
+    // SAFETY: errno_pointer gives this thread's errno slot, a valid, aligned
+    // c_int that only this thread touches.
     unsafe {
         *errno_pointer() = value;
     }
 }
 fn errno() -> libc::c_int {
+    // SAFETY: errno_pointer gives this thread's errno slot, a valid, aligned
+    // c_int that only this thread touches.
     unsafe { *errno_pointer() }
 }

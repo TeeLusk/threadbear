@@ -55,7 +55,7 @@ pub fn list_newline(text: &str, selection: Range<usize>) -> Option<ListEdit> {
     if marker.has_box {
         // Keep the spacing after the box, but the new one starts unticked.
         next.push_str("[ ]");
-        next.push_str(&before[marker.after_box.clone()]);
+        next.push_str(&before[marker.after_box]);
     }
     Some(ListEdit {
         range: selection,
@@ -252,7 +252,7 @@ pub fn edit_draft(text: &str, image_count: usize) -> (String, Vec<usize>) {
     // A mark already in a message's words would stand for the wrong picture.
     let text: String = text.chars().filter(|c| *c != PICTURE_MARK).collect();
     let found = picture_markers(&text, image_count);
-    let mut words = text.clone();
+    let mut words = text;
     for (range, _) in found.iter().rev() {
         words.replace_range(range.clone(), PICTURE_MARK_STR);
     }

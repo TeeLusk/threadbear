@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The most a note on one option and the reply may be, in UTF-16 units, as
-/// the runner counts them (docs/protocol.md, "Design reviews").
+/// the runner counts them (docs/protocol/events.md, "Design reviews").
 pub const NOTE_LIMIT: usize = 4000;
 pub const REPLY_LIMIT: usize = 8000;
 
@@ -157,9 +157,8 @@ impl ReviewDraft {
             notes: self
                 .notes
                 .iter()
-                .filter_map(|(id, note)| {
-                    (!note.trim().is_empty()).then(|| (id.clone(), note.trim().to_owned()))
-                })
+                .filter(|&(_id, note)| !note.trim().is_empty())
+                .map(|(id, note)| (id.clone(), note.trim().to_owned()))
                 .collect(),
             reply: (!reply.is_empty()).then(|| reply.to_owned()),
             images: self.images.clone(),
@@ -242,7 +241,7 @@ pub fn shot_tip(option: &ReviewOption, index: usize) -> String {
     format!("{}, {what}", option.label())
 }
 
-/// Under the option's name on the stage: which shot this is, "2 of 3 · Mid-drag".
+/// Beside the option's name under the stage: which shot this is, "2 of 3 · Mid-drag".
 pub fn caption_where(option: &ReviewOption, shown: &ReviewShot) -> String {
     let shots = option.all_shots();
     let index = shots.iter().position(|s| s == shown).unwrap_or(0);
@@ -1259,17 +1258,6 @@ impl GalleryLayout {
     }
 }
 
-/// The row under the stage (`ReviewStepperLayout.share`): the arrows at its
-/// ends, and between them the film strip from the left and the marks from
-/// the right. Each gets all it wants if there's room; if not, whichever wants
-/// less than half keeps it and the other has the rest. Halving it whatever
-/// they wanted scrolled a short row of marks for no reason.
-pub fn stepper_share(room: f64, strip: f64, marks: f64) -> (f64, f64) {
-    let room = room.max(0.);
-    let given = marks.min((room / 2.).max(room - strip));
-    (strip.min(room - given), given)
-}
-
 /// Where a review's window opens (`ReviewWindowController.frame`): 90% of
 /// the screen, centred, so a border of the desktop shows round it; no bigger
 /// than `REVIEW_WINDOW_MOST` on a huge display, where 90% would be a wall of
@@ -1927,7 +1915,10 @@ fn closing_ticks(c: &[char], from: usize, end: usize, ticks: usize) -> Option<us
     None
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn inline_runs(
     c: &[char],
     marks: &Marks,
@@ -2485,7 +2476,7 @@ mod tests {
         s.receive(remote.clone());
         let mut acknowledgement = initial;
         acknowledgement.revision = 2;
-        acknowledgement.draft = call.draft.clone();
+        acknowledgement.draft = call.draft;
         s.save_done(acknowledgement);
         assert_eq!(s.review().revision, 3);
         assert_eq!(s.draft().notes["A"], "Mine");
@@ -2822,7 +2813,7 @@ mod tests {
                 RowContent::Review(review),
             )
         };
-        let rows = vec![row(first.clone()), row(second.clone())];
+        let rows = vec![row(first), row(second)];
         assert_eq!(
             find_review("review_account_picker", &rows).map(|r| r.id.as_str()),
             Some("review_account_picker")
@@ -2873,19 +2864,6 @@ mod tests {
             1100. / 760.,
             "no size: the usual mockup's"
         );
-    }
-
-    #[test]
-    fn the_bottom_row_shares_its_room_by_what_each_wants() {
-        assert_eq!(stepper_share(600., 200., 300.), (200., 300.));
-        assert_eq!(
-            stepper_share(600., 700., 100.),
-            (500., 100.),
-            "short marks don't scroll to make the strip longer"
-        );
-        assert_eq!(stepper_share(300., 100., 500.), (100., 200.));
-        assert_eq!(stepper_share(300., 900., 900.), (150., 150.));
-        assert_eq!(stepper_share(-40., 900., 900.), (0., 0.));
     }
 
     #[test]
@@ -3352,8 +3330,8 @@ mod tests {
     fn old_inline_link(c: &[char], at: usize, end: usize) -> Option<(usize, String, usize)> {
         let mut depth = 0;
         let mut close = None;
-        for j in at..end {
-            match c[j] {
+        for (j, ch) in c.iter().enumerate().take(end).skip(at) {
+            match *ch {
                 '\\' => continue,
                 '[' => depth += 1,
                 ']' => {

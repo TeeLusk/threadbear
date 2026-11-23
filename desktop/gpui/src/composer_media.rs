@@ -73,24 +73,26 @@ pub(crate) async fn ready(
     if pending.image.is_some() || pending.alternative.is_some() {
         let mut grace = Some(grace);
         if let Some(opened) = pending.opened.take() {
-            let open = async { opened.await.is_ok() };
-            let deadline = grace.take().unwrap();
-            futures::pin_mut!(open, deadline);
-            if let futures::future::Either::Left((true, _)) =
-                futures::future::select(open, deadline).await
-            {
-                // Once the file is open, let its full-quality copy finish.
-                // A slow copy mustn't silently select a smaller preview.
-                return match receipt(&mut pending.rx).await {
-                    Ok(pictures) => Ok(pictures),
-                    Err(error) => read_alternative(
-                        &mut pending.image,
-                        pending.alternative.as_mut(),
-                        futures::future::ready(()),
-                    )
-                    .await
-                    .or(Err(error)),
-                };
+            // (Always there: nothing has taken it yet.)
+            if let Some(deadline) = grace.take() {
+                let open = async { opened.await.is_ok() };
+                futures::pin_mut!(open, deadline);
+                if let futures::future::Either::Left((true, _)) =
+                    futures::future::select(open, deadline).await
+                {
+                    // Once the file is open, let its full-quality copy finish.
+                    // A slow copy mustn't silently select a smaller preview.
+                    return match receipt(&mut pending.rx).await {
+                        Ok(pictures) => Ok(pictures),
+                        Err(error) => read_alternative(
+                            &mut pending.image,
+                            pending.alternative.as_mut(),
+                            futures::future::ready(()),
+                        )
+                        .await
+                        .or(Err(error)),
+                    };
+                }
             }
         }
         let file = receipt(&mut pending.rx);
@@ -113,7 +115,7 @@ pub(crate) async fn ready(
             futures::future::Either::Right((Err(_), file)) => file.await,
         };
     }
-    let _ = grace;
+    drop(grace);
     receipt(&mut pending.rx).await
 }
 
@@ -186,6 +188,9 @@ pub(crate) fn choose_images(
                 // The sheet owns this sender until its single completion;
                 // cancelling our task only closes the receiving end.
                 let context = Box::into_raw(Box::new(send)).cast();
+                // SAFETY: the window's live NSView, on the main thread; the
+                // callback matches the C signature, and `context` is a boxed
+                // sender that image_picker_finished takes back exactly once.
                 unsafe {
                     tb_composer_choose_images(
                         handle.ns_view.as_ptr(),
@@ -242,17 +247,23 @@ extern "C" fn image_picker_finished(
     names: *const *const std::ffi::c_char,
     count: usize,
 ) {
-    // AppKit calls once, while every UTF-8 name is still alive. Copy the
-    // paths before releasing the sender, even if the composer went away.
+    // SAFETY: `context` is the Box::into_raw sender from choose_images, and
+    // AppKit calls this exactly once, so it's reclaimed once. AppKit calls
+    // while every UTF-8 name is still alive; the paths are copied before the
+    // sender is released, even if the composer went away.
     let send = unsafe { Box::from_raw(context.cast::<oneshot::Sender<Option<Vec<PathBuf>>>>()) };
     let paths = if names.is_null() {
         None
     } else {
         Some(
+            // SAFETY: non-null here, and the sheet's handler passes a calloc'd
+            // array of exactly `count` pointers, alive through this call.
             unsafe { std::slice::from_raw_parts(names, count) }
                 .iter()
                 .map(|name| {
                     PathBuf::from(
+                        // SAFETY: each is an NSURL path's UTF8String, a
+                        // NUL-terminated string alive until the handler returns.
                         unsafe { std::ffi::CStr::from_ptr(*name) }
                             .to_string_lossy()
                             .into_owned(),
@@ -329,6 +340,8 @@ extern "C" fn collect(
     let name = if name.is_null() {
         String::new()
     } else {
+        // SAFETY: non-null, and every sink call passes a UTF8String, which is
+        // NUL-terminated and alive for the callback.
         unsafe { CStr::from_ptr(name) }
             .to_string_lossy()
             .into_owned()
@@ -336,9 +349,12 @@ extern "C" fn collect(
     let path = match kind {
         0 => Some(keep_picture(PathBuf::from(name))),
         5 => {
-            // SAFETY: AppKit keeps this struct and its strings/data alive
-            // through this call only. Copy the fallback before spawning IO.
+            // AppKit keeps this struct and its strings/data alive through
+            // this call only. Copy the fallback before spawning IO.
             let raw = if !bytes.is_null() && len == std::mem::size_of::<RawImageFallback>() {
+                // SAFETY: kind 5 passes a pointer to a TBImageFallback, which
+                // RawImageFallback mirrors with repr(C), and its size matches;
+                // it lives on the native caller's stack through this call.
                 Some(unsafe { &*bytes.cast::<RawImageFallback>() })
             } else {
                 None
@@ -350,9 +366,13 @@ extern "C" fn collect(
                     && !raw.extension.is_null()
                 {
                     Some(ImageFallback {
+                        // SAFETY: checked non-null; a UTF8String, alive
+                        // through this callback.
                         extension: unsafe { CStr::from_ptr(raw.extension) }
                             .to_string_lossy()
                             .into_owned(),
+                        // SAFETY: checked non-null; NSData's own buffer of
+                        // `length` bytes, kept alive through this callback.
                         bytes: unsafe {
                             std::slice::from_raw_parts(raw.bytes.cast::<u8>(), raw.length)
                         }
@@ -404,6 +424,8 @@ extern "C" fn collect(
                 "webp" => "webp",
                 _ => "png",
             };
+            // SAFETY: kind 1 passes NSData's bytes and length, and len > 0 so
+            // the buffer is non-null; it's alive through this callback.
             let data = unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), len) };
             stage_private(&paste_base(), &format!("pasted.{ext}"), data)
         }
@@ -426,13 +448,14 @@ fn start_promise(captured: &mut Captured, object: *const std::ffi::c_void) -> Op
             .map(std::sync::Arc::new);
     }
     let source = captured.promise_folder.clone()?;
+    // (A folder whose path has a NUL in it can't be handed over: no promise.)
+    let folder = std::ffi::CString::new(source.path().to_string_lossy().as_bytes()).ok()?;
     let path = crate::composer::stage_private(&crate::composer::paste_base(), "promised.png", b"")?;
-    let (id, pending) = register_promise(path.clone(), source.clone());
+    let (id, pending) = register_promise(path.clone(), source);
     PENDING
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(path.clone(), pending);
-    let folder = std::ffi::CString::new(source.path().to_string_lossy().as_bytes()).unwrap();
     // SAFETY: collect's synchronous native callback keeps the object live.
     unsafe {
         tb_composer_promise(object, folder.as_ptr(), promised, id as *mut _);
@@ -817,6 +840,35 @@ pub(crate) fn fixture_drag(
         );
     }
     Ok(())
+}
+
+/// native/composer_media.m's imageURL, from draggingEntered on the main
+/// thread: whether a browser drag's HTML is an `<img>` of its own URL, read
+/// in one bounded pass (html_tags.rs; Daybreak 120). Never panics across
+/// the boundary: bad input is a plain no.
+#[cfg(target_os = "macos")]
+#[no_mangle]
+pub extern "C" fn tb_drag_html_shows_image(
+    html: *const u8,
+    html_length: usize,
+    url: *const u8,
+    url_length: usize,
+) -> bool {
+    if html.is_null() || url.is_null() || html_length > threadbear_core::html_tags::DRAG_HTML_BYTES
+    {
+        return false;
+    }
+    // SAFETY: the Objective-C caller hands NSData bytes it holds for the call.
+    let (html, url) = unsafe {
+        (
+            std::slice::from_raw_parts(html, html_length),
+            std::slice::from_raw_parts(url, url_length),
+        )
+    };
+    let Ok(url) = std::str::from_utf8(url) else {
+        return false;
+    };
+    threadbear_core::html_tags::drag_html_shows_image(html, url)
 }
 
 #[cfg(test)]
@@ -1368,33 +1420,4 @@ mod tests {
         drop(rx); // completion won send(), but the UI's timeout won select()
         assert!(!path.exists());
     }
-}
-
-/// native/composer_media.m's imageURL, from draggingEntered on the main
-/// thread: whether a browser drag's HTML is an `<img>` of its own URL, read
-/// in one bounded pass (html_tags.rs; Daybreak 120). Never panics across
-/// the boundary: bad input is a plain no.
-#[cfg(target_os = "macos")]
-#[no_mangle]
-pub extern "C" fn tb_drag_html_shows_image(
-    html: *const u8,
-    html_length: usize,
-    url: *const u8,
-    url_length: usize,
-) -> bool {
-    if html.is_null() || url.is_null() || html_length > threadbear_core::html_tags::DRAG_HTML_BYTES
-    {
-        return false;
-    }
-    // SAFETY: the Objective-C caller hands NSData bytes it holds for the call.
-    let (html, url) = unsafe {
-        (
-            std::slice::from_raw_parts(html, html_length),
-            std::slice::from_raw_parts(url, url_length),
-        )
-    };
-    let Ok(url) = std::str::from_utf8(url) else {
-        return false;
-    };
-    threadbear_core::html_tags::drag_html_shows_image(html, url)
 }

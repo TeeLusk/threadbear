@@ -1,4 +1,4 @@
-// Recipes (the `recipes` experiment, docs/protocol.md "Recipes"): techniques
+// Recipes (the `recipes` experiment, docs/protocol/projects.md "Recipes"): techniques
 // someone found worth keeping, which an agent sets up for anyone. This is the
 // model and the rules the Recipes view draws from: decoding the runner's
 // answers, the order of the list, what a card and a sidebar row say, the
@@ -335,7 +335,7 @@ impl RecipeDetail {
                 })
             })
             .collect();
-        runs.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+        runs.sort_by_key(|a| std::cmp::Reverse(a.at_ms));
         Some(RecipeDetail {
             recipe,
             about: text(&v["about"]).unwrap_or_default(),

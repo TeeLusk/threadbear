@@ -209,7 +209,7 @@ impl ApprovalText {
             let (body, end) = line.strip_suffix('\n').map_or((line, ""), |b| (b, "\n"));
             let kept = body.trim_end_matches(' ');
             out.push_str(&kept.replace('\t', "\u{21E5}   "));
-            out.extend(std::iter::repeat('\u{B7}').take(body.len() - kept.len()));
+            out.extend(std::iter::repeat_n('\u{B7}', body.len() - kept.len()));
             out.push_str(end);
         }
         out

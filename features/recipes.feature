@@ -3,7 +3,7 @@ Feature: Recipes
   I want a gallery of recipes an agent sets up for me, each with a switch
   So I can try one, see how it's going and turn it off again whenever I like
 
-  # Experiment recipes (docs/protocol.md, "Recipes"): the GPUI app only. The
+  # Experiment recipes (docs/protocol/projects.md, "Recipes"): the GPUI app only. The
   # Swift app is frozen and has no Recipes view.
 
   Background:

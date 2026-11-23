@@ -43,7 +43,7 @@ export type IndexRow = {
   permissionMode?: string;
 };
 
-// What the Mac app gets (docs/protocol.md, "Other runners' threads").
+// What the Mac app gets (docs/protocol/runners.md, "Other runners' threads").
 // `box`: a thread's box on a virtual runner (docs/virtual-runners.md), with
 // its state, which counts as online while it starts or sleeps (decision 6).
 // `waiting`: a message wants it woken, and its virtual runner has its
@@ -424,7 +424,7 @@ export class ThreadIndex {
     );
   }
 
-  // Only the owner key reads other runners' threads (docs/protocol.md,
+  // Only the owner key reads other runners' threads (docs/protocol/keys.md,
   // "Runner keys"): with a runner key the watch is off for good, said
   // once, and this runner's app lists only its own threads. Writing this
   // runner's own rows carries on.

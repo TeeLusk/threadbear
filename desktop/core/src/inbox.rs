@@ -41,6 +41,14 @@ impl ThreadList {
     }
 }
 
+/// The commit a thread waits for the app to have (`awaitingApp`); none when
+/// the runner had no commit to look for.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct AwaitingApp {
+    #[serde(default)]
+    pub commit: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSummary {
@@ -103,6 +111,11 @@ pub struct ThreadSummary {
     /// (wait_for_app_restart): its work isn't over until he's running it.
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub awaiting_app_restart: Option<bool>,
+    /// Waiting to hear the app restarted onto a build with this commit
+    /// (wait_for_app_restart), hibernating or not: the Updates panel lists
+    /// it with whether the build on its way has it.
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub awaiting_app: Option<AwaitingApp>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub woke: Option<Value>,
     #[serde(default, deserialize_with = "crate::wire::field")]
@@ -393,7 +406,8 @@ impl ThreadSummary {
             && !self.busy()
             && self.background.as_ref().is_none_or(|b| b.is_empty())
     }
-    fn needs_answer(&self) -> bool {
+    /// Waiting on an answer from Mike (a card, a question).
+    pub fn needs_answer(&self) -> bool {
         self.status == "waiting"
     }
     /// Its turn is stuck on a card only Mike can answer (a permission, a
@@ -621,7 +635,7 @@ impl InboxOrder {
 /// copying 1,400 real-sized summaries took 17 ms each time (sidebar_cost.rs).
 #[derive(Clone)]
 pub struct Section<T = ThreadSummary> {
-    #[allow(dead_code)] // the tests find sections by it
+    #[allow(dead_code, reason = "the tests find sections by it")]
     pub key: &'static str,
     pub title: &'static str,
     pub rows: Vec<T>,
@@ -901,7 +915,10 @@ struct SortKeys {
     card: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn sort_sections<T: Borrow<ThreadSummary>>(
     mut starred: Vec<T>,
     mut inbox: Vec<T>,

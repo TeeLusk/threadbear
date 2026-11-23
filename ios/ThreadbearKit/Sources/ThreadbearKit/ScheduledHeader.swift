@@ -1,7 +1,7 @@
 import Foundation
 
 /// The line a schedule's message starts with, `[Scheduled: "<title>",
-/// <whenText>]` (docs/protocol.md, "Schedules"). The phone draws these as a
+/// <whenText>]` (docs/protocol/projects.md, "Schedules"). The phone draws these as a
 /// card with a clock and the schedule's name, not as Mike's bubble with the
 /// raw line (Mike, 20 Nov), following `ScheduledHeader` in ThreadbearCore.
 public struct ScheduledHeader: Sendable, Hashable {

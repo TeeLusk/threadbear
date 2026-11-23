@@ -691,7 +691,7 @@ impl AskNote {
     }
 }
 
-/// A finished turn's asks (`AsksCard`, docs/protocol.md "Needs you"). Only
+/// A finished turn's asks (`AsksCard`, docs/protocol/needs-you.md "Needs you"). Only
 /// the card of the thread's last finished turn is open.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AsksCard {

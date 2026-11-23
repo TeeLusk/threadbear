@@ -204,6 +204,8 @@ fn clone_file(from: &std::fs::File, path: &Path) -> std::io::Result<bool> {
     }
     let target =
         std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    // SAFETY: `from` is a borrowed File, so its fd is open for the call, and
+    // `target` is a NUL-terminated CString that outlives it.
     if unsafe { libc::fclonefileat(from.as_raw_fd(), libc::AT_FDCWD, target.as_ptr(), 0) } != 0 {
         return Ok(false);
     }
@@ -212,6 +214,8 @@ fn clone_file(from: &std::fs::File, path: &Path) -> std::io::Result<bool> {
     // original stays Locked; drag exports can still take an instant clone.
     let flags = std::fs::metadata(path)?.st_flags();
     let unlocked = flags & !(libc::UF_IMMUTABLE | libc::UF_APPEND);
+    // SAFETY: `target` is a NUL-terminated CString that outlives the call,
+    // and lchflags only reads the path from it.
     if unlocked != flags && unsafe { libc::lchflags(target.as_ptr(), unlocked) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -361,6 +365,11 @@ fn new_file(dir: &Path, path: &Path, mode: u32) -> std::io::Result<(std::fs::Fil
 }
 
 #[cfg(all(test, unix))]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests: a panic is the test's failure, with the line"
+)]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;

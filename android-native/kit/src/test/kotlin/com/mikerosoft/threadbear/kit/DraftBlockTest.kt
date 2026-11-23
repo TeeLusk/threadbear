@@ -1,11 +1,18 @@
 package com.mikerosoft.threadbear.kit
 
 import com.mikerosoft.threadbear.kit.DraftBlock.Span
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * ```slack, ```email and ```draft blocks (DraftBlockTests.swift): text for
@@ -112,5 +119,88 @@ class DraftBlockTest {
     @Test fun copiedHtmlKeepsIndentsAndLinedUpSpaces() {
         val draft = DraftBlock(DraftBlock.Kind.EMAIL, "    • nested\nA    B")
         assertEquals("<meta charset=\"utf-8\"><div>&nbsp;&nbsp;&nbsp;&nbsp;• nested<br>A &nbsp;&nbsp;&nbsp;B</div>", draft.html)
+    }
+
+    /**
+     * The cases every app runs (shared/cases/draft-blocks.json): the desktop
+     * app, the iPhone, the website and here. A case whose `differs` names
+     * android is a known difference, skipped. `closed` is answered by parsing
+     * the text as the phone draws it, a draft anywhere in it, quotes included.
+     */
+    @Test fun draftBlocksFollowTheSharedCases() {
+        fun neutral(spans: List<Span>): JsonElement = JsonArray(
+            spans.map { s ->
+                val o = linkedMapOf<String, JsonElement>("text" to JsonPrimitive(s.text))
+                if (s.bold) o["bold"] = JsonPrimitive(true)
+                if (s.italic) o["italic"] = JsonPrimitive(true)
+                if (s.strike) o["strike"] = JsonPrimitive(true)
+                if (s.code) o["code"] = JsonPrimitive(true)
+                s.link?.let { o["link"] = JsonPrimitive(it) }
+                JsonObject(o)
+            },
+        )
+        fun hasDraft(blocks: List<MarkdownBlock>): Boolean = blocks.any {
+            it is MarkdownBlock.Draft || (it is MarkdownBlock.Quote && hasDraft(it.blocks))
+        }
+        val file = File("../../shared/cases/draft-blocks.json")
+        val cases = (parseJson(file.readText()) as JsonObject).arr("cases")!!
+        assertTrue(cases.size >= 50)
+        for (c in cases) {
+            val o = c as JsonObject
+            if (o.obj("differs")?.str("android") != null) continue
+            val name = o.str("name")!!
+            val input = o.obj("input")!!
+            fun draft() = DraftBlock(DraftBlock.Kind.entries.first { it.wire == input.str("kind") }, input.str("source")!!)
+            val got: JsonElement = when (val op = input.str("op")) {
+                "from" -> DraftBlock.from(input.str("language"), input.str("code")!!)?.let {
+                    JsonObject(mapOf("kind" to JsonPrimitive(it.kind.wire), "source" to JsonPrimitive(it.source), "label" to JsonPrimitive(it.label)))
+                } ?: JsonNull
+                "lines" -> JsonArray(draft().lines.map { JsonObject(mapOf("quote" to JsonPrimitive(it.quote), "spans" to neutral(it.spans))) })
+                "plainText" -> JsonPrimitive(draft().plainText)
+                "html" -> JsonPrimitive(draft().html)
+                "spans" -> neutral(DraftBlock.slackSpans(input.str("line")!!))
+                "closed" -> JsonPrimitive(hasDraft(MarkdownBlock.parse(input.str("text")!!)))
+                else -> fail("$name: no $op on Android")
+            }
+            assertEquals(o["expect"], got, name)
+        }
+    }
+
+    /** A sent message with the Mac's edited drafts on its end (DraftBlockTests.swift, aSentMessageGivesBackItsEditedDrafts). */
+    @Test fun aSentMessageGivesBackItsEditedDrafts() {
+        val intro = "I edited your draft. Use my version below exactly as it is, not yours:"
+        val one = "Send it\n\n$intro\n\n```email\nHi Geoff,\n\nCheers\n```"
+        val split = DraftBlock.splitEdited(one)
+        assertEquals("Send it", split?.words)
+        assertEquals(listOf(DraftBlock(DraftBlock.Kind.EMAIL, "Hi Geoff,\n\nCheers")), split?.drafts)
+        assertEquals("", DraftBlock.splitEdited("$intro\n\n```slack\nhey\n```")?.words)
+        val many = "I edited your drafts. Use my versions below exactly as they are, not yours:"
+        val two = "ok\n\n$many\n\n```draft\nrun `x`\n```\n\n````email\na\n```\nb\n```\n\nc\n````"
+        assertEquals(listOf("run `x`", "a\n```\nb\n```\n\nc"), DraftBlock.splitEdited(two)?.drafts?.map { it.source })
+        assertNull(DraftBlock.splitEdited("Send it"))
+        assertNull(DraftBlock.splitEdited("$one\n\nand another thing"))
+        assertNull(DraftBlock.splitEdited("He said $intro\n\n```email\nx\n```"))
+        assertNull(DraftBlock.splitEdited("$intro\n\n```python\nx\n```"))
+        // One intro with two drafts, or the many intro with one, isn't the Mac's.
+        assertNull(DraftBlock.splitEdited("$intro\n\n```email\na\n```\n\n```slack\nb\n```"))
+        assertNull(DraftBlock.splitEdited("$many\n\n```email\na\n```"))
+        // A draft that quotes the line itself still comes apart at the real one.
+        assertEquals("ok", DraftBlock.splitEdited("ok\n\n$intro\n\n```email\nThe app said:\n\n$intro\n```")?.words)
+        // A long one is shown too, and Windows line ends are plain ones.
+        val long = "x".repeat(DraftBlock.MAX_SOURCE + 1)
+        assertEquals(long, DraftBlock.splitEdited("$intro\n\n```draft\n$long\n```")?.drafts?.first()?.source)
+        assertEquals("a\nb", DraftBlock.splitEdited("$intro\n\n```email\na\r\nb\n```")?.drafts?.first()?.source)
+        // The parity scenario's message, as the Mac sends it.
+        val sent = "Send it\n\n$intro\n\n```email\nHi Geoff,\n\nI don't think it came through. Can you send it again please?\n```"
+        assertEquals("Send it", DraftBlock.splitEdited(sent)?.words)
+        assertEquals("Your edited email", DraftBlock.splitEdited(sent)?.drafts?.single()?.editedLabel)
+        // A picture sent with it and no marker: the runner's "[1 picture]" line
+        // after the fence stays with his words, for ThreadPictures.words to take off.
+        assertEquals("Send it\n\n[1 picture]", DraftBlock.splitEdited("$sent\n\n[1 picture]")?.words)
+        assertEquals("[2 pictures]", DraftBlock.splitEdited("$intro\n\n```email\nx\n```\n\n[2 pictures]")?.words)
+        // Windows line ends all through come apart the same.
+        assertEquals("Send it", DraftBlock.splitEdited(sent.replace("\n", "\r\n"))?.words)
+        assertEquals("Your edited Slack message", DraftBlock(DraftBlock.Kind.SLACK, "x").editedLabel)
+        assertEquals("Your edited draft", DraftBlock(DraftBlock.Kind.DRAFT, "x").editedLabel)
     }
 }

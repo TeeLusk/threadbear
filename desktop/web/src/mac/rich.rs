@@ -20,9 +20,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use threadbear_core::rich_block as rich;
 
-/// Pele, the diagram library the Swift app bundles (its notice is
-/// pele-LICENSE.txt beside it), built into the app the same way.
-const PELE: &str = include_str!("../../../../app/Sources/Threadbear/Resources/Rich/pele.js");
+/// Pele, the diagram library every app bundles (shared/rich, its notice
+/// pele-LICENSE.txt beside it), built into the app.
+const PELE: &str = include_str!("../../../../shared/rich/pele.js");
 
 /// A page is laid out this wide, in points; the box scales the picture to
 /// the reading column (RichRenderer.pageWidth).

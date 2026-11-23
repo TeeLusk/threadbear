@@ -65,9 +65,9 @@ pub fn edited_message(edits: &[(DraftKind, String)]) -> String {
         return String::new();
     }
     let intro = if edits.len() == 1 {
-        "I edited your draft. Use my version below exactly as it is, not yours:"
+        EDITED_ONE
     } else {
-        "I edited your drafts. Use my versions below exactly as they are, not yours:"
+        EDITED_MANY
     };
     let mut out = intro.to_owned();
     for (kind, text) in edits {
@@ -78,6 +78,7 @@ pub fn edited_message(edits: &[(DraftKind, String)]) -> String {
             longest = longest.max(run);
         }
         let fence = "`".repeat((longest + 1).max(3));
+        let text = text.replace("\r\n", "\n");
         out.push_str(&format!(
             "\n\n{fence}{}\n{}\n{fence}",
             kind.fence_word(),
@@ -85,6 +86,117 @@ pub fn edited_message(edits: &[(DraftKind, String)]) -> String {
         ));
     }
     out
+}
+
+const EDITED_ONE: &str = "I edited your draft. Use my version below exactly as it is, not yours:";
+const EDITED_MANY: &str =
+    "I edited your drafts. Use my versions below exactly as they are, not yours:";
+
+/// A sent message with `edited_message` on its end, taken apart: his own
+/// words before it, and each changed draft, so his bubble shows them as
+/// chips rather than the line to the agent and the raw fences (Mike, 20 Nov:
+/// "it kind of comes like this, which looks a bit weird"). None when the
+/// message doesn't end that way; then it's shown as it is. The website
+/// (web/src/draft.ts, `splitEdited`) reads it the same way.
+pub fn split_edited(text: &str) -> Option<(String, Vec<DraftBlock>)> {
+    // From the first one: a draft can hold the line itself, and Mike's own
+    // words can too, so each place it starts a paragraph is tried until one
+    // is followed by nothing but drafts.
+    let mut starts: Vec<(usize, &str)> = [EDITED_ONE, EDITED_MANY]
+        .iter()
+        .flat_map(|intro| text.match_indices(intro).map(|(at, _)| (at, *intro)))
+        .collect();
+    starts.sort_by_key(|(at, _)| *at);
+    starts
+        .into_iter()
+        .find_map(|(at, intro)| split_at(text, at, intro))
+}
+
+fn split_at(text: &str, at: usize, intro: &str) -> Option<(String, Vec<DraftBlock>)> {
+    // Its own paragraph: at the start, or after a blank line.
+    if at != 0 && !text[..at].ends_with("\n\n") {
+        return None;
+    }
+    let mut rest = &text[at + intro.len()..];
+    let mut drafts = Vec::new();
+    while let Some(after) = rest.strip_prefix("\n\n") {
+        let ticks = after.chars().take_while(|c| *c == '`').count();
+        if ticks < 3 {
+            return None;
+        }
+        let fence = &after[..ticks];
+        let line_end = after.find('\n')?;
+        let kind = DraftKind::from_word(&after[ticks..line_end])?;
+        let body_and_rest = &after[line_end + 1..];
+        let close = format!("\n{fence}");
+        let end = find_closing(body_and_rest, &close)?;
+        // Whatever length it is: what was sent is shown, not refused as a
+        // reply's draft over MAX_SOURCE would be.
+        let source = body_and_rest[..end].replace("\r\n", "\n");
+        if source.trim().is_empty() {
+            return None;
+        }
+        drafts.push(DraftBlock { kind, source });
+        rest = &body_and_rest[end + close.len()..];
+    }
+    if drafts.is_empty() || !rest.trim().is_empty() || (intro == EDITED_ONE) != (drafts.len() == 1)
+    {
+        return None;
+    }
+    Some((text[..at].trim_end().to_owned(), drafts))
+}
+
+/// Where a draft's closing fence is: the fence on a line of its own, with
+/// nothing but the end or a new paragraph after it.
+fn find_closing(text: &str, close: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(found) = text[from..].find(close) {
+        let at = from + found;
+        let after = &text[at + close.len()..];
+        if after.trim().is_empty() || after.starts_with("\n\n") {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
+}
+
+/// How many lines his version changes from the agent's, for the chip that
+/// says it goes with his next message: the larger of the lines taken out and
+/// put in, by the longest run of lines the two share in order.
+pub fn changed_lines(original: &str, edited: &str) -> usize {
+    let a: Vec<&str> = original.lines().map(str::trim_end).collect();
+    let b: Vec<&str> = edited.lines().map(str::trim_end).collect();
+    // Drafts are short; a huge one is just "changed".
+    if a.len() * b.len() > 250_000 {
+        return a.len().max(b.len());
+    }
+    let mut row = vec![0usize; b.len() + 1];
+    for x in &a {
+        let mut diagonal = 0;
+        for (j, y) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = if x == y {
+                diagonal + 1
+            } else {
+                above.max(row[j])
+            };
+            diagonal = above;
+        }
+    }
+    let shared = row[b.len()];
+    (a.len() - shared).max(b.len() - shared)
+}
+
+impl DraftKind {
+    /// What the chip for his changed draft calls it: "Your edited email".
+    pub fn edited_label(&self) -> &'static str {
+        match self {
+            DraftKind::Slack => "Your edited Slack message",
+            DraftKind::Email => "Your edited email",
+            DraftKind::Draft => "Your edited draft",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -223,8 +335,8 @@ impl DraftBlock {
                     };
                 }
                 if line.starts_with("> ") || line == ">" || line.starts_with("&gt; ") {
-                    let rest = if line.starts_with("&gt; ") {
-                        &line[5..]
+                    let rest = if let Some(rest) = line.strip_prefix("&gt; ") {
+                        rest
                     } else {
                         &line[line.len().min(2)..]
                     };
@@ -851,6 +963,79 @@ mod tests {
         assert_eq!(back.source, "a\n```\nb\n```");
     }
 
+    #[test]
+    fn a_sent_message_gives_back_its_edited_drafts() {
+        use super::{edited_message, split_edited, DraftKind};
+        let one = format!(
+            "Send it\n\n{}",
+            edited_message(&[(DraftKind::Email, "Hi Geoff,\n\nCheers".to_owned())])
+        );
+        let (words, drafts) = split_edited(&one).unwrap();
+        assert_eq!(words, "Send it");
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].kind, DraftKind::Email);
+        assert_eq!(drafts[0].source, "Hi Geoff,\n\nCheers");
+        // Just the drafts, nothing of his own.
+        let (words, _) =
+            split_edited(&edited_message(&[(DraftKind::Slack, "hey".to_owned())])).unwrap();
+        assert_eq!(words, "");
+        // Two, one with code and a longer fence round it.
+        let two = edited_message(&[
+            (DraftKind::Draft, "run `x`".to_owned()),
+            (DraftKind::Email, "a\n```\nb\n```\n\nc".to_owned()),
+        ]);
+        let (_, drafts) = split_edited(&format!("ok\n\n{two}")).unwrap();
+        assert_eq!(
+            drafts.iter().map(|d| d.source.as_str()).collect::<Vec<_>>(),
+            vec!["run `x`", "a\n```\nb\n```\n\nc"]
+        );
+        // Anything else is shown as it is.
+        assert!(split_edited("Send it").is_none());
+        assert!(split_edited(&format!("{one}\n\nand another thing")).is_none());
+        assert!(split_edited("He said I edited your draft. Use my version below exactly as it is, not yours:\n\n```email\nx\n```").is_none());
+        assert!(split_edited("I edited your draft. Use my version below exactly as it is, not yours:\n\n```python\nx\n```").is_none());
+        // A draft that quotes the line itself still comes apart at the real one.
+        let quoting = format!(
+            "ok\n\n{}",
+            edited_message(&[(
+                DraftKind::Email,
+                format!("The app said:\n\n{}", super::EDITED_ONE)
+            )])
+        );
+        let (words, drafts) = split_edited(&quoting).unwrap();
+        assert_eq!(words, "ok");
+        assert!(drafts[0].source.ends_with(super::EDITED_ONE));
+        // A long one is shown too, past the size a reply's box takes.
+        let long = "x".repeat(super::MAX_SOURCE + 1);
+        assert_eq!(
+            split_edited(&edited_message(&[(DraftKind::Draft, long.clone())]))
+                .unwrap()
+                .1[0]
+                .source,
+            long
+        );
+        // Pasted Windows line ends go as plain ones.
+        assert_eq!(
+            split_edited(&edited_message(&[(
+                DraftKind::Email,
+                "a\r\nb\r\n".to_owned()
+            )]))
+            .unwrap()
+            .1[0]
+                .source,
+            "a\nb"
+        );
+    }
+
+    #[test]
+    fn changed_lines_counts_what_he_changed() {
+        use super::changed_lines;
+        assert_eq!(changed_lines("a\nb\nc", "a\nb\nc"), 0);
+        assert_eq!(changed_lines("a\nb\nc", "a\nB\nc"), 1);
+        assert_eq!(changed_lines("a\nb\nc", "a\nb\nc\nd\ne"), 2);
+        assert_eq!(changed_lines("a\nb\nc", "c"), 2);
+    }
+
     // The Mac's DraftBlockTests and the website's draft.test.ts check the
     // same cases.
     use super::*;
@@ -1209,5 +1394,95 @@ mod tests {
             described,
             ["bold: Hi", "link: there <https://x.dev>", "code: x"]
         );
+    }
+
+    /// The cases every app runs (`shared/cases/draft-blocks.json`): here,
+    /// the iPhone, Android and the website. A case whose `differs` names
+    /// desktop is a known difference, skipped.
+    #[test]
+    fn draft_blocks_follow_the_shared_cases() {
+        use serde_json::{json, Value};
+        fn neutral(spans: &[Span]) -> Value {
+            Value::Array(
+                spans
+                    .iter()
+                    .map(|s| {
+                        let mut o = serde_json::Map::new();
+                        o.insert("text".into(), json!(s.text));
+                        for (key, on) in [
+                            ("bold", s.bold),
+                            ("italic", s.italic),
+                            ("strike", s.strike),
+                            ("code", s.code),
+                        ] {
+                            if on {
+                                o.insert(key.into(), json!(true));
+                            }
+                        }
+                        if let Some(link) = &s.link {
+                            o.insert("link".into(), json!(link));
+                        }
+                        Value::Object(o)
+                    })
+                    .collect(),
+            )
+        }
+        fn kind(word: &str) -> DraftKind {
+            DraftKind::from_word(word).unwrap_or_else(|| panic!("kind {word}"))
+        }
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/draft-blocks.json"
+        );
+        let file: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() >= 50);
+        for case in cases {
+            if case["differs"].get("desktop").is_some() {
+                continue;
+            }
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let text = |key: &str| {
+                input[key]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{name}: {key}"))
+                    .to_owned()
+            };
+            let draft = || DraftBlock {
+                kind: kind(&text("kind")),
+                source: text("source"),
+            };
+            let got = match input["op"].as_str().unwrap() {
+                "from" => match DraftBlock::from(input["language"].as_str(), &text("code")) {
+                    Some(d) => {
+                        json!({ "kind": d.kind.fence_word(), "source": d.source, "label": d.label() })
+                    }
+                    None => Value::Null,
+                },
+                "lines" => Value::Array(
+                    draft()
+                        .lines()
+                        .iter()
+                        .map(|l| json!({ "quote": l.quote, "spans": neutral(&l.spans) }))
+                        .collect(),
+                ),
+                "plainText" => json!(draft().plain_text()),
+                "html" => json!(draft().html()),
+                "spans" => neutral(&slack_spans(&text("line"))),
+                "bareLinks" => neutral(&bare_links(&text("text"))),
+                "closed" => {
+                    let t = text("text");
+                    let start = [t.find("```"), t.find("~~~")]
+                        .into_iter()
+                        .flatten()
+                        .min()
+                        .unwrap_or(0);
+                    json!(fence_closed(&t, start, t.len()))
+                }
+                op => panic!("{name}: unknown op {op}"),
+            };
+            assert_eq!(got, case["expect"], "{name}");
+        }
     }
 }

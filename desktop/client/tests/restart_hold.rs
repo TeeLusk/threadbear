@@ -2,6 +2,11 @@
 // that can be told to restart, turn a send away, or close with one on its
 // way: the cases the Swift app's PendingSendTests cover for `post`,
 // `inRestartOrder` and `whenRestarted`. No double sends, no lost ones.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a test: a panic is its failure, with the line"
+)]
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::path::PathBuf;

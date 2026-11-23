@@ -54,6 +54,8 @@ struct Banner {
     retry: bool,
     /// Start runner, beside Try again (`showStart`).
     start: bool,
+    /// Start runner spins: launchctl hasn't answered yet.
+    starting: bool,
     /// A warning's symbol, or a quiet line's (None there is a spinner).
     icon: Option<&'static str>,
     /// A failed CLI update: the line has Dismiss, which forgets it.
@@ -69,6 +71,7 @@ impl Banner {
             detail: None,
             retry: false,
             start: false,
+            starting: false,
             icon: None,
             dismiss: None,
         }
@@ -82,21 +85,27 @@ impl Banner {
         }
     }
 
-    fn warning(icon: &'static str, text: &str, detail: Option<&str>) -> Banner {
+    /// What the connection's phase says (threadbear_core::connection),
+    /// with Start runner only where this app can start the runner.
+    fn connection(banner: threadbear_core::connection::Banner, can_start: bool) -> Banner {
+        use threadbear_core::connection::Buttons;
+        let (retry, start, starting) = match banner.buttons {
+            Buttons::None => (false, false, false),
+            Buttons::TryAgain => (true, false, false),
+            Buttons::StartRunnerAndTryAgain { starting } => (true, can_start, starting),
+        };
         Banner {
-            quiet: false,
-            text: text.into(),
-            detail: detail.filter(|d| !d.is_empty()).map(str::to_owned),
-            retry: true,
-            start: false,
-            icon: Some(icon),
+            quiet: banner.quiet,
+            text: banner.text.into(),
+            detail: banner.detail,
+            retry,
+            start,
+            starting,
+            icon: banner.icon,
             dismiss: None,
         }
     }
 }
-
-/// How long an unexpected drop goes unmentioned in the banner.
-const DROP_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// A failed CLI update's key, so dismissing it hides only that one
 /// (`failureKey`): when it finished, or what it was going to.
@@ -753,8 +762,8 @@ impl Threadbear {
             )
             .into_any_element(),
         ];
-        let id_for_new = id.clone();
-        let link_row = link.clone().map(|link| {
+        let id_for_new = id;
+        let link_row = link.map(|link| {
             let (copy, open) = (link.clone(), link.clone());
             h_flex()
                 .gap(px(6.))
@@ -1108,119 +1117,43 @@ impl Threadbear {
             .into_any_element()
     }
 
-    /// `AppModel.banner`: the line about the runner, if there's anything to say.
+    /// `AppModel.banner`: the line about the runner, if there's anything to
+    /// say. What the connection says comes from its phase alone
+    /// (threadbear_core::connection::banner), which only moves on what this
+    /// app has heard, so a draw can't catch the client half way through
+    /// telling it something.
     fn connection_banner(&self) -> Option<Banner> {
-        use crate::app::Connection;
+        let connection =
+            threadbear_core::connection::banner(&self.connection, std::time::Instant::now());
+        if !self.connected() {
+            return connection.map(|b| Banner::connection(b, self.can_start_runner()));
+        }
+        // Mike's own click comes first: he's looking for it.
+        if let Some((_, note)) = self.busy_notes.last() {
+            return Some(Banner::quiet(note));
+        }
+        if let Some(done) = &self.done_note {
+            return Some(Banner::quiet_with("checkmark", done));
+        }
+        // The runner restarting now.
+        if let Some(banner) = connection {
+            return Some(Banner::connection(banner, false));
+        }
+        // A restart waiting for threads, in the client's words: how many,
+        // and which, by the threads' titles.
         let restart = self.client.restart();
-        let restarting = restart.is_restarting(std::time::Instant::now());
-        let mut connection = self.connection();
-        // Back already, as the client has it, while this app hasn't yet
-        // taken in the news (Seen::Status comes on its next turn). The
-        // client ends the restart before it says it's connected, so in
-        // between this read "not restarting, still down" and, the drop's
-        // grace long gone, said "Can't reach the runner." at the very end
-        // of a restart: GitHub's slower machines caught it every time
-        // (connection.feature, "While the runner restarts...", 13 Nov).
-        if !matches!(connection, Connection::Connected)
-            && matches!(
-                self.client.status(),
-                threadbear_client::runner::Status::Connected { .. }
-            )
-        {
-            connection = Connection::Connected;
+        let waiting_on_you = |id: &str| self.threads.get(id).is_some_and(|t| t.needs_answer());
+        if let Some(text) = restart.pending_text(waiting_on_you) {
+            let detail =
+                restart.waiting_for_text(|id| self.threads.get(id).map(|t| t.title.clone()));
+            return Some(Banner {
+                detail,
+                ..Banner::quiet_with("arrow.clockwise", &text)
+            });
         }
-        if let Connection::Connected = connection {
-            // Mike's own click comes first: he's looking for it.
-            if let Some((_, note)) = self.busy_notes.last() {
-                return Some(Banner::quiet(note));
-            }
-            if let Some(done) = &self.done_note {
-                return Some(Banner::quiet_with("checkmark", done));
-            }
-            if restarting {
-                return Some(Banner::quiet("The runner is restarting now."));
-            }
-            let waiting_on_you =
-                |id: &str| self.threads.get(id).is_some_and(|t| t.status == "waiting");
-            if let Some(text) = restart.pending_text(waiting_on_you) {
-                let detail =
-                    restart.waiting_for_text(|id| self.threads.get(id).map(|t| t.title.clone()));
-                return Some(Banner {
-                    detail,
-                    ..Banner::quiet_with("arrow.clockwise", &text)
-                });
-            }
-            // A CLI update under way (a spinner), or one that failed, which
-            // stays until it's dismissed.
-            return self.cli_banner();
-        }
-        // While a restart is under way the runner is meant to be down for a
-        // moment: say so quietly, with no buttons to press. Down because of
-        // one counts until this app has seen it connected again, whatever
-        // the client says meanwhile (`restart_outage`).
-        let outage = self
-            .restart_outage
-            .is_some_and(|since| since.elapsed() < threadbear_client::restart::PATIENCE);
-        if restarting || outage {
-            return Some(Banner::quiet("The runner is restarting. Reconnecting…"));
-        }
-        // An unexpected drop says nothing for its first few seconds: this
-        // Mac's runner is usually back by then (a handover with no notice,
-        // a restart whose notice went down with the socket), and a warning
-        // that flicks up and away is only noise (Mike, 12 Nov).
-        if !matches!(connection, Connection::Unauthorized(_))
-            && self.dropped_at.is_some_and(|at| at.elapsed() < DROP_GRACE)
-        {
-            return None;
-        }
-        let plain = |reason: &str| threadbear_client::runner::plain_reason(reason);
-        Some(match connection {
-            // One plain sentence; why, in plain words, is in the tooltip,
-            // and the raw reason in the app's log.
-            Connection::Down(reason) => Banner {
-                start: self.can_start_runner(),
-                ..Banner::warning(
-                    "bolt.horizontal.circle",
-                    "Can't reach the runner.",
-                    Some(&plain(reason)),
-                )
-            },
-            Connection::Lost(reason) => Banner::warning(
-                "bolt.horizontal",
-                "Lost the connection to the runner. Reconnecting…",
-                Some(&plain(reason)),
-            ),
-            Connection::Unauthorized(reason) => Banner::warning(
-                "lock",
-                "The runner didn't accept the token in secrets/runner-token.",
-                Some(reason),
-            ),
-            Connection::Connecting | Connection::Connected => {
-                Banner::warning("bolt.horizontal", "Connecting to the runner…", None)
-            }
-        })
-    }
-
-    /// Not connected: whether that's because of a restart, kept until the
-    /// app sees it connected again (`restart_outage`).
-    pub(crate) fn note_restart_outage(&mut self) {
-        if let Some(since) = self.client.restart().restarting_since() {
-            self.restart_outage.get_or_insert(since);
-        }
-    }
-
-    /// Not connected: from now, unless it already wasn't, and a redraw once
-    /// the grace is over, so the banner comes up then if it's still down.
-    pub(crate) fn start_drop_grace(&mut self, cx: &mut Context<Self>) {
-        if self.dropped_at.is_some() && self.drop_grace_task.is_some() {
-            return;
-        }
-        let at = *self.dropped_at.get_or_insert_with(std::time::Instant::now);
-        let left = DROP_GRACE.saturating_sub(at.elapsed()) + std::time::Duration::from_millis(50);
-        self.drop_grace_task = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(left).await;
-            this.update(cx, |_, cx| cx.notify()).ok();
-        }));
+        // A CLI update under way (a spinner), or one that failed, which
+        // stays until it's dismissed.
+        self.cli_banner()
     }
 
     /// An update under way, or one that failed and hasn't been dismissed
@@ -1374,7 +1307,7 @@ impl Threadbear {
                         "Start runner",
                         "Start the runner's background service",
                     )
-                    .busy(self.starting_runner)
+                    .busy(banner.starting)
                     .render(cx, move |_, _, cx| {
                         me.update(cx, |this, cx| this.start_runner(cx)).ok();
                     }),
@@ -1668,7 +1601,7 @@ impl Threadbear {
             return Value::Null;
         };
         // "Yes" or "No" when the box offers to carry on by itself.
-        let carry_on = advice.stopped.then(|| {
+        let carry_on = advice.stopped.then_some({
             if thread.carry_on_at_reset {
                 "Yes"
             } else {
@@ -1821,7 +1754,7 @@ impl Threadbear {
         self.limit_pick.remove(thread);
         // At once, so the box goes and can't be pressed twice: pinned to
         // that login, and no longer waiting. A refusal puts it back.
-        let to = account.clone();
+        let to = account;
         self.update_thread(
             thread,
             move |t| {
@@ -2451,9 +2384,8 @@ impl Threadbear {
     /// Try again: says "Connecting to the runner…" until this try has an
     /// answer, so the click shows (`reconnectNow`).
     pub(crate) fn reconnect_now(&mut self, cx: &mut Context<Self>) {
-        self.last_drop = None;
+        self.advance_connection(threadbear_core::connection::Event::TryAgain, cx);
         self.client.retry_now();
-        cx.notify();
     }
 
     // The notes floating over the panel.
@@ -2536,7 +2468,7 @@ impl Threadbear {
         let title = if note.title.is_empty() {
             "Untitled".to_string()
         } else {
-            note.title.clone()
+            note.title
         };
         let shift = self.toast_swipe.x;
         let fade = (1. - (f32::from(shift).abs() / (SWIPE_AWAY * 2.))).clamp(0.3, 1.);

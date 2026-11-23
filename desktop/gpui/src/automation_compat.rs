@@ -107,6 +107,10 @@ fn window_number(window: &Window) -> u64 {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     if let Ok(handle) = HasWindowHandle::window_handle(window) {
         match handle.as_raw() {
+            #[allow(
+                clippy::unnecessary_cast,
+                reason = "an Xlib window is a c_ulong: 64 bits on a Mac or Linux, 32 on Windows"
+            )]
             RawWindowHandle::Xlib(h) => return h.window as u64,
             RawWindowHandle::Xcb(h) => return h.window.get() as u64,
             RawWindowHandle::Win32(h) => return h.hwnd.get() as u64,

@@ -19,7 +19,7 @@ import { providerName } from '../providers.ts';
 
 export const editingPart = {
   // Mike changes one of his earlier messages and carries on from there
-  // (docs/protocol.md, "Editing a message"): the turn stops, the native
+  // (docs/protocol/threads.md, "Editing a message"): the turn stops, the native
   // session is cut back to just before the message, the agent's file
   // changes since are put back, and the new text starts a turn.
   async editMessage(this: Runner, threadId: string, seq: number, text: string, images: ImageRef[] = [], opts: { stopBackground?: boolean } = {}): Promise<{ turnId: string; rewound: { seq: number; fromSeq: number; toSeq: number; files: RewoundFiles } }> {

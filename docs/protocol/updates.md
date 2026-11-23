@@ -188,8 +188,8 @@ it froze. The GPUI app is different code, so those changes can only be
 rebuilt in `desktop/`, not copied (`runner/src/swift-changes.ts`).
 
 Theirs means a commit on the checkout's `main` that touches `app/` or
-`dock/` outside what the GPUI app still uses from there
-(`scripts/swift-freeze.sh --gpui-shared`), isn't a merge, isn't reachable
+`dock/` outside what the GPUI app used from there before that moved out on
+21 Nov 2026 (`GPUI_SHARED`), isn't a merge, isn't reachable
 from upstream (`refs/threadbear/upstream/*` and `refs/remotes/upstream/main`),
 and doesn't share its author, author date and subject with one of
 upstream's (a cherry-pick of Mike's, or a fix of theirs he took). In a copy
@@ -266,6 +266,13 @@ the restart is asked for.
   The Mac app reads these sentences (the numbers after "when" add up to the
   threads waited for), so they change together. `runner.status` shows it as `pendingRestart`. When it
   starts, the notice is "The runner is restarting now."
+- The runner asks itself for an idle restart after an uncaught error
+  (reason "An unexpected error (see the runner log)"; runner/README.md,
+  "Restarts"), so clients see the usual notices. A handover's notice says
+  "onto a new release" only when the request named one. After 3 of these in
+  10 minutes it stops restarting for them and sends a `runner.notice` at
+  warning level, again after each hello, until an hour passes without an
+  uncaught error.
 - The request is saved in `restart.json` in the data dir, so a crash
   before the runner is idle doesn't lose it: the next start counts as the
   restart. If the runner stops some other way while it waits (launchctl,
@@ -328,6 +335,11 @@ other restarting. The runner keeps the last build it saw of each and the
 threads waiting, in `app-restart.json` in the data dir, so both outlast its
 own restarts.
 
+- While a thread is on the list (and asked under a day ago), its summary
+  has `awaitingApp` (`{ commit?, short? }`, the commit it waits for), so
+  the GPUI app's Updates panel can list it with whether its running,
+  staged or building version has that commit (`git merge-base
+  --is-ancestor` in the checkout it follows).
 - `wait_for_app_restart` (`{ text?, commit? }`) puts the calling thread on
   the list, remembering the build running then and the commit the new build
   must contain: `commit` if given, else main's HEAD at that moment. Main
@@ -594,6 +606,48 @@ the check wakes it. A
 short wait it will use within its turn (a server starting) goes through
 when the command carries `# short wait`. Codex's shell has no hook to
 refuse a call with, so Codex threads are left to the stuck-job check.
+
+### A thread's CLI
+
+How the runner holds a thread's CLI, as one state type
+(`runner/src/cli-session.ts`, 21 Nov 2026; its header has the table of every
+event in every state). Nothing here is on the wire or stored: it's the
+runner's memory, and a handover lets each CLI go before the thread moves. A
+thread has no CLI (`none`) until a message starts one, unless warm start's
+spare was claimed for it at `threads.create` (`spare`), which its first start
+takes when it still fits. A started CLI is `starting` until it says its
+version (Claude in its init), then `live`. Releasing it (idle, the live cap, a
+CLI update, another login or folder, a setting it couldn't take, /clear, a
+snooze or archive) makes it `closing`; a turn waits for that to end before it
+starts the next, so one session never has two CLIs. One that exits by itself
+goes straight back to `none`, and a turn it was running fails, or starts
+again once on a fresh session when the one to resume can't be found. Every
+start, delete, handover and shutdown moves the generation on, and anything an
+older CLI says or a step that waited on it brings back (its output, its exit,
+a setting it refused) is dropped by that one check. A card a CLI asks for
+expires unless it's the thread's current CLI and not closing; the runner asks
+the machine (`cliHears`) rather than checking the fields itself, and code that
+needs the CLI it can send to reads `runningSession` (starting or live).
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> none
+  none --> spare: claim (threads.create)
+  spare --> none: spareGone (unused)
+  none --> starting: begin, spawned
+  spare --> starting: begin, takeSpare, spawned
+  starting --> live: version
+  starting --> none: exited (crash, or resume refused)
+  live --> none: exited
+  starting --> closing: release
+  live --> closing: release
+  closing --> closing: exited (session gone)
+  closing --> none: closed
+  live --> live: tasks, leave, versionMove, init
+  none --> none: drop (delete, handover, shutdown)
+  live --> none: drop on delete (forgets it)
+```
 
 ### Frozen CLIs
 

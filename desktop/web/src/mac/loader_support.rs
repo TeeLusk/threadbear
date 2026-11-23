@@ -40,6 +40,8 @@ impl Slot {
         if library.is_null() {
             missing(self.name, "before the web runtime was loaded");
         }
+        // SAFETY: `library` is the non-null handle dlopen gave
+        // cef_load_library, never closed, and `name` is a 'static CStr.
         let found = unsafe { libc::dlsym(library, self.name.as_ptr()) };
         if found.is_null() {
             missing(
@@ -77,17 +79,26 @@ pub unsafe extern "C" fn cef_load_library(path: *const c_char) -> c_int {
     if path.is_null() {
         return 0;
     }
+    // SAFETY: `path` isn't null, and the caller passes a NUL-terminated
+    // C string that lives through this call.
     let handle =
         unsafe { libc::dlopen(path, libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_FIRST) };
     if handle.is_null() {
+        // SAFETY: dlerror takes no arguments and returns null or this
+        // thread's last dl error message.
         let why = unsafe { libc::dlerror() };
         let why = if why.is_null() {
             "unknown".into()
         } else {
+            // SAFETY: a non-null dlerror result is a NUL-terminated string
+            // that stays valid until the next dl call on this thread, and
+            // it's used before any.
             unsafe { CStr::from_ptr(why) }.to_string_lossy()
         };
         eprintln!(
             "threadbear-web: couldn't load {}: {why}",
+            // SAFETY: `path` isn't null, and the caller passes a
+            // NUL-terminated C string that lives through this call.
             unsafe { CStr::from_ptr(path) }.to_string_lossy()
         );
         if let Ok(mut e) = LOAD_ERROR.lock() {
@@ -125,6 +136,7 @@ pub unsafe extern "C" fn cef_scoped_library_loader_create(helper: c_int) -> *mut
     let Ok(path) = CString::new(dir.join(relative).to_string_lossy().into_owned()) else {
         return std::ptr::null_mut();
     };
+    // SAFETY: `path` is a NUL-terminated CString that outlives the call.
     if unsafe { cef_load_library(path.as_ptr()) } == 1 {
         LIBRARY.load(Ordering::Acquire)
     } else {

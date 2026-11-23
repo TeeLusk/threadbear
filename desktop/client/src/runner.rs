@@ -13,10 +13,23 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
+
+/// A lock taken whatever happened to it: one that a panic left poisoned
+/// still holds a whole value (each is set or read in one step), so the
+/// connection carries on rather than panicking again on every call.
+trait Locked<T> {
+    fn locked(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> Locked<T> for Mutex<T> {
+    fn locked(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 const CLIENT_NAME: &str = "threadbear-desktop";
 /// The longest wait between tries to reach the runner.
@@ -60,7 +73,7 @@ pub const THREAD_NOT_FOUND: i64 = -32004;
 /// The runner's: busy, or handing over to a new one (`RPCError.busy`).
 pub const BUSY: i64 = -32020;
 
-/// What the app was built from, for hello's `build` (docs/protocol.md, "App
+/// What the app was built from, for hello's `build` (docs/protocol/updates.md, "App
 /// restarts"): set once at launch by the installed app, so the runner can
 /// tell a thread waiting for the app to restart when it's back on a new
 /// build. Any other launch sends none.
@@ -238,8 +251,7 @@ impl Place {
         !self
             .order
             .places
-            .lock()
-            .unwrap()
+            .locked()
             .range(..self.id)
             .any(|(_, t)| *t == self.thread)
     }
@@ -247,7 +259,7 @@ impl Place {
 
 impl Drop for Place {
     fn drop(&mut self) {
-        self.order.places.lock().unwrap().remove(&self.id);
+        self.order.places.locked().remove(&self.id);
         self.order.turn.notify_waiters();
     }
 }
@@ -318,13 +330,13 @@ impl Client {
 
     /// What the runner has said about restarting, as of now.
     pub fn restart(&self) -> RunnerRestart {
-        self.restart.lock().unwrap().clone()
+        self.restart.locked().clone()
     }
 
     /// A restart is on: pending, or under way and not so long that the
     /// runner looks simply down (`restartUnderWay`).
     pub fn restart_under_way(&self) -> bool {
-        self.restart.lock().unwrap().under_way(Instant::now())
+        self.restart.locked().under_way(Instant::now())
     }
 
     /// `runner.status`'s `pendingRestart`, which names the threads a
@@ -335,7 +347,7 @@ impl Client {
     }
 
     fn update_restart(&self, change: impl FnOnce(&mut RunnerRestart)) {
-        let mut restart = self.restart.lock().unwrap();
+        let mut restart = self.restart.locked();
         let before = restart.clone();
         change(&mut restart);
         if *restart == before {
@@ -359,12 +371,12 @@ impl Client {
     /// For tests: how long a held message waits for the runner to come
     /// back, and one a restart turned away waits for the new runner.
     pub fn set_restart_waits(&self, hold: Duration, resend: Duration) {
-        *self.waits.lock().unwrap() = (hold, resend);
+        *self.waits.locked() = (hold, resend);
     }
 
     /// Every request waits at most `cap` for its answer. Only tests.
     pub fn set_timeout_cap(&self, cap: Duration) {
-        *self.timeout_cap.lock().unwrap() = Some(cap);
+        *self.timeout_cap.locked() = Some(cap);
     }
 
     /// "Try again" in the connection banner: stop waiting and reconnect now.
@@ -373,11 +385,11 @@ impl Client {
     }
 
     pub fn status(&self) -> Status {
-        self.status.lock().unwrap().clone()
+        self.status.locked().clone()
     }
 
     fn set_status(&self, status: Status) {
-        *self.status.lock().unwrap() = status.clone();
+        *self.status.locked() = status.clone();
         self.sink.status(&status);
     }
 
@@ -397,21 +409,17 @@ impl Client {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         let wait = timeout_for(method, &params);
-        let wait = self
-            .timeout_cap
-            .lock()
-            .unwrap()
-            .map_or(wait, |cap| wait.min(cap));
+        let wait = self.timeout_cap.locked().map_or(wait, |cap| wait.min(cap));
         let text =
             json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string();
         {
-            let out = self.out.lock().unwrap();
+            let out = self.out.locked();
             let Some(out) = out.as_ref() else {
                 return Err(RpcError::not_connected());
             };
-            self.pending.lock().unwrap().insert(id, tx);
+            self.pending.locked().insert(id, tx);
             if out.send(Message::text(text)).is_err() {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.locked().remove(&id);
                 return Err(RpcError::not_connected());
             }
         }
@@ -419,7 +427,7 @@ impl Client {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(RpcError::closed()),
             Err(_) => {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.locked().remove(&id);
                 let minutes = wait.as_secs() / 60;
                 let took = if wait.as_secs() >= 600 {
                     format!("{minutes} minutes")
@@ -473,11 +481,7 @@ impl Client {
     /// `send_through_restart` or `call_in_restart_order_at`.
     pub fn place(&self, thread_id: &str) -> Place {
         let id = self.order.next.fetch_add(1, Ordering::SeqCst);
-        self.order
-            .places
-            .lock()
-            .unwrap()
-            .insert(id, thread_id.to_owned());
+        self.order.places.locked().insert(id, thread_id.to_owned());
         Place {
             id,
             thread: thread_id.to_owned(),
@@ -489,14 +493,14 @@ impl Client {
     /// held, as their words go in the drafts file. One that has already said
     /// it's going (`Progress::Sending`) goes.
     pub fn stop_holding(&self) {
-        *self.holding_stopped.lock().unwrap() = true;
+        *self.holding_stopped.locked() = true;
     }
 
     /// A held request about to go: it says so, unless the app is quitting.
     /// The two under one lock, so after `stop_holding` returns every held
     /// request has either said it's going or never will.
     fn go(&self, progress: &ProgressFn) -> Result<(), RpcError> {
-        let stopped = self.holding_stopped.lock().unwrap();
+        let stopped = self.holding_stopped.locked();
         if *stopped {
             return Err(RpcError::local(NOT_CONNECTED, "The app is quitting"));
         }
@@ -550,7 +554,7 @@ impl Client {
                 // Down when it was made, or gone while it waited its turn:
                 // the new runner, while a restart's under way.
                 None if self.restart_under_way() => {
-                    let (hold, resend_wait) = *self.waits.lock().unwrap();
+                    let (hold, resend_wait) = *self.waits.locked();
                     let Some(now) = self
                         .wait_for_session(None, if sent_down { hold } else { resend_wait })
                         .await
@@ -583,6 +587,10 @@ impl Client {
     /// restart queue, so nothing behind it overtakes it while it goes again:
     /// one turned away goes again on the new runner (`againAfterRestart`),
     /// and a message cut off on its way goes again unless it arrived.
+    #[expect(
+        clippy::expect_used,
+        reason = "may_resend and the arm before check the resend is there"
+    )]
     async fn settle(
         &self,
         first: Result<Value, RpcError>,
@@ -675,7 +683,7 @@ impl Client {
         let id = resend.thread_id.as_str();
         // The connection it was cut off on is gone, so any that's up now is
         // the new runner's (`run` clears it before failing what was on its way).
-        let hold = self.waits.lock().unwrap().0;
+        let hold = self.waits.locked().0;
         if self.wait_for_session(None, hold).await.is_none() {
             return Err(error);
         }
@@ -739,7 +747,7 @@ impl Client {
             return Err(error);
         }
         progress(Progress::Held);
-        let resend = self.waits.lock().unwrap().1;
+        let resend = self.waits.locked().1;
         if self.wait_for_session(Some(sent_on), resend).await.is_none() {
             return Err(error);
         }
@@ -809,7 +817,7 @@ impl Client {
                     (e, Disconnect::Refused)
                 }
                 Err(e) => {
-                    let mut last = self.last_down.lock().unwrap();
+                    let mut last = self.last_down.locked();
                     if last.as_deref() != Some(e.as_str()) {
                         log::write("connection", &format!("can't reach the runner: {e}"));
                         *last = Some(e.clone());
@@ -817,18 +825,18 @@ impl Client {
                     (e, Disconnect::Down)
                 }
             };
-            self.out.lock().unwrap().take();
+            self.out.locked().take();
             // Gone before what was on its way hears so, so a request cut off
             // can tell any connection after this from the one it was on.
             self.session.send_replace(0);
-            for (_, tx) in self.pending.lock().unwrap().drain() {
+            for (_, tx) in self.pending.locked().drain() {
                 let _ = tx.send(Err(RpcError::closed()));
             }
             self.update_restart(|r| r.disconnected(Instant::now()));
             // A restart is over in a few seconds; backing off to 4 s and more
             // left the window saying "Reconnecting" well after the runner
             // was back (`connectLoop`).
-            let wait_ms = if self.restart.lock().unwrap().is_restarting(Instant::now()) {
+            let wait_ms = if self.restart.locked().is_restarting(Instant::now()) {
                 backoff_ms.min(500)
             } else {
                 backoff_ms
@@ -910,7 +918,7 @@ impl Client {
 
         // Signed in: a writer fed by `call`, and this task reading.
         let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
-        *self.out.lock().unwrap() = Some(tx);
+        *self.out.locked() = Some(tx);
         let writer = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if write.send(msg).await.is_err() {
@@ -925,7 +933,7 @@ impl Client {
         // Its error, if it failed: the session ends on that, below.
         let mut hello = tokio::spawn(async move {
             let mut params = json!({ "client": CLIENT_NAME, "version": env!("CARGO_PKG_VERSION") });
-            // The Browser pane and BrowserBear's handoff (docs/protocol.md,
+            // The Browser pane and BrowserBear's handoff (docs/protocol/panels.md,
             // "Showing panels"): BrowserBear is a Mac thing.
             if cfg!(target_os = "macos") {
                 params["browserPanel"] = json!(true);
@@ -938,7 +946,7 @@ impl Client {
                     // Whatever restart there was is over; a new pending one
                     // comes back with hello's notice and runner.status.
                     me.update_restart(|r| r.connected());
-                    *me.last_down.lock().unwrap() = None;
+                    *me.last_down.locked() = None;
                     log::write(
                         "connection",
                         &format!(
@@ -1004,7 +1012,7 @@ impl Client {
             self.dispatch(v);
         };
         hello.abort();
-        self.out.lock().unwrap().take();
+        self.out.locked().take();
         let _ = writer.await;
         match hello_failed {
             Some(e) => Err(format!("The runner didn't answer hello: {e}")),
@@ -1016,7 +1024,7 @@ impl Client {
         let id = v.get("id").and_then(Value::as_u64);
         let is_reply = v.get("result").is_some() || v.get("error").is_some();
         if let (Some(id), true) = (id, is_reply) {
-            if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
+            if let Some(tx) = self.pending.locked().remove(&id) {
                 let result = match v.get("error") {
                     Some(e) => Err(RpcError {
                         code: e.get("code").and_then(Value::as_i64).unwrap_or(-32000),

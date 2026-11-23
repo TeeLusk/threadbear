@@ -21,7 +21,6 @@ use gpui_kit::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use threadbear_client::runner::Status;
 use threadbear_core::composer::{self, OWN_ANSWER};
 use threadbear_core::inbox::ThreadSummary;
 use threadbear_core::projects::{self as rules, Project, Sections};
@@ -245,6 +244,22 @@ impl DecisionCard {
         for (index, ask) in asks.iter().enumerate() {
             column = column.child(self.render_ask(index, ask, numbered, window, cx));
         }
+        // Drafts he's changed in the thread's replies go with the answer
+        // too: a chip each says so (composer_drafts.rs). No View: the
+        // reply isn't on this page.
+        let drafts = crate::draft_boxes::pending_edits(&self.thread, cx);
+        if !drafts.is_empty() {
+            column = column.child(
+                div()
+                    .mt(px(8.))
+                    .child(crate::composer_drafts::pending_chips(
+                        "decision-draft-chips",
+                        drafts,
+                        None,
+                        cx,
+                    )),
+            );
+        }
         column.into_any_element()
     }
 }
@@ -451,7 +466,10 @@ impl Threadbear {
     /// Sends a decision's answers to its thread (`sendDecision`, by way of
     /// `post`): it needs the runner there to take it, as a message from the
     /// thread's own box does.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     pub(crate) fn send_decision(
         &mut self,
         thread: String,
@@ -474,8 +492,7 @@ impl Threadbear {
         // Connected by the client's own word too: it says so a moment before
         // the app hears it, and the restart it held for is already over then
         // (Codex's review, 13 Nov).
-        let connected = matches!(self.status, Status::Connected { .. })
-            || self.client.connected_session().is_some();
+        let connected = self.connected() || self.client.connected_session().is_some();
         if !connected && !holding {
             self.show_error(
                 "Not connected to the runner, so that wasn't sent.".to_owned(),
@@ -666,13 +683,7 @@ impl Threadbear {
                         .min_w_0()
                         .text_color(secondary)
                         .child(div().flex_none().child("Sending to "))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .font_semibold()
-                                .child(title.clone()),
-                        )
+                        .child(div().min_w_0().truncate().font_semibold().child(title))
                         .child(div().flex_none().child("…")),
                 )
                 .child(
@@ -708,7 +719,7 @@ impl Threadbear {
                                     .text_size(px(style::size::LABEL))
                                     .line_height(px(16.))
                                     .font_semibold()
-                                    .child(title.clone()),
+                                    .child(title),
                             )
                             .child(
                                 div()

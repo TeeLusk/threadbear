@@ -235,7 +235,7 @@ impl DockController {
             }
             self.drag = Some(DragState {
                 panel: panel.to_string(),
-                source_group: group.id.clone(),
+                source_group: group.id,
                 source_frame: frame,
                 grab: Point::new(
                     (start.x - frame.min_x()) / frame.width.max(1.),
@@ -550,6 +550,10 @@ impl DockController {
             (DockEdge::Top, f.mid_y() - b.min_y()),
             (DockEdge::Bottom, b.max_y() - f.mid_y()),
         ];
+        #[expect(
+            clippy::expect_used,
+            reason = "min_by over four sides always finds one"
+        )]
         let edge = sides
             .iter()
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -565,8 +569,8 @@ impl DockController {
 
     pub fn window_size_for(size: Size) -> Size {
         Size::new(
-            size.width.max(WINDOW_MIN.width).min(WINDOW_MAX.width),
-            size.height.max(WINDOW_MIN.height).min(WINDOW_MAX.height),
+            size.width.clamp(WINDOW_MIN.width, WINDOW_MAX.width),
+            size.height.clamp(WINDOW_MIN.height, WINDOW_MAX.height),
         )
     }
 
@@ -765,13 +769,17 @@ impl DockController {
                 (DockEdge::Top, fy),
                 (DockEdge::Bottom, 1. - fy),
             ];
+            #[expect(
+                clippy::expect_used,
+                reason = "min_by over four sides always finds one"
+            )]
             let (edge, distance) = sides
                 .iter()
                 .copied()
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .expect("four sides");
             if distance < EDGE_BAND {
-                let drop = DockDrop::edge(group.id.clone(), edge);
+                let drop = DockDrop::edge(group.id, edge);
                 return Some(DropTarget {
                     preview: Self::slice(frame, edge, 0.5),
                     drop: self.layout.can_drop(panel, &drop).then_some(drop),
@@ -812,7 +820,7 @@ impl DockController {
             drop,
             preview,
             compass: Some(CompassState {
-                group: group.id.clone(),
+                group: group.id,
                 center,
                 hovered,
                 disabled,
@@ -925,7 +933,7 @@ impl DockController {
 
     /// The ghost's scale once lifted: to about `GHOST_WIDTH` wide, within limits.
     pub fn ghost_scale(size: Size) -> f64 {
-        (GHOST_WIDTH / size.width.max(1.)).max(0.3).min(0.85)
+        (GHOST_WIDTH / size.width.max(1.)).clamp(0.3, 0.85)
     }
 
     /// The ghost's rect while lifted: shrunk, with the grab point under the
@@ -1039,7 +1047,8 @@ pub fn resized(f: &[f64], i: usize, delta: f64, min: f64) -> Vec<f64> {
     let pair = f[i] + f[i + 1];
     let lo = min;
     let hi = pair - min;
-    if !(lo < hi) {
+    // (Not ordered covers a NaN too.)
+    if lo.partial_cmp(&hi) != Some(std::cmp::Ordering::Less) {
         return f;
     }
     f[i] = (f[i] + delta).max(lo).min(hi);

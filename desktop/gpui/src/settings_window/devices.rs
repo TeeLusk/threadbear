@@ -1,7 +1,7 @@
 // Settings › Phone & browser (DevicesSettings.swift, DevicesModel.swift): pair
 // the iPhone app with a QR code it scans, open the website signed in, and the
 // list of what's paired, each with Revoke. The runner issues every token
-// (docs/protocol.md, "Devices"), and a token is only ever inside the QR code on
+// (docs/protocol/moves.md, "Devices"), and a token is only ever inside the QR code on
 // screen or the link handed to the browser: the link is drawn into the code and
 // dropped, never kept, logged or put in the dump. The words and the code are
 // threadbear_core::devices.
@@ -58,12 +58,7 @@ pub(crate) struct DevicesDraft {
 
 impl SettingsWindow {
     fn devices_connected(&self, cx: &App) -> bool {
-        self.app.upgrade().is_some_and(|a| {
-            matches!(
-                a.read(cx).status,
-                threadbear_client::runner::Status::Connected { .. }
-            )
-        })
+        self.app.upgrade().is_some_and(|a| a.read(cx).connected())
     }
 
     /// The section came on show: the list afresh (`onAppear`), and again
@@ -714,8 +709,8 @@ pub(crate) fn automation(
             let found = window
                 .elements()
                 .into_iter()
-                .filter(|e| e.visible() && e.label().is_some_and(|l| l.to_string() == target))
-                .last()
+                .filter(|e| e.visible() && e.label().is_some_and(|l| l == target))
+                .next_back()
                 .ok_or_else(|| format!("no control {target:?} in Settings"))?;
             let at = found.visible_bounds().center();
             window.pointer_move(at, None, cx);

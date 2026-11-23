@@ -83,7 +83,7 @@ fn redraw_after(wait: Duration, cx: &mut App) {
         cx.background_executor()
             .timer(wait + Duration::from_millis(50))
             .await;
-        let _ = cx.update(|cx| cx.refresh_windows());
+        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
 }
@@ -236,7 +236,7 @@ pub(crate) fn put(command: &str, thread: &str, window: &mut Window, cx: &mut App
             Some(PutOutcome::Occupied) => "Another command's waiting for Return, so it's copied",
             _ => return,
         };
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             unmark(Icon::Put, &command);
             cx.write_to_clipboard(ClipboardItem::new_string(command.clone()));
             *BUSY.lock().unwrap_or_else(|e| e.into_inner()) =

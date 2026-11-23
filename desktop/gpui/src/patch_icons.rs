@@ -1,4 +1,4 @@
-// The pictures patches give their panels and chips (docs/protocol.md,
+// The pictures patches give their panels and chips (docs/protocol/patches.md,
 // "Patches"): a patch's own picture (`iconFile`, drawn in colour), else its
 // SF Symbol from the bundled set, and the small badge saying where a panel or
 // chip came from (`PanelOriginBadge`). The rail, the dock's tabs and the chips'

@@ -78,7 +78,7 @@ pub(crate) fn why_button(
         .justify_center()
         .cursor_pointer()
         .child(icon("info.circle", 11., p.secondary))
-        .tip(tip.clone())
+        .tip(tip)
         .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
             let position = ev.position();
             this.project_why = match &this.project_why {
@@ -109,7 +109,7 @@ impl SidePane {
         let project = self.projects.get(&project_id)?.clone();
         let (reason, who, keep) = self.why_lines(&member);
         let (bg, border) = (cx.theme().popover, p.card_border);
-        let title = project.title.clone();
+        let title = project.title;
         let mut buttons = h_flex().gap(px(8.)).items_center();
         if keep {
             let (id, t) = (project_id.clone(), thread.id.clone());
@@ -133,7 +133,7 @@ impl SidePane {
         ));
         buttons = buttons.child(div().flex_1());
         // A link to the project's page (project_page.rs), in the main panel.
-        let (open, link) = (project_id.clone(), style::link_text(cx));
+        let (open, link) = (project_id, style::link_text(cx));
         buttons = buttons.child(
             crate::highlights::tipped(
                 div()
@@ -245,9 +245,8 @@ impl SidePane {
         });
         if let Some(app) = self.app.upgrade() {
             let (add2, remove2) = (add.clone(), remove.clone());
-            let id2 = thread_id.clone();
             app.update(cx, |t, cx| {
-                if let Some(summary) = t.threads.get_mut(&id2).map(std::sync::Arc::make_mut) {
+                if let Some(summary) = t.threads.get_mut(&thread_id).map(std::sync::Arc::make_mut) {
                     let list = summary.projects.get_or_insert_with(Vec::new);
                     list.retain(|m| !remove2.contains(&m.id));
                     for id in &add2 {

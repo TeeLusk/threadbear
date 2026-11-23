@@ -388,7 +388,7 @@ impl Tour {
 
     /// On to the next step: true if there is one, false when it's the end
     /// (call `finish`).
-    pub fn next(&mut self) -> bool {
+    pub fn forward(&mut self) -> bool {
         match self.step {
             Some(i) if i + 1 < self.shown.len() => {
                 self.step = Some(i + 1);
@@ -598,25 +598,6 @@ mod tests {
     }
 
     #[test]
-    fn the_same_words_as_the_swift_app() {
-        // The Swift app's Tour.swift is frozen; these are its steps, in order.
-        let swift = include_str!("../../../app/Sources/Threadbear/Views/Tour.swift");
-        for step in steps().iter().chain(Intro::ALL.map(|i| i.card()).iter()) {
-            assert!(
-                swift.contains(&format!("\"{}\"", step.title)),
-                "Swift has no step called {}",
-                step.title
-            );
-            assert!(
-                swift.contains(&format!("\"{}\"", step.body)),
-                "Swift says something else for {}",
-                step.title
-            );
-        }
-        assert!(swift.contains(FIRST_MESSAGE));
-    }
-
-    #[test]
     fn an_intro_shows_once_and_not_when_off() {
         let mut tour = Tour::default();
         assert!(tour.introduce(Intro::Projects, false, true));
@@ -681,7 +662,7 @@ mod tests {
     fn next_on_the_last_step_ends_it() {
         let mut tour = Tour::default();
         tour.start(true, &none);
-        while tour.next() {}
+        while tour.forward() {}
         assert!(tour.is_last());
         assert_eq!(tour.finish(), Some(Finished::Tour));
         assert!(!tour.is_on());

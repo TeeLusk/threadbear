@@ -154,7 +154,7 @@ fn login_row(
         .rounded(px(6.))
         .cursor_pointer()
         .hover(|s| s.bg(style::primary_opacity(cx, 0.06)))
-        .tip(tip.clone())
+        .tip(tip)
         .on_click(move |_, window, cx| action(window, cx))
         .child(
             v_flex()

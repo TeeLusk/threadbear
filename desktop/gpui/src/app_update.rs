@@ -45,6 +45,11 @@ const LOOK_EVERY: Duration = Duration::from_secs(5 * 60);
 /// comparisons, so often, to go soon after Mike leaves the app.
 const RESTART_LOOK: Duration = Duration::from_secs(1);
 
+type FixesFrom = (
+    threadbear_core::updates::BuildCommits,
+    Vec<(String, Option<String>)>,
+);
+
 #[derive(Default)]
 pub(crate) struct AppUpdater {
     /// The running bundle's build, or none when there's nothing to follow.
@@ -59,6 +64,17 @@ pub(crate) struct AppUpdater {
     settling: bool,
     /// The last build found no Mac to build on; the next look tries again.
     pub(crate) waiting_for_host: bool,
+    /// Where the build is on its host (stage-update.sh's phase file), read
+    /// once a second with the restart looks: busy, queued or compiling.
+    pub(crate) phase: Option<threadbear_core::updates::BuildPhase>,
+    /// Main's commit when the build under way started: what a waiting
+    /// thread's commit is looked for in.
+    building_commit: Option<String>,
+    /// The threads waiting for the app to restart onto what they landed
+    /// (`awaitingApp`), with which build has it, for the Updates panel.
+    pub(crate) fixes: Vec<(String, threadbear_core::updates::FixPlace)>,
+    /// What `fixes` was worked out from: looked at again only once it changes.
+    fixes_from: Option<FixesFrom>,
     /// The last build found no Mac trusted to build it (stage-update.sh's 5:
     /// check hosts but no updateBuildHosts), so Mike has to name one; the
     /// next look tries again, so naming one is picked up without a restart.
@@ -85,7 +101,7 @@ pub(crate) struct AppUpdater {
     tasks: Vec<Task<()>>,
     /// A made-up update for a scripted app's pictures (`updates` with
     /// `preview`): Restart to Update does nothing with it.
-    preview: bool,
+    pub(crate) preview: bool,
 }
 
 fn install_dir() -> PathBuf {
@@ -150,6 +166,14 @@ pub(crate) fn log_path() -> PathBuf {
 }
 
 /// The script in the running bundle, so the app runs the copy it was built with.
+/// Where stage-update.sh says how its build is going (`BuildPhase`): its
+/// cache folder, the same path on every platform as the script uses $HOME.
+fn phase_file() -> PathBuf {
+    installed::home_dir()
+        .join("Library/Caches/Threadbear/update-desktop")
+        .join("phase")
+}
+
 fn script() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let script = threadbear_core::app_update::bundle_of(&exe)?
@@ -198,7 +222,7 @@ pub(crate) fn apply_staged_at_launch() -> bool {
 
 /// What the installed app was built from, in hello's `build`, so the runner
 /// can tell a thread waiting for the app to restart when it's back on a new
-/// one (docs/protocol.md, "App restarts"). Any other launch sends none.
+/// one (docs/protocol/updates.md, "App restarts"). Any other launch sends none.
 pub(crate) fn announce_build() {
     let launch = installed::launch();
     if let Some(build) = launch
@@ -318,6 +342,45 @@ fn main_tree(checkout: &str) -> Option<String> {
         &out.stdout,
     )))
     .filter(|t| !t.is_empty())
+}
+
+/// Main's commit in the checkout, for which build a waiting thread's
+/// commit is in.
+fn main_commit(checkout: &str) -> Option<String> {
+    let out = Command::new("/usr/bin/git")
+        .args([
+            "-C",
+            checkout,
+            "rev-parse",
+            "--verify",
+            "-q",
+            "refs/heads/main",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    let commit = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (out.status.success() && !commit.is_empty()).then_some(commit)
+}
+
+/// Whether `build` has `want` in its history: None when git can't tell (a
+/// commit it doesn't know).
+fn has_commit(checkout: &str, want: &str, build: &str) -> Option<bool> {
+    if want == build {
+        return Some(true);
+    }
+    let status = Command::new("/usr/bin/git")
+        .args(["-C", checkout, "merge-base", "--is-ancestor", want, build])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    match status.code() {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
 }
 
 fn open_log() -> Option<std::fs::File> {
@@ -530,13 +593,92 @@ impl Threadbear {
             // a window's dialogs and focus are read through its root, which
             // reads the app back.
             let windows = cx.update(|cx| windows_now(main, cx));
+            let phase = cx
+                .background_executor()
+                .spawn(async { std::fs::read_to_string(phase_file()).ok() })
+                .await;
             if this
-                .update(cx, |t, cx| t.consider_auto_restart(windows, cx))
+                .update(cx, |t, cx| {
+                    t.read_build_phase(phase, cx);
+                    t.place_waiting_fixes(cx);
+                    t.consider_auto_restart(windows, cx)
+                })
                 .is_err()
             {
                 break;
             }
         })
+    }
+
+    /// What stage-update.sh's phase file says, kept while a build runs or
+    /// waits for a host; redrawn only when the line changes (once a minute
+    /// at most, as it counts minutes).
+    fn read_build_phase(&mut self, text: Option<String>, cx: &mut Context<Self>) {
+        if self.updater.preview {
+            return;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let phase = text
+            .filter(|_| self.updater.building.is_some() || self.updater.waiting_for_host)
+            .and_then(|t| threadbear_core::updates::BuildPhase::parse(&t, now));
+        if phase != self.updater.phase {
+            self.updater.phase = phase;
+            cx.notify();
+        }
+    }
+
+    /// Works out which build has each waiting thread's commit, in the
+    /// background, once the threads waiting or the app's builds change.
+    fn place_waiting_fixes(&mut self, cx: &mut Context<Self>) {
+        use threadbear_core::updates::{fix_place, BuildCommits};
+        if self.updater.preview {
+            return;
+        }
+        let Some(checkout) = self.updater.running.as_ref().map(|b| b.checkout.clone()) else {
+            return;
+        };
+        let builds = BuildCommits {
+            running: self.updater.running.as_ref().map(|b| b.commit.clone()),
+            staged: self.updater.staged.as_ref().map(|b| b.commit.clone()),
+            building: self.updater.building_commit.clone(),
+        };
+        let mut waiting: Vec<(String, Option<String>)> = self
+            .threads
+            .values()
+            .filter_map(|t| Some((t.id.clone(), t.awaiting_app.as_ref()?.commit.clone())))
+            .collect();
+        waiting.sort();
+        let from = (builds.clone(), waiting.clone());
+        if self.updater.fixes_from.as_ref() == Some(&from) {
+            return;
+        }
+        self.updater.fixes_from = Some(from);
+        cx.spawn(async move |this, cx| {
+            let fixes = cx
+                .background_executor()
+                .spawn(async move {
+                    waiting
+                        .into_iter()
+                        .map(|(id, want)| {
+                            let place = fix_place(want.as_deref(), &builds, |want, build| {
+                                has_commit(&checkout, want, build)
+                            });
+                            (id, place)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |t, cx| {
+                if t.updater.fixes != fixes {
+                    t.updater.fixes = fixes;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Main moved: a look in a few seconds. A burst of ref writes (a merge,
@@ -570,9 +712,9 @@ impl Threadbear {
         }
         let checkout = running.checkout.clone();
         cx.spawn(async move |this, cx| {
-            let tree = cx
+            let (tree, commit) = cx
                 .background_executor()
-                .spawn(async move { main_tree(&checkout) })
+                .spawn(async move { (main_tree(&checkout), main_commit(&checkout)) })
                 .await;
             this.update(cx, |t, cx| {
                 let Some(tree) = tree else { return };
@@ -605,7 +747,7 @@ impl Threadbear {
                     }
                     Action::Build(tree) => {
                         if ready {
-                            t.start_update_build(tree, running.checkout.clone(), cx);
+                            t.start_update_build(tree, commit, running.checkout.clone(), cx);
                         } else {
                             t.updater.settling = true;
                             t.updater.waiting_for_host = false;
@@ -621,7 +763,13 @@ impl Threadbear {
         .detach();
     }
 
-    fn start_update_build(&mut self, tree: String, checkout: String, cx: &mut Context<Self>) {
+    fn start_update_build(
+        &mut self,
+        tree: String,
+        commit: Option<String>,
+        checkout: String,
+        cx: &mut Context<Self>,
+    ) {
         if self.updater.building.is_some() || self.updater.restarting {
             return;
         }
@@ -658,6 +806,7 @@ impl Threadbear {
             &tree[..tree.len().min(12)]
         ));
         self.updater.building = Some(tree.clone());
+        self.updater.building_commit = commit;
         self.updater.build_pid = Some(child.id());
         self.updater.waiting_for_host = false;
         cx.spawn(async move |this, cx| {
@@ -674,6 +823,7 @@ impl Threadbear {
 
     fn update_build_finished(&mut self, tree: String, status: Option<i32>, cx: &mut Context<Self>) {
         self.updater.building = None;
+        self.updater.building_commit = None;
         self.updater.build_pid = None;
         let no_builder = status == Some(5);
         if no_builder && !self.updater.no_builder {
@@ -863,11 +1013,7 @@ impl Threadbear {
     pub(crate) fn restart_moment(&self, windows: WindowsNow, cx: &App) -> rules::RestartMoment {
         rules::RestartMoment {
             staged: self.updater.staged.is_some(),
-            loaded: self.sidebar.loaded
-                && matches!(
-                    self.status,
-                    threadbear_client::runner::Status::Connected { .. }
-                ),
+            loaded: self.sidebar.loaded && self.connected(),
             has_drafts: self.has_unsent_words(cx),
             held: windows.held || self.under_way(cx),
             other_window_input: windows.other_window_input,
@@ -1180,10 +1326,11 @@ impl Threadbear {
                 .filter(|_| installed::launch().installed)
                 .or_else(|| u.no_builder.then(|| NO_BUILDER.to_owned())),
             wait: u.wait.clone().filter(|_| u.staged.is_some()),
+            phase: u.phase.clone().filter(|_| u.staged.is_none()),
         }
     }
 
-    /// A made-up update that's "staged", "building", "settling", "failed", "waiting" or "no-builder"
+    /// A made-up update that's "staged", "building", "queued", "settling", "failed", "waiting" or "no-builder"
     /// (or none, on abc1234), for a scripted app's pictures and specs, as
     /// the Swift app's `previewUpdate`. Only scripts reach it, through the
     /// Updates panel's `updates` command.
@@ -1199,7 +1346,20 @@ impl Threadbear {
         u.preview = true;
         u.running = Some(build("abc1234"));
         u.staged = (state == "staged").then(|| build("def5678"));
-        u.building = (state == "building").then(|| "def5678".to_owned());
+        u.building = matches!(state, "building" | "queued").then(|| "def5678".to_owned());
+        u.phase = match state {
+            "queued" => Some(threadbear_core::updates::BuildPhase {
+                state: threadbear_core::updates::BuildState::Queued { ahead: 2 },
+                host: "build-mac".into(),
+                minutes: 12,
+            }),
+            "building" => Some(threadbear_core::updates::BuildPhase {
+                state: threadbear_core::updates::BuildState::Building,
+                host: "build-mac".into(),
+                minutes: 4,
+            }),
+            _ => None,
+        };
         u.settling = state == "settling";
         u.failed = (state == "failed").then(|| "def5678".to_owned());
         u.waiting_for_host = state == "waiting";

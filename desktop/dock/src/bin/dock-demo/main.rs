@@ -1,6 +1,11 @@
 // A playground for BearDock on GPUI: mock panels to drag about until docking
 // feels right, as dock/Sources/DockDemo is for the Swift one. The layout is saved
 // between launches; Reset puts it back. Run: `cargo run -p threadbear-dock --bin dock-demo`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a demo program, not part of the app"
+)]
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Theme, ThemeMode};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -353,7 +358,7 @@ impl Render for DemoRoot {
                             .cursor_pointer()
                             .child("Reset layout")
                             .on_click({
-                                let m = model.clone();
+                                let m = model;
                                 move |_, _, cx| m.update(cx, |m, cx| m.set_layout(starting(), cx))
                             }),
                     ),

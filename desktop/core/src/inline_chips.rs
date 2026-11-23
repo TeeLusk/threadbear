@@ -361,9 +361,9 @@ mod tests {
         let mention = text.find(link).unwrap()..text.find(link).unwrap() + link.len();
         let second = mention.end + 1..mention.end + 4;
         let chips = vec![
-            (first.clone(), BoxChip::Picture(Some(picture.clone()))),
+            (first, BoxChip::Picture(Some(picture.clone()))),
             (mention.clone(), BoxChip::Mention),
-            (second.clone(), BoxChip::Picture(None)),
+            (second, BoxChip::Picture(None)),
         ];
         let (draft, images) = draft_in(&text, &chips, 0..text.len());
         assert_eq!(
@@ -371,7 +371,7 @@ mod tests {
             format!("see \u{FFFC} and {link} !"),
             "a picture still copying in isn't in it"
         );
-        assert_eq!(images, vec![picture.clone()]);
+        assert_eq!(images, vec![picture]);
         // Part of the way into the first chip counts it whole.
         let (draft, images) = draft_in(&text, &chips, 5..mention.end);
         assert_eq!(draft, format!("\u{FFFC} and {link}"));
@@ -393,7 +393,7 @@ mod tests {
         };
         let clip = Clip::new(
             "look \u{FFFC} and \u{FFFC}".into(),
-            vec![picture.clone(), picture.clone()],
+            vec![picture.clone(), picture],
         );
         assert_eq!(clip.plain, "look [Picture 1] and [Picture 2]");
         let back = Clip::from_clipboard(&clip.plain, &clip.metadata()).expect("a clip");

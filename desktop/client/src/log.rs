@@ -55,7 +55,7 @@ pub fn path() -> Option<PathBuf> {
 /// `restart`, `send`, `automation`) and what happened.
 pub fn write(category: &str, message: &str) {
     let line = format!("{} {category} {message}\n", clock());
-    eprint!("threadbear: {category} {message}\n");
+    eprintln!("threadbear: {category} {message}");
     let Ok(mut guard) = FILE.lock() else { return };
     let Some(log) = guard.as_mut() else { return };
     if log.bytes + line.len() as u64 > MAX_BYTES {

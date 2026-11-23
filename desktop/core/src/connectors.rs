@@ -1,5 +1,5 @@
 // Mike's Connectors gateway, as the runner last heard from its /health
-// (docs/protocol.md, "Connectors"): `connectors.status` and
+// (docs/protocol/panels.md, "Connectors"): `connectors.status` and
 // `connectors.updated`, and what the Connectors panel and its activity bar
 // icon say about it, a port of Connectors.swift and ConnectorsText.swift.
 // The accent dot only when a service is signed out, as only Mike can sign it
@@ -105,6 +105,7 @@ pub fn tooltip(s: Option<&ConnectorsStatus>) -> String {
     let mut lines = vec!["Connectors".to_owned()];
     match s.map(|s| s.state.as_str()) {
         Some("ok") => {
+            #[expect(clippy::expect_used, reason = "this arm is only reached with a status")]
             let all = &s.expect("ok has a status").services;
             let out: Vec<&str> = signed_out(s).iter().map(|x| x.title.as_str()).collect();
             if !out.is_empty() {
@@ -306,7 +307,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// What the mock runner's gateway says (app/Tools/mock-runner/server.mjs).
+    /// What the mock runner's gateway says (mock-runner/server.mjs).
     fn mock() -> ConnectorsStatus {
         ConnectorsStatus::decode(
             &json!({ "state": "ok", "url": "https://mac-mini.example.ts.net:8443", "version": "0.2.0", "checkedAt": "2026-11-11T01:00:00.000Z", "services": [

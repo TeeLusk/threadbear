@@ -322,6 +322,7 @@ pub fn agent_name(provider: &str) -> String {
         "grok" => "Grok".to_owned(),
         "opencode" => "OpenCode".to_owned(),
         "cursor" => "Cursor".to_owned(),
+        "antigravity" => "Gemini".to_owned(),
         other => {
             let mut c = other.chars();
             c.next()

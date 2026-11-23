@@ -363,7 +363,7 @@ fn paint_layer(draw: bool, window: &mut Window, cx: &mut App) {
             )
         };
         let color = arc.color.opacity(shown);
-        window.with_content_mask(Some(arc.mask.clone()), |window| {
+        window.with_content_mask(Some(arc.mask), |window| {
             paint_arc(arc.bounds, color, arc.sweep, window)
         });
     }
@@ -384,7 +384,7 @@ fn next_frame(window: &mut Window, cx: &mut App) {
     cx.spawn(async move |cx| {
         cx.background_executor().timer(FRAME).await;
         TICKING.with(|t| t.borrow_mut().remove(&view));
-        let _ = cx.update(|cx| cx.notify(view));
+        cx.update(|cx| cx.notify(view));
     })
     .detach();
 }
@@ -561,7 +561,10 @@ fn next_spinner_frame(window: &mut Window, cx: &mut App) {
             },
         );
     }
-    let frame = clock.pending.get_mut(&id).unwrap();
+    // There since the register above at the latest.
+    let Some(frame) = clock.pending.get_mut(&id) else {
+        return;
+    };
     frame.views.insert(view);
     if register {
         let serial = frame.serial;
@@ -583,7 +586,9 @@ fn present_spinners(serial: u64, window: &mut Window, cx: &mut App) {
         window.on_next_frame(move |window, cx| present_spinners(serial, window, cx));
         return;
     }
-    let frame = pending.remove(&id).unwrap();
+    let Some(frame) = pending.remove(&id) else {
+        return;
+    };
     for view in frame.views {
         cx.notify(view);
     }

@@ -236,7 +236,10 @@ impl Threadbear {
     /// inbox: a thread whose starter is in the same project sits under it,
     /// indented, while the starter's group is open; one whose starter is
     /// elsewhere keeps its own row here.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn push_rows(
         &self,
         items: &mut Vec<Item>,
@@ -249,7 +252,7 @@ impl Threadbear {
     ) {
         let Some(nesting) = nesting.filter(|n| !n.is_empty()) else {
             items.extend(threads.iter().map(|t| Item::Row {
-                thread: shown(*t),
+                thread: shown(t),
                 section: "inbox",
                 group: group.to_owned(),
                 part,
@@ -301,7 +304,7 @@ impl Threadbear {
                     "running"
                 };
                 items.push(Item::Row {
-                    thread: shown(*c),
+                    thread: shown(c),
                     section,
                     group: group.to_owned(),
                     part,
@@ -622,7 +625,10 @@ impl Threadbear {
     /// right, its decisions in the needs-you orange when it has any, else a
     /// quiet count of its threads. Not in a project folds the same way, and
     /// having no page, its whole row folds.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn render_project_fold(
         &mut self,
         id: &str,

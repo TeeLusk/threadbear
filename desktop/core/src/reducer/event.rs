@@ -3,7 +3,7 @@
 // reducer reads.
 //
 // Decoding goes through serde_json::Value by hand rather than serde's derive,
-// because the Swift decoders' tolerance (docs/protocol.md: "keep both sides
+// because the Swift decoders' tolerance (AGENTS.md: "keep both sides
 // tolerant of unknown fields and event types") is written field by field:
 // some fields fall back when the value is the wrong type (`try?`), some fail
 // the whole event (`try`), and which is which is part of the behaviour. Each
@@ -54,7 +54,7 @@ fn int_value(v: &Value) -> Option<i64> {
         return Some(i);
     }
     let f = v.as_f64()?;
-    if f.fract() == 0.0 && (-9.223372036854775808e18..9.223372036854775808e18).contains(&f) {
+    if f.fract() == 0.0 && (-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&f) {
         Some(f as i64)
     } else {
         None
@@ -574,10 +574,7 @@ pub fn is_web_address(url: &str) -> bool {
         return false;
     }
     let rest = &url[colon + 3..];
-    let authority = rest
-        .split(|c| c == '/' || c == '?' || c == '#')
-        .next()
-        .unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = authority.rsplit('@').next().unwrap_or("");
     let host = host.split(':').next().unwrap_or("");
     !host.is_empty()
@@ -1264,7 +1261,7 @@ impl ApprovalDecision {
 }
 
 /// The agent's other calls from the same reply, waiting behind an approval
-/// card (`ApprovalQueue`, docs/protocol.md "Queued calls").
+/// card (`ApprovalQueue`, docs/protocol/threads.md "Queued calls").
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApprovalQueue {
     pub approval_id: String,
@@ -1440,7 +1437,7 @@ pub struct TurnCompletion {
     /// With needs "nothing": follow-ups the agent suggested.
     pub next: Vec<String>,
     /// On the turn that answered another lab's findings: the ledger
-    /// (`review`, docs/protocol.md "Review by another lab").
+    /// (`review`, docs/protocol/needs-you.md "Review by another lab").
     pub review: Option<LabReview>,
 }
 
@@ -1479,7 +1476,7 @@ impl TurnCompletion {
 }
 
 /// One finding of another lab's review, and what the agent did about it
-/// (LabReview.Finding, docs/protocol.md "Review by another lab").
+/// (LabReview.Finding, docs/protocol/needs-you.md "Review by another lab").
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReviewFinding {
     pub id: i64,

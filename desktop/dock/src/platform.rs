@@ -58,6 +58,8 @@ mod mac {
         y: f64,
     }
 
+    // SAFETY: NSPoint is repr(C) with two f64 fields, the same layout as
+    // CGPoint on 64-bit macOS, which is what this encoding says.
     unsafe impl objc2::Encode for NSPoint {
         const ENCODING: objc2::Encoding =
             objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
@@ -77,11 +79,15 @@ mod mac {
         size: NSSize,
     }
 
+    // SAFETY: NSSize is repr(C) with two f64 fields, the same layout as
+    // CGSize on 64-bit macOS, which is what this encoding says.
     unsafe impl objc2::Encode for NSSize {
         const ENCODING: objc2::Encoding =
             objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
     }
 
+    // SAFETY: NSRect is repr(C) as an NSPoint then an NSSize, the same layout
+    // as CGRect, and the encoding is built from theirs.
     unsafe impl objc2::Encode for NSRect {
         const ENCODING: objc2::Encoding =
             objc2::Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
@@ -101,6 +107,11 @@ mod mac {
     /// `origin` in GPUI's window coordinates: top-left on the main display.
     pub fn set_window_origin(window: &Window, origin: gpui_kit::Point<Pixels>) {
         let Some(ns) = ns_window(window) else { return };
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. screen, frame and setFrameOrigin:
+        // are NSWindow/NSScreen methods with the types used here, and a nil
+        // screen returns early.
         unsafe {
             let screen: *mut AnyObject = msg_send![ns, screen];
             if screen.is_null() {
@@ -121,6 +132,9 @@ mod mac {
 
     pub fn set_window_alpha(window: &Window, alpha: f64) {
         let Some(ns) = ns_window(window) else { return };
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. setAlphaValue: takes a CGFloat (f64).
         unsafe {
             let _: () = msg_send![ns, setAlphaValue: alpha];
         }
@@ -137,6 +151,10 @@ mod mac {
             return None;
         }
         let ns = ns_window(window)?;
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. +[NSEvent mouseLocation] and -frame
+        // return the NSPoint and NSRect read here.
         unsafe {
             let location: NSPoint = msg_send![objc2::class!(NSEvent), mouseLocation];
             let frame: NSRect = msg_send![ns, frame];
@@ -154,6 +172,10 @@ mod mac {
             return None;
         }
         let ns = ns_window(window)?;
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. +[NSEvent mouseLocation] and -frame
+        // return the NSPoint and NSRect read here.
         unsafe {
             let mouse: NSPoint = msg_send![objc2::class!(NSEvent), mouseLocation];
             let frame: NSRect = msg_send![ns, frame];
@@ -166,6 +188,10 @@ mod mac {
 
     pub fn move_grabbed_window(window: &Window, grab: super::WindowGrab) {
         let Some(ns) = ns_window(window) else { return };
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. +[NSEvent mouseLocation] returns an
+        // NSPoint and setFrameOrigin: takes one.
         unsafe {
             let mouse: NSPoint = msg_send![objc2::class!(NSEvent), mouseLocation];
             let origin = NSPoint {
@@ -180,6 +206,9 @@ mod mac {
     /// window about to open, which mustn't catch the pointer it follows.
     pub fn set_ignores_mouse_events(window: &Window, ignores: bool) {
         let Some(ns) = ns_window(window) else { return };
+        // SAFETY: `ns` is the live NSWindow behind GPUI's `window`, which the
+        // borrow keeps open, and GPUI calls us on the main thread as AppKit
+        // needs. setIgnoresMouseEvents: takes a BOOL.
         unsafe {
             let _: () = msg_send![ns, setIgnoresMouseEvents: ignores];
         }

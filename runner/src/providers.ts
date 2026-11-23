@@ -1,6 +1,6 @@
 // What each provider is called and what it can do. The runner's checks read
 // this rather than comparing provider names, and hello hands it to the apps
-// (docs/protocol.md, "Providers"), so adding a provider is a row here and
+// (docs/protocol/types.md, `ProviderInfo`), so adding a provider is a row here and
 // not a hunt through every `=== 'codex'`.
 //
 // What's left comparing names is really about one CLI's own files or

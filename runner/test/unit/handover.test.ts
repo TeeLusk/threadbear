@@ -571,7 +571,7 @@ test('a handed-over thread from before `request` learns it from the start of its
 });
 
 test('Peers: the bearer header goes only to a draining runner whose own drain file says it predates the challenge', async () => {
-  // docs/protocol.md, "Before the challenge": the first handover onto a
+  // docs/protocol/connection.md, "Before the challenge": the first handover onto a
   // release with the challenge is from one without it, which can't answer
   // one. The drain file, in this runner's own data dir, is what says so;
   // one from a challenge runner gets the challenge.
@@ -736,7 +736,7 @@ test("Peers: a thread that can't be taken in stays arriving, and one being hande
   assert.deepEqual(took, []);
 });
 
-// docs/protocol.md, "Who stopped it": his Stop on the phone says so; an agent's
+// docs/protocol/needs-you.md, "Who stopped it": his Stop on the phone says so; an agent's
 // interrupt_thread, which goes through the router, doesn't.
 test("only the phone's Stop counts as Alex's, not an agent's interrupt_thread", async () => {
   const h = makeHarness();

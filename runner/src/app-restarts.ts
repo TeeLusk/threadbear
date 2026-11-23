@@ -6,7 +6,7 @@ import type { Logger } from './log.ts';
 import type { Runner } from './runner.ts';
 
 // Telling a thread when the Mac app has restarted onto a new build
-// (docs/protocol.md, "App restarts"). An agent that changed the app asks
+// (docs/protocol/updates.md, "App restarts"). An agent that changed the app asks
 // Mike to Restart to Update and ends its turn; the app says `hello` with
 // its build when it comes back, and each thread waiting for that gets a
 // note and a message, so it can check its change in the running app.
@@ -191,6 +191,31 @@ export class AppRestarts {
 
   isWatching(threadId: string): boolean {
     return this.read().watching.some((w) => w.threadId === threadId);
+  }
+
+  // The commit a waiting thread wants in the app, for its summary's
+  // `awaitingApp` (the Updates panel lists it, with whether the build on its
+  // way has it). {} when there's no commit to look for; undefined when it
+  // isn't waiting, or asked over a day ago (it won't carry on by itself).
+  // Read for every summary, so the file is read again only once it changes.
+  waitingFor(threadId: string): { commit?: string; short?: string } | undefined {
+    const w = this.cached().watching.find((x) => x.threadId === threadId);
+    if (!w || !(this.deps.clock.now() - Date.parse(w.requestedAt) < MAX_AGE_MS)) return undefined;
+    return w.want ? { commit: w.want.commit, short: w.want.short } : {};
+  }
+
+  private cache?: { stamp: string; state: SavedState };
+
+  private cached(): SavedState {
+    let stamp = '';
+    try {
+      const st = fs.statSync(appRestartsPath(this.deps.home));
+      stamp = `${st.mtimeMs}:${st.size}:${st.ino}`;
+    } catch {
+      return { watching: [] };
+    }
+    if (this.cache?.stamp !== stamp) this.cache = { stamp, state: this.read() };
+    return this.cache.state;
   }
 
   // An app's `hello`, with the build it's running.

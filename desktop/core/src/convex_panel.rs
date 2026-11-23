@@ -1,4 +1,4 @@
-// The Convex panel's data and rules, with nothing drawn (docs/protocol.md,
+// The Convex panel's data and rules, with nothing drawn (docs/protocol/patches.md,
 // "The Convex panel"): what the runner answers, the one sign-in page the app
 // will open, and the script that hands Convex's embedded dashboard its deploy
 // key. A port of the Swift app's ConvexDeployment, ConvexDeploymentChoice,
@@ -315,7 +315,7 @@ mod tests {
             deployment_url: "https://busy-bear-456.convex.cloud".into(),
             label: "Production".into(),
         }];
-        let choices = with_configured(listed.clone(), &configured);
+        let choices = with_configured(listed, &configured);
         assert_eq!(choices.len(), 2);
         assert_eq!(choices[0].label, "Configured");
         assert_eq!(label(&choices, "busy-bear-456"), "Production");

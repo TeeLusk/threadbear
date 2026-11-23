@@ -161,7 +161,7 @@ impl ToolPresentation {
                         .get("offset")
                         .and_then(Value::as_f64)
                         .and_then(int_checked)
-                        .map(|o| o.max(1).min(1_000_000_000))
+                        .map(|o| o.clamp(1, 1_000_000_000))
                         .unwrap_or(1);
                     return Detail::File {
                         path: Self::short_title(path, 400),

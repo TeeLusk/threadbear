@@ -11,8 +11,8 @@
 # Linux and Windows see, which tb land's quick check on Tinker Desk can't.
 #
 # The paths are everything the app builds and tests from, the files outside
-# desktop/ included (the Swift app's pictures and pele.js, the shared inbox
-# fixture, the runner files the mock runner imports):
+# desktop/ included (the mock runner, the pictures, pele.js and cases in
+# shared/, the runner files the mock runner imports):
 # runner/test/unit/desktop-ci-paths.test.ts finds those in the code and fails
 # when one's missing here, as a change to only them ran no desktop CI.
 # tb land: hold while red
@@ -30,11 +30,8 @@ on:
       - runner/src/samples.ts
       - web/src/sections.ts
       - web/src/format.ts
-      - app/Tools/mock-runner/**
-      - app/Sources/Threadbear/Resources/Art/**
-      - app/Sources/Threadbear/Resources/Rich/**
-      - app/Sources/Threadbear/Views/Tour.swift
-      - app/Tests/Fixtures/**
+      - mock-runner/**
+      - shared/**
       - site/app-doc-slugs.json
       - features/**
       - .github/workflows/desktop.yml
@@ -48,11 +45,8 @@ on:
       - runner/src/samples.ts
       - web/src/sections.ts
       - web/src/format.ts
-      - app/Tools/mock-runner/**
-      - app/Sources/Threadbear/Resources/Art/**
-      - app/Sources/Threadbear/Resources/Rich/**
-      - app/Sources/Threadbear/Views/Tour.swift
-      - app/Tests/Fixtures/**
+      - mock-runner/**
+      - shared/**
       - site/app-doc-slugs.json
       - features/**
       - .github/workflows/desktop.yml
@@ -139,7 +133,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev libvulkan-dev xvfb mesa-vulkan-drivers dbus-x11
       - name: Install the mock runner and the specs
         run: |
-          npm ci --prefix app/Tools/mock-runner
+          npm ci --prefix mock-runner
           npm ci --prefix features
       - name: The specs line up with their steps
         working-directory: features
@@ -147,6 +141,15 @@ jobs:
       - name: The specs' steps typecheck
         working-directory: features
         run: npm run typecheck
+      # Clippy with desktop/Cargo.toml's [workspace.lints], on Linux and the
+      # Mac (each lints its own platform's code); a warning fails it.
+      - name: Clippy
+        if: runner.os != 'Windows' && !matrix.specsOnly
+        run: |
+          cargo clippy --locked --manifest-path desktop/Cargo.toml --workspace --all-targets -- -D warnings || {
+            echo "::error::Clippy found problems. To see them: cd desktop && cargo clippy --workspace --all-targets -- -D warnings (desktop/Cargo.toml says what each lint is for)."
+            exit 1
+          }
       - name: Rust tests (with the mock runner)
         if: ${{ !matrix.specsOnly }}
         run: cargo test --locked --manifest-path desktop/Cargo.toml
@@ -156,6 +159,9 @@ jobs:
       - name: File-drop regression tests
         if: ${{ !matrix.specsOnly }}
         run: cargo test --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation --test file_drop
+      - name: GIF regression tests
+        if: ${{ !matrix.specsOnly }}
+        run: cargo test --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation --test gif_frames
       - name: Loader repaint and lifetime regressions
         if: ${{ !matrix.specsOnly }}
         run: |

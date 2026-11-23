@@ -1,4 +1,4 @@
-// Handovers: draining this runner after a new release takes over, and adopting threads from the old one (docs/protocol.md, "Handovers").
+// Handovers: draining this runner after a new release takes over, and adopting threads from the old one (docs/protocol/updates.md, "Handovers").
 // Part of the Runner (runner.ts), split out on 4 Nov 2026 as a plain move so a
 // fork's change to one area doesn't clash with another's. Each method's `this`
 // is the Runner; runner.ts puts them on its prototype.
@@ -11,6 +11,7 @@ import { ErrorCode, RpcError } from '../protocol.ts';
 import type { ThreadRecord } from '../store.ts';
 import type { Drain, ThreadState } from '../runner.ts';
 import { DRAIN_AGENT_MS, DRAIN_BACKGROUND_MS, DRAIN_CHECK_MS, DRAIN_MAX_OLD_MS, DRAIN_SETTLE_MS, newRuntime } from '../runner.ts';
+import { runningSession } from '../cli-session.ts';
 
 // Runner.openCards: events read from a log at once, kept small as each
 // chunk is read and parsed in one go on a runner still running turns, and
@@ -184,7 +185,7 @@ export const handoversPart = {
     rt.idleTimer?.cancel();
     rt.idleTimer = undefined;
     this.flushDeltas(st);
-    if (rt.session && !rt.closing) {
+    if (runningSession(rt)) {
       this.rememberStoppedWork(st);
       this.releaseSession(st);
     }
@@ -205,7 +206,7 @@ export const handoversPart = {
     if (rt.deleted) return;
     rt.deltaTimer?.cancel();
     rt.wakeTimer?.cancel();
-    rt.generation++;
+    this.cli(st, { kind: 'drop', forget: false });
     this.store.saveIfChanged(rec);
     rt.deleted = true;
     this.dirty.delete(rec.id);

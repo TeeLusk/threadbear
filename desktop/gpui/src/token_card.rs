@@ -1,5 +1,5 @@
 // The in-thread token card (docs/virtual-runners.md, "What it's like when it's
-// done"; docs/protocol.md, "Cloud tokens on the Mac"). A thread on a virtual
+// done"; docs/protocol/keys.md, "Cloud tokens on the Mac"). A thread on a virtual
 // runner whose Claude login has no cloud token, or only one Claude refused,
 // shows one card on its composer, as the limit box does: Make one (claude
 // setup-token on this Mac, approved on claude.ai in the browser), Paste a
@@ -351,7 +351,7 @@ impl Composer {
         } else {
             self.token_field = None;
         }
-        if let Some(error) = state.error.clone() {
+        if let Some(error) = state.error {
             column = column.child(
                 div()
                     .id("token-error")

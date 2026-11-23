@@ -1,4 +1,4 @@
-// One small-model call on an ACP agent's login (docs/protocol.md, "Settings
+// One small-model call on an ACP agent's login (docs/protocol/settings.md, "Settings
 // and models"): start the agent in an empty folder, open a session with no
 // MCP servers, send the prompt, collect the words, stop it.
 //

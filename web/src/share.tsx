@@ -9,7 +9,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useConvex, useMutation, useQuery } from 'convex/react';
 import { useLiveQuery } from './live';
 import { api } from '../../convex/_generated/api';
-import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage, type Picture } from './messages';
+import { EditedDrafts, MessageText, Pictures, PlanCard, picturesByRow, ToolRun, Worked, type PageMessage, type Picture } from './messages';
+import { editedLabel, splitEdited } from './draft';
 import { CommandNote, useCommand } from './command-state';
 import { empty, hasMore, nextBefore, pictures, rows, takeLive, takeOlder, type History } from './share-history';
 import { fold, splitTurns, duration, roughly, type Item, type Turn } from './turns';
@@ -208,7 +209,19 @@ function TurnSection({ id, turn, busy, after, inText, rows }: { id: string; turn
     item.kind === 'message' || item.kind === 'note' ? [item.m.seq] : item.kind === 'tools' ? item.items.map((m) => m.seq) : item.items.flatMap(seqsOf);
   for (const item of items) if (item.kind === 'worked') fromWork.push(...seqsOf(item).flatMap((s) => after.get(s) ?? []));
 
-  const text = (m: PageMessage) => <MessageText text={m.text} pictures={inText} seq={m.seq} rows={rows} />;
+  const text = (m: PageMessage) => {
+    // Drafts he changed, sent on the end of his words: chips, as in the app.
+    if (m.plan && m.role === 'assistant') return <PlanCard m={m} pictures={inText} rows={rows} />;
+    const edited = m.role === 'user' ? splitEdited(m.text) : undefined;
+    return edited ? (
+      <>
+        <MessageText text={edited.words} pictures={inText} seq={m.seq} rows={rows} />
+        <EditedDrafts drafts={edited.drafts} />
+      </>
+    ) : (
+      <MessageText text={m.text} pictures={inText} seq={m.seq} rows={rows} />
+    );
+  };
   return (
     <section className="turn" id={id} data-turn={turn.messages[0]!.seq}>
       {items.map((item) => {
@@ -265,7 +278,10 @@ function TurnSection({ id, turn, busy, after, inText, rows }: { id: string; turn
 // or another thread's agent starts it with.
 function askText(m: PageMessage): string {
   const from = sender(m);
-  return plain(from ? `${from.who}: ${from.body}` : m.text);
+  if (from) return plain(`${from.who}: ${from.body}`);
+  // His words without the drafts he changed, or what the chip calls one.
+  const edited = m.role === 'user' ? splitEdited(m.text) : undefined;
+  return plain(edited ? edited.words || editedLabel(edited.drafts[0]!.kind) : m.text);
 }
 
 // The outline on a narrow screen: "3 turns" in the bar, opening to the asks.

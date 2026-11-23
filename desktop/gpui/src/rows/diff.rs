@@ -125,8 +125,8 @@ fn diff_rows(
     let mut rows = vec![];
     let mut placed = placed.into_iter().peekable();
     for (i, line) in lines.iter().enumerate() {
-        while placed.peek().is_some_and(|(at, _)| *at == i) {
-            rows.push(placed.next().unwrap().1);
+        while let Some((_, row)) = placed.next_if(|(at, _)| *at == i) {
+            rows.push(row);
         }
         rows.push(match line.kind {
             // A quiet break between hunks rather than the @@ header.
@@ -302,7 +302,7 @@ pub(crate) fn diff_with_note(
         };
         col = col.child(match note {
             DiffNote::ShowMore(on_click) => div()
-                .id((key.clone(), 1_000_000usize))
+                .id((key, 1_000_000usize))
                 .pl(px(inset))
                 .h(px(26.))
                 .flex()
@@ -352,7 +352,7 @@ impl ThreadPane {
         let note = if show_all {
             DiffNote::Quiet
         } else {
-            let (row_id, key) = (row.id.clone(), all_key.clone());
+            let (row_id, key) = (row.id.clone(), all_key);
             DiffNote::ShowMore(Box::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.show_all_lines(&key, &row_id, cx)
             })))

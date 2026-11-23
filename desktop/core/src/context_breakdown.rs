@@ -1,5 +1,5 @@
 // What fills a Claude thread's context, in Claude's own words
-// (`threads.contextUsage`, docs/protocol.md "Context breakdown"), as the
+// (`threads.contextUsage`, docs/protocol/threads.md "Context breakdown"), as the
 // composer's ring's popover shows it (ContextBreakdown.swift, after Ghostex's
 // panel): "32% used", "323k / 1M", a stacked bar, then a row each for what's
 // in the window, the buffer kept for compacting, the free space, and the tool
@@ -288,7 +288,7 @@ fn whole_percent(fraction: f64) -> i64 {
 pub fn share(fraction: f64) -> String {
     let p = fraction * 100.;
     // Not `p <= 0`: NaN is neither.
-    if !(p > 0.) {
+    if p.partial_cmp(&0.) != Some(std::cmp::Ordering::Greater) {
         return "0%".to_owned();
     }
     if p >= 10. {

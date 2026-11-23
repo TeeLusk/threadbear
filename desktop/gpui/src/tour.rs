@@ -82,7 +82,7 @@ pub(crate) fn mark(target: Target) -> Option<AnyElement> {
     // window's only drawn again for a change while it's up.
     Some(
         canvas(
-            move |bounds, window, _| record(target.clone(), rect_of(bounds), window),
+            move |bounds, window, _| record(target, rect_of(bounds), window),
             |_, _, _, _| {},
         )
         .absolute()
@@ -311,7 +311,7 @@ impl Threadbear {
         if !self.tour.tour.is_on() {
             return;
         }
-        if self.tour.tour.next() {
+        if self.tour.tour.forward() {
             self.tour_go(window, cx);
         } else {
             self.tour_finish(cx);
@@ -541,12 +541,7 @@ impl Threadbear {
             }
         });
         // Someone's first launch: once the runner's there.
-        if !self.tour.checked_new
-            && matches!(
-                self.status,
-                threadbear_client::runner::Status::Connected { .. }
-            )
-        {
+        if !self.tour.checked_new && self.connected() {
             cx.defer_in(window, |this, window, cx| {
                 this.tour_start_if_new(window, cx)
             });
@@ -610,6 +605,10 @@ impl Threadbear {
 
     /// The dimmed window with the step's part cut out of it, the card and
     /// its arrow, over everything (`TourOverlay`).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 203 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     pub(crate) fn render_tour(
         &mut self,
         window: &mut Window,

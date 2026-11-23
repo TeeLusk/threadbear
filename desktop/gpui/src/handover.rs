@@ -134,6 +134,8 @@ mod mac {
         window.setAlphaValue(0.);
         window.setIgnoresMouseEvents(true);
         // NSWindowAnimationBehaviorNone: no zoom in or out as it shows or goes.
+        // SAFETY: `window` is a live NSWindow we borrow, and
+        // setAnimationBehavior: takes one NSInteger and returns void.
         let _: () = unsafe { msg_send![window, setAnimationBehavior: 2isize] };
         if let Some(f) = frame {
             let rect = NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.width, f.height));
@@ -146,6 +148,9 @@ mod mac {
         match below {
             // NSWindowBelow (-1) relative to the outgoing app's window.
             Some(n) => {
+                // SAFETY: `window` is a live NSWindow we borrow, and
+                // orderWindow:relativeTo: takes two NSIntegers and returns void;
+                // an unknown window number is just ignored by AppKit.
                 let _: () =
                     unsafe { msg_send![window, orderWindow: -1isize, relativeTo: n as isize] };
             }
@@ -169,10 +174,15 @@ mod mac {
             window.orderFront(None);
         }
         // Back to the default (NSWindowAnimationBehaviorDefault).
+        // SAFETY: `window` is a live NSWindow we borrow, and
+        // setAnimationBehavior: takes one NSInteger and returns void.
         let _: () = unsafe { msg_send![window, setAnimationBehavior: 0isize] };
         if activate {
             if let Some(mtm) = MainThreadMarker::new() {
-                #[allow(deprecated)]
+                #[allow(
+                    deprecated,
+                    reason = "activateIgnoringOtherApps still brings the app forward; activate() only asks to"
+                )]
                 NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
             }
             window.makeKeyAndOrderFront(None);
@@ -195,10 +205,14 @@ mod mac {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
+        // SAFETY: respondsToSelector: is an NSObject method taking a SEL and
+        // returning BOOL, sent to the live shared app on the main thread.
         let can: bool = unsafe {
             msg_send![&*app, respondsToSelector: objc2::sel!(yieldActivationToApplication:)]
         };
         if can {
+            // SAFETY: the app just said it responds to this selector, which
+            // takes one NSRunningApplication (held by `other`) and returns void.
             let _: () = unsafe { msg_send![&*app, yieldActivationToApplication: &*other] };
         }
     }
@@ -221,6 +235,8 @@ mod mac {
         };
         for window in NSApplication::sharedApplication(mtm).windows().iter() {
             if window.isVisible() {
+                // SAFETY: a live window from the app's own list, on the main
+                // thread; setAnimationBehavior: takes an NSInteger, returns void.
                 let _: () = unsafe { msg_send![&*window, setAnimationBehavior: 2isize] };
                 window.orderOut(None);
             }
@@ -500,13 +516,6 @@ impl Threadbear {
             }
         })
         .detach();
-    }
-
-    fn connected(&self) -> bool {
-        matches!(
-            self.status,
-            threadbear_client::runner::Status::Connected { .. }
-        )
     }
 
     /// The thread that was open has its first page (a project page, the

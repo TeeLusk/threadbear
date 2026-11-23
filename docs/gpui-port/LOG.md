@@ -4867,7 +4867,7 @@ Fixes from Codex's review of the slice before:
 
 ### 2026-11-15 Nested threads (`sidebar.nested`, `thread.startedby`)
 
-- Experiment `nestedThreads` (docs/protocol.md, "Nested threads"), GPUI app
+- Experiment `nestedThreads` (docs/protocol/threads.md, "Nested threads"), GPUI app
   only; the frozen Swift app shows these threads as before, so both specs are
   `@swift-pending` there. A thread another thread started sits indented under
   it in the sidebar, like a sub-agent, one level deep, in the section of the
@@ -4935,7 +4935,7 @@ Fixes from Codex's review of the slice before:
   card per thread, as in the mockup Mike picked on 20 Nov (r3-c-status), a
   column about 680 wide. The sidebar stays on the Inbox (`SidebarMode::Feed`
   draws the Inbox list). A card leads with the summary's `request` (Mike's first
-  message; docs/protocol.md, "What Mike first asked"), else the title, or for a
+  message; docs/protocol/threads.md, "What Mike first asked"), else the title, or for a
   thread he didn't start, who started it. Its asks are the composer's buttons
   and rows through `DecisionCard::for_feed`, which keeps the picks while the
   answer is on its way so the pressed button spins and the rest take no clicks.

@@ -71,7 +71,9 @@ impl SwipeNav {
 pub(crate) fn scroll_swipes_on() -> bool {
     #[cfg(target_os = "macos")]
     {
-        #[allow(unused_unsafe)]
+        #[allow(unused_unsafe, reason = "unsafe only in some objc2 versions")]
+        // SAFETY: a class method that only reads a system setting, with no
+        // arguments; unsafe only in some objc2-app-kit versions.
         unsafe {
             objc2_app_kit::NSEvent::isSwipeTrackingFromScrollEventsEnabled()
         }
@@ -90,7 +92,9 @@ fn natural_scrolling() -> bool {
     {
         use objc2_foundation::{NSString, NSUserDefaults};
         let key = NSString::from_str("com.apple.swipescrolldirection");
-        #[allow(unused_unsafe)]
+        #[allow(unused_unsafe, reason = "unsafe only in some objc2 versions")]
+        // SAFETY: NSUserDefaults is thread safe, and these only read one key
+        // through a live NSString; unsafe only in some objc2-foundation versions.
         unsafe {
             let defaults = NSUserDefaults::standardUserDefaults();
             defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key)
@@ -306,7 +310,7 @@ impl Threadbear {
         canvas(
             |_, _, _| {},
             move |_, _, window, _| {
-                let app = app.clone();
+                let app = app;
                 window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
                     if phase != DispatchPhase::Capture {
                         return;

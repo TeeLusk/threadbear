@@ -334,6 +334,10 @@ impl SettingsWindow {
     /// A reviewer's row: its name with its model and effort right after it
     /// (Mike, 19 Nov 2026: the name "so far away from the model and the
     /// effort level" was odd), and the minus out at the end.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 203 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn reviewer_row(
         &self,
         which: ReviewList,
@@ -536,7 +540,7 @@ impl SettingsWindow {
             .on_drag(
                 DraggedReviewer {
                     index: i,
-                    provider: provider.clone(),
+                    provider,
                     name: name.into(),
                 },
                 |d, _, _, cx| {

@@ -17,6 +17,7 @@ use crate::sidebar::{
 };
 use crate::spinner::Spinner;
 use crate::{call, icons, now_ms, style};
+use gpui_kit::base::A11yDisabledExt as _;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, WindowExt as _};
@@ -615,7 +616,7 @@ impl Threadbear {
                     .text_size(px(style::size::SIDEBAR_META))
                     .line_height(px(14.))
                     .text_color(faint)
-                    .tip(full.clone())
+                    .tip(full)
                     .child(next)
                     .into_any_element()
             })
@@ -650,7 +651,7 @@ impl Threadbear {
                     .max_w(px(100.))
                     .gap(px(3.))
                     .items_center()
-                    .tip(tip.clone())
+                    .tip(tip)
                     .child(icon(
                         self.schedule_runner_symbol(schedule),
                         style::size::SIDEBAR_META,
@@ -690,7 +691,7 @@ impl Threadbear {
                 .text_size(px(style::size::SIDEBAR_META))
                 .line_height(px(14.))
                 .text_color(color)
-                .tip(tip.clone())
+                .tip(tip)
                 .child(text)
         });
 
@@ -706,7 +707,7 @@ impl Threadbear {
             // Named by its tip, as the Swift app's rows are found.
             .role(Role::ListItem)
             .aria_label(tip.clone())
-            .tip(tip.clone())
+            .tip(tip)
             .relative()
             .gap(px(3.))
             .pt(px(8.))
@@ -853,10 +854,15 @@ impl Threadbear {
                 }),
             );
             // Until the last one lands (it already shows), so no second click.
+            // Said to a screen reader and the specs too (`click` with
+            // `enabled`), as it's the wrapper that holds the clicks off.
             row = row.child(
                 div()
+                    .id(ElementId::Name(format!("pausing-{id}").into()))
+                    .test_support()
                     .when(pausing, |d| d.opacity(0.4).occlude())
-                    .child(button),
+                    .child(button)
+                    .a11y_disabled(pausing),
             );
         }
         let delete_id = id.clone();
@@ -1022,6 +1028,18 @@ pub(crate) fn editor_automation(
         }
         return Ok(json!("ok"));
     }
+    // A model in the open editor's menu, by its title, under a kind's
+    // heading ("## Codex") when the pool has several.
+    if let Some(title) = cmd["pickModel"].as_str() {
+        let editor = app
+            .read(cx)
+            .schedule_editor
+            .clone()
+            .ok_or("no schedule editor")?;
+        return editor.update(cx, |e, cx| {
+            e.pick_model_titled(title, cmd["under"].as_str(), cx)
+        });
+    }
     match cmd["id"].as_str() {
         Some(id) => {
             if app.read(cx).schedule(id).is_none() {
@@ -1036,6 +1054,12 @@ pub(crate) fn editor_automation(
                 app.read(cx).selected.clone()
             };
             app.update(cx, |t, cx| t.new_schedule(from, window, cx));
+            // "A new thread each time" rather than this thread.
+            if cmd["sendsTo"].as_str() == Some("new") {
+                if let Some(editor) = app.read(cx).schedule_editor.clone() {
+                    editor.update(cx, |e, cx| e.send_to_new_threads(cx));
+                }
+            }
         }
     }
     Ok(json!("ok"))

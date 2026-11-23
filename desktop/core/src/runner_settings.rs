@@ -1,4 +1,4 @@
-// The runner's settings as the Settings window shows them (docs/protocol.md,
+// The runner's settings as the Settings window shows them (docs/protocol/settings.md,
 // "Settings and models"), all kept in the runner's runner.json, and the words
 // around them: a port of the Swift app's RunnerSettings and SettingsText.
 // Decoded as forgivingly as the other models, so a missing field takes its
@@ -288,7 +288,7 @@ pub fn experiment_about(does: &str) -> String {
     out.trim().to_owned()
 }
 
-/// Standing instructions (docs/protocol.md, "Standing instructions"): what
+/// Standing instructions (docs/protocol/settings.md, "Standing instructions"): what
 /// every thread's agent is given. `outside` is set when the file isn't what
 /// Settings last saved, so no agent is given it until Mike decides.
 #[derive(Clone, Debug, Default, PartialEq)]

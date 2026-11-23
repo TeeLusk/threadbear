@@ -11,10 +11,6 @@ pub enum Event {
     /// Loading started or stopped, going back became possible or not, or the
     /// title or address changed.
     Changed,
-    /// A link Mike clicked on a page the app made itself (a design review's:
-    /// preview_rules::asked): what follows the app's own prefix, for the app
-    /// to read. The page stays where it is.
-    Asked(String),
 }
 
 /// Whose page it is, which decides where its links may go.
@@ -23,7 +19,7 @@ pub enum Kind {
     /// A patch's url panel: its own site stays, other sites leave.
     Patch,
     /// The Convex embedded dashboard: only its own site stays, and the page
-    /// answers its credentials request (docs/protocol.md, "The Convex panel")
+    /// answers its credentials request (docs/protocol/patches.md, "The Convex panel")
     /// with this script, run in it before its own.
     Convex { credentials_script: String },
     /// A local page previewed in the app (preview_rules.rs): its own page

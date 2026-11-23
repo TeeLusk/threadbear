@@ -1457,7 +1457,7 @@ test("an open thread's summary carries its row's mode, or unknown", async () => 
   assert.deepEqual(said(), ['unknown', 'auto']);
 });
 
-// docs/protocol.md, "What Mike first asked": another Mac's Feed heads the
+// docs/protocol/threads.md, "What Mike first asked": another Mac's Feed heads the
 // card with it, from the row (API 96), next to his last message.
 test("an open thread's summary carries what Mike first and last asked, from its row", async () => {
   const h = harness({ row: () => ({ ...idle, share: { access: 'link', slug: 'abc' } }) });

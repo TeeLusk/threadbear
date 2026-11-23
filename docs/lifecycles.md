@@ -92,9 +92,21 @@ quietly when it's due
   archived --> snoozed: unarchive with a sleep still due
 ```
 
-Next on the runner, most worth it first: a turn's reply phase (end_turn's
-needs, snooze, waitFor, archive and the rest), the CLI session's life, sync's
-command intake and the worktree slot.
+**A turn's reply phase** (`runner/src/reply-phase.ts`, 20 Nov 2026): what
+happens around `end_turn`, seventeen fields on a Turn (in memory only) read as
+working, ended, replying, reopened or open, written only by `replyTurn`
+(`Runner.reply`). Drawn in docs/protocol/needs-you.md, "The reply phase".
+
+**A thread's CLI** (`runner/src/cli-session.ts`, 21 Nov 2026): none, a spare
+warm start began for it, starting, live or closing, eleven Runtime fields (in
+memory only: `session`, `spare`, `generation`, `closing`, `releasedGen`,
+`resumed`, `retriedFresh`, `started`, `releaseWhenIdle`, `versionMove`,
+`tasks`) written only by `cliRuntime` (`Runner.cli`). Events from a CLI or a
+step that waited on one carry its generation, and an older one's are dropped
+there (which fixed a refused setting restarting the CLI after it). Drawn in docs/protocol/updates.md, "A thread's CLI".
+
+Next on the runner, most worth it first: sync's command intake and the
+worktree slot.
 
 ## Moving them onto @convex-dev/state-machines
 

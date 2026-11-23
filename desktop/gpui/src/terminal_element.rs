@@ -305,6 +305,10 @@ impl Element for TerminalElement {
         (window.request_layout(style, [], cx), ())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 225 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn prepaint(
         &mut self,
         _id: Option<&GlobalElementId>,
@@ -439,6 +443,10 @@ impl Element for TerminalElement {
                     },
                 ));
             }
+            #[expect(
+                clippy::expect_used,
+                reason = "a run is pushed just above whenever the list is empty"
+            )]
             let (_, run) = runs.last_mut().expect("a run");
             run.text.push(c);
             for extra in cell.zerowidth().into_iter().flatten() {

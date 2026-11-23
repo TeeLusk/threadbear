@@ -48,7 +48,7 @@
 //   and on a Mac that already has a runner key, steps 4, 5 and 7 are
 //   skipped: no Convex login, deploy key or backend deploy here, since each
 //   can do anything to the deployment. Its key comes from the first Mac:
-//   tb runner add <name> --ssh <this Mac> (docs/protocol.md, "Runner keys").
+//   tb runner add <name> --ssh <this Mac> (docs/protocol/keys.md, "Runner keys").
 //   6. runner.json: where the runner mirrors to, and the default folder for
 //      new threads (~/ThreadbearThreads, made here, unless --cwd; Settings changes it).
 //      One this makes also starts new threads on Auto (defaults.permissionMode)

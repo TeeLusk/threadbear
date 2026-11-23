@@ -141,7 +141,7 @@ export const BIN_DIR = path.resolve(import.meta.dirname, '..', 'bin');
 // tb reads, and agents point it at a dev runner; THREADBEAR_RUNNER_HOME
 // always names the runner the thread is on, so the scripts' guards against
 // restarting it from inside one of its threads go by that.
-// `key` is the thread's own RPC credential (docs/protocol.md, "A thread's own
+// `key` is the thread's own RPC credential (docs/protocol/connection.md, "A thread's own
 // key"), only for a thread's CLI: a patch's action and a worktree's setup run
 // on the runner's say-so, so tb there still reads the token. The empty value
 // matters: a dev runner started from a thread would otherwise pass its parent
@@ -154,7 +154,7 @@ export function threadEnv(threadId: string, home: string, basePath = process.env
     THREADBEAR_RUNNER_HOME: home,
     THREADBEAR_RUNNER_VERSION: RUNNER_VERSION,
     // A picture copied in here can be on the thread's shared page; one
-    // anywhere else can't (docs/protocol.md, "Sharing").
+    // anywhere else can't (docs/protocol/runners.md, "Sharing").
     THREADBEAR_MEDIA_DIR: paths.media(home, threadId),
     // The Node this runner runs on, which the repo's scripts take before
     // looking on PATH (scripts/find-node.sh): a thread's checks, landing and
@@ -451,7 +451,10 @@ export class Restarter {
     // "The runner is restarting" first: the app reads that as a restart
     // under way (RunnerRestart.parse) and keeps its banner quiet while the
     // connection moves to the new runner.
-    this.deps.runner.notice('info', `The runner is restarting onto a new release. ${n === 1 ? '1 busy thread finishes its turn' : `${n} busy threads finish their turns`} on the old one first, then ${n === 1 ? 'moves' : 'move'} across.`);
+    // Onto a new release when one was asked for; after an uncaught error
+    // (main.ts) it's the same release again.
+    const onto = this.pending.release ? ' onto a new release' : '';
+    this.deps.runner.notice('info', `The runner is restarting${onto}. ${n === 1 ? '1 busy thread finishes its turn' : `${n} busy threads finish their turns`} on the old one first, then ${n === 1 ? 'moves' : 'move'} across.`);
     this.defer(() => this.deps.handOver!(keeps));
   }
 
@@ -476,6 +479,12 @@ export class Restarter {
     this.deps.log.info('restarting', { when: this.pending.when, reason: this.pending.reason });
     this.deps.runner.notice('info', pendingMessage(0));
     this.defer(() => this.deps.restart());
+  }
+
+  // A restart or handover has begun (main.ts: an uncaught error then is no
+  // reason for another).
+  get underway(): boolean {
+    return this.restarting;
   }
 
   // main.ts calls this whenever the runner stops, whatever stopped it

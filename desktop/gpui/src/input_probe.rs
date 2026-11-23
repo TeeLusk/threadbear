@@ -31,6 +31,8 @@ fn now_ns() -> u64 {
         unsafe extern "C" {
             fn clock_gettime_nsec_np(clock: u32) -> u64;
         }
+        // SAFETY: takes a clock id by value and returns a number, touching no
+        // memory of ours; 8 (CLOCK_UPTIME_RAW) is a valid clock.
         unsafe { clock_gettime_nsec_np(8) }
     }
     #[cfg(not(target_os = "macos"))]

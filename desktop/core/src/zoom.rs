@@ -14,7 +14,7 @@ pub fn sanitize(saved: Option<u32>) -> u32 {
 }
 
 pub fn can_zoom_in(percent: u32) -> bool {
-    percent < *STEPS.last().unwrap()
+    percent < STEPS[STEPS.len() - 1]
 }
 
 pub fn can_zoom_out(percent: u32) -> bool {

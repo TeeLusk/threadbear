@@ -241,6 +241,7 @@ fn a_fifo_is_refused() {
     let f = Folder::new();
     f.write("index.html", "<img src=pipe.png>");
     let c = std::ffi::CString::new(f.dir.join("pipe.png").to_str().unwrap()).unwrap();
+    // SAFETY: `c` is a NUL-terminated CString that outlives the call.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     let site = f.site();
     assert!(site.serve("/pipe.png").is_none());
@@ -388,6 +389,7 @@ fn a_scan_never_blocks_on_a_fifo() {
     assert_eq!(found, digest(b"<script>draw()</script>"));
     let fifo = f.dir.join("pipe.html");
     let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    // SAFETY: `c` is a NUL-terminated CString that outlives the call.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     assert!(scan(&fifo).is_none());
     assert!(scan(&f.dir.join("gone.html")).is_none());
@@ -400,7 +402,7 @@ fn a_page_with_a_digest_is_served_only_while_it_matches() {
     let page = f.dir.join("drawn.html");
     fs::write(&page, "<script>draw()</script>").unwrap();
     let allowed = digest(b"<script>draw()</script>");
-    let site = Site::new(&page, Some(allowed.clone())).unwrap();
+    let site = Site::new(&page, Some(allowed)).unwrap();
     assert!(site.serve("drawn.html").is_some());
     fs::write(&page, "<script>steal()</script>").unwrap();
     assert!(
@@ -623,7 +625,7 @@ fn what_a_site_keeps_is_bounded_in_bytes() {
     let kept = site.allowed_count();
     // The page and eight stylesheets, then 1,004-byte names up to the budget.
     assert!(
-        kept >= 2_000 && kept <= 9 + MAX_ALLOWED_BYTES / 1_004,
+        (2_000..=9 + MAX_ALLOWED_BYTES / 1_004).contains(&kept),
         "kept {kept}"
     );
     assert!(site.allows(&name(0)) && !site.allows(&name(15_999)));
@@ -681,107 +683,4 @@ fn a_live_page_reads_only_itself() {
     // Rewritten after Run: nothing.
     f.write("index.html", "<p>changed</p>");
     assert!(site.serve("index.html").is_none());
-}
-
-// A page the app made itself (a design review's, review_page.rs): the page
-// and the app's own files come from memory, and from the folder only what the
-// app named, whatever the page's words say.
-#[cfg(unix)]
-#[test]
-fn a_made_page_is_answered_from_memory_and_reads_only_what_the_app_named() {
-    let f = Folder::new();
-    // A file of the page's name in the folder is never read.
-    f.write("made.html", "<img src=\"other.png\">");
-    // An agent's words on the page name files the app didn't.
-    let html = br#"<style>@font-face{src:url(own-400.otf)}</style><img src="pic.png"><p>url(other.png) src="assets/bg.png"</p><img src="secret.env"><a href="about.html">x</a>"#.to_vec();
-    let assets = [
-        "pic.png".to_owned(),
-        "logo.png".to_owned(),
-        "secret.env".to_owned(),
-        "../elsewhere/out.png".to_owned(),
-        "about.html".to_owned(),
-    ];
-    let site = Site::made(
-        &f.dir,
-        "made.html",
-        html.clone(),
-        &assets,
-        vec![("own-400.otf".to_owned(), b"font".to_vec())],
-    )
-    .expect("a site");
-    assert_eq!(
-        site.serve("/own-400.otf").map(|s| (s.data, s.mime)),
-        Some((b"font".to_vec(), "font/otf".to_owned()))
-    );
-    let page = site.serve("/made.html").expect("the page");
-    assert_eq!(page.data, html);
-    assert_eq!(page.mime, "text/html; charset=utf-8");
-    // What the app named and a page may have, from the folder.
-    assert_eq!(site.serve("/pic.png").map(|s| s.data), Some(b"x".to_vec()));
-    // What only the page's words named, what isn't a passive asset, a
-    // symlink, a path out of the folder, another page.
-    for refused in [
-        "/other.png",
-        "/assets/bg.png",
-        "/secret.env",
-        "/logo.png",
-        "/about.html",
-        "/index.html",
-        "/.env",
-        "/own-700.otf",
-        "/../elsewhere/out.png",
-    ] {
-        assert!(site.serve(refused).is_none(), "{refused}");
-    }
-    assert_eq!(
-        site.allowed_count(),
-        5,
-        "the page and the four named with safe paths"
-    );
-    // Made again, it's the new page that's answered, and what's named with it.
-    assert!(site.remake(
-        b"<img src=\"other.png\">".to_vec(),
-        &["other.png".to_owned()]
-    ));
-    assert_eq!(
-        site.serve("/made.html").map(|s| s.data),
-        Some(b"<img src=\"other.png\">".to_vec())
-    );
-    assert!(site.serve("/other.png").is_some());
-    assert!(
-        site.serve("/pic.png").is_none(),
-        "what the page before had isn't kept"
-    );
-    // A page of its own on disk isn't one to remake.
-    assert!(!f.site().remake(b"<p>x</p>".to_vec(), &[]));
-}
-
-#[cfg(unix)]
-#[test]
-fn a_made_sites_names_are_plain_ones() {
-    let f = Folder::new();
-    let made = |page: &str, extra: &str| {
-        Site::made(
-            &f.dir,
-            page,
-            b"<p>x</p>".to_vec(),
-            &[],
-            vec![(extra.to_owned(), vec![1])],
-        )
-        .is_some()
-    };
-    assert!(made("made.html", "own.otf"));
-    for (page, extra) in [
-        ("made.txt", "own.otf"),
-        ("../made.html", "own.otf"),
-        ("a/made.html", "own.otf"),
-        (".made.html", "own.otf"),
-        ("made.html", "own.js"),
-        ("made.html", "own.html"),
-        ("made.html", "../own.otf"),
-        ("made.html", "a/own.otf"),
-        ("made.html", ".own.otf"),
-    ] {
-        assert!(!made(page, extra), "{page} {extra}");
-    }
 }

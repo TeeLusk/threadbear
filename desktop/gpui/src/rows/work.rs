@@ -97,7 +97,10 @@ pub(crate) fn run_text(runs: &Runs, cx: &App) -> StyledText {
 /// `WorkLine`: an icon in a slot at the column's edge, the text from
 /// `titleIndent`, the chevron right after the words. Hovering fills from the
 /// icon to the chevron. A row that doesn't open just reads.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 pub(crate) fn work_line(
     id: ElementId,
     symbol: &str,
@@ -349,6 +352,10 @@ impl ThreadPane {
         item: &ApprovalItem,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        #[expect(
+            clippy::expect_used,
+            reason = "only settled approvals are drawn by this"
+        )]
         let resolution = item.resolution.as_ref().expect("a settled approval");
         let (faint, quiet) = (style::faint_text(cx), style::quiet_text(cx));
         let mut runs: Runs = vec![(

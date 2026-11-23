@@ -195,6 +195,8 @@ fn context(_main_thread: u32) -> Context {
 /// has clamped it to background.
 #[cfg(target_os = "macos")]
 fn priority(thread: u32) -> Option<i64> {
+    // SAFETY: thread_extended_info is a plain C struct of integers and a
+    // char array, for which all zero bytes is a valid value.
     let mut info: libc::thread_extended_info = unsafe { std::mem::zeroed() };
     let mut count = libc::THREAD_EXTENDED_INFO_COUNT;
     // SAFETY: `info` is the size `count` says, and thread_info writes no more.

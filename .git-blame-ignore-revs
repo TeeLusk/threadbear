@@ -20,13 +20,20 @@
 #                   formatting an older tree, so it's formatted the same way
 # The tree's own config files are put back afterwards. A format commit
 # that's reverted comes out of this list in the same commit.
+# tb land runs a command from a branch's copy of this file only when main's
+# copy has the same command, paths and config: a branch bringing in a new
+# tool makes its commit by hand, and tb land says how. A branch that adds
+# or changes a command here, or a format-config file, lands only with
+# tb land --allow-format <id>, the id tb land shows for exactly those.
 
 # format-subject: Format desktop/'s Rust with cargo fmt --all, nothing else
 # format-command: cd desktop && cargo fmt --all
 # format-paths: desktop
 # format-config: rust-toolchain.toml desktop/rustfmt.toml
+4321fda6a90db7b569144707c74f563f2c4d5306
 
 # format-subject: Split docs/protocol.md into a file per area, moving text only
 # format-tool: node scripts/split-protocol.mjs
 # format-paths: docs/protocol.md docs/protocol
 # format-config: scripts/split-protocol.mjs
+95f793ee32b67948b5a5ddb740b956869ac5c207

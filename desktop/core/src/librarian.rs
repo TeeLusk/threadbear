@@ -1,6 +1,6 @@
 // The Librarian view's model and words, ported from the Swift app: the
 // runner's background job that files threads in projects, keeps their notes
-// and renames threads that have wandered off (docs/protocol.md, "Projects").
+// and renames threads that have wandered off (docs/protocol/projects.md, "Projects").
 // LibrarianStatus is Project.swift's, the words ProjectSections.swift's
 // LibrarianText, the page's tiles LibrarianHome.swift's LibrarianStats.
 use crate::home::HomeStat;

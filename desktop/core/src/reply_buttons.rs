@@ -1,4 +1,4 @@
-// A button an agent put in its reply (docs/protocol.md, "Reply buttons";
+// A button an agent put in its reply (docs/protocol/events.md, "Reply buttons";
 // Swift's ReplyButton.swift): `add_button` stores one on the thread, the
 // reply links it as `[title](button:<id>)`, and Mike's press starts a thread
 // with the brief or sends the message, once, or opens another folder's patch
@@ -326,6 +326,54 @@ impl Look {
     }
 }
 
+/// A reply's text with every `[words](button:<id>)` whose id `keep` turns
+/// down left as its words alone (the GPUI app's `unknown_as_words`: a button
+/// it doesn't know, another thread's, or a run's). Brackets inside the words
+/// are minded, and the id is read trimmed.
+pub fn unlink<'a>(text: &'a str, keep: impl Fn(&str) -> bool) -> std::borrow::Cow<'a, str> {
+    if !text.contains("](button:") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("](button:") {
+        let (before, after) = rest.split_at(at);
+        let link_end = after.find(')');
+        // The link's words: back to the `[` that opens them, minding brackets inside.
+        let mut depth = 0i32;
+        let open = before.char_indices().rev().find_map(|(i, c)| match c {
+            ']' => {
+                depth += 1;
+                None
+            }
+            '[' if depth == 0 => Some(i),
+            '[' => {
+                depth -= 1;
+                None
+            }
+            _ => None,
+        });
+        match (open, link_end) {
+            (Some(open), Some(end)) => {
+                let id = after["](button:".len()..end].trim();
+                if keep(id) {
+                    out.push_str(&rest[..at + end + 1]);
+                } else {
+                    out.push_str(&before[..open]);
+                    out.push_str(&before[open + 1..]);
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str(&rest[..at + 1]);
+                rest = &after[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
+}
+
 /// The button a `button:` link names.
 pub fn id_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.trim().split_once(':')?;
@@ -453,5 +501,97 @@ mod tests {
             ids_in("a [x](button:ab12) b [y](button: cd34 ) [z](https://e)"),
             ["ab12", "cd34"]
         );
+    }
+
+    fn shared_cases() -> Vec<serde_json::Value> {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/reply-buttons.json"
+        );
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        file["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["differs"].get("desktop").is_none())
+            .cloned()
+            .collect()
+    }
+
+    /// How a pill looks, against the cases the phones and the website run
+    /// too (shared/cases/reply-buttons.json). The pill reads the runner's own
+    /// button, so a case's row is made into one, and a press on its way is
+    /// `pressing`.
+    #[test]
+    fn looks_match_the_shared_cases() {
+        let cases = shared_cases();
+        assert!(cases.len() > 5);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let row = &case["input"]["button"];
+            let mut v = json!({ "id": "abcd1234", "title": "Go" });
+            if row["kind"] == "send" {
+                v["send"] = json!({ "threadId": "t0", "threadTitle": row["target"], "text": "x" });
+            } else {
+                v["start"] = json!({ "text": "x", "cwd": "/x" });
+            }
+            if let Some(id) = row["pressedThreadId"].as_str() {
+                v["pressed"] = json!({ "at": "2026-11-20T00:00:00Z", "threadId": id });
+            }
+            if let Some(error) = row["failed"].as_str() {
+                v["failed"] = json!({ "at": "2026-11-20T00:00:00Z", "error": error });
+            }
+            let b = button(v);
+            let press = case["input"]["press"]["state"].as_str().unwrap();
+            assert!(
+                matches!(press, "none" | "sending" | "pending" | "taken"),
+                "{name}: the desktop app has no {press} press"
+            );
+            let got = match look(&b, press != "none") {
+                Look::Start | Look::Send | Look::Panel => json!({ "look": "ready" }),
+                Look::Pressing => json!({ "look": "pressing" }),
+                Look::Pressed => {
+                    json!({ "look": "pressed", "threadId": b.pressed.as_ref().map(|p| p.thread_id.clone()) })
+                }
+                Look::Failed => {
+                    json!({ "look": "failed", "error": b.failed.as_ref().map(|f| f.error.clone()) })
+                }
+            };
+            assert_eq!(got, case["expect"], "{name}");
+        }
+    }
+
+    /// A button link this app can't draw as a pill is its words, against
+    /// the phones' cases (shared/cases/reply-button-links.json).
+    #[test]
+    fn unlinking_matches_the_shared_cases() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/cases/reply-button-links.json"
+        );
+        let file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut ran = 0;
+        for case in file["cases"].as_array().unwrap() {
+            if case["differs"].get("desktop").is_some() || case["input"]["op"] != "unlink" {
+                continue;
+            }
+            let name = case["name"].as_str().unwrap();
+            let known: Vec<&str> = case["input"]["known"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|k| k.as_str())
+                .collect();
+            let text = case["input"]["text"].as_str().unwrap();
+            assert_eq!(
+                unlink(text, |id| known.contains(&id)),
+                case["expect"]["text"].as_str().unwrap(),
+                "{name}"
+            );
+            ran += 1;
+        }
+        assert!(ran >= 3);
     }
 }

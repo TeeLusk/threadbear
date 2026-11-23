@@ -323,7 +323,7 @@ impl Composer {
         let range = if selection.is_empty() {
             spelling::word_at(&text, selection.start)
         } else {
-            selection.clone()
+            selection
         };
         let Some(words) = text.get(range.clone()) else {
             return;

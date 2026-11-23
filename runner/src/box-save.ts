@@ -1,4 +1,4 @@
-// A box's save (docs/virtual-runners.md, decision 7; docs/protocol.md, "Box
+// A box's save (docs/virtual-runners.md, decision 7; docs/protocol/boxes.md, "Box
 // mode"): before its box sleeps or is archived, the backend sends the box's
 // runner a `save` command, and the thread goes out of the box into Convex
 // file storage. A new box for the thread restores it, so a box the provider
@@ -25,6 +25,7 @@ import { packGit, underNodeModules, unpackGit, type GitMeta } from './move-git.t
 import { paths } from './config.ts';
 import { projectDirName, sessionTranscriptPath } from './transcripts.ts';
 import { git, realpath, threadBranch } from './worktrees.ts';
+import { writeSlot } from './slot.ts';
 import type { ThreadRecord } from './store.ts';
 
 // One upload: a box key's uploads are a runner key's, 10 MB at most
@@ -196,12 +197,12 @@ export async function restoreSave(o: { home: string; claudeDir: string; threadId
       if (!add.ok) throw new Error(`Couldn't make the thread's worktree again: ${add.stderr.trim().split('\n')[0] ?? 'git failed'}`);
       const r = await unpackGit(where, meta, bundleFile);
       if (!r.ok) throw new Error(r.reason);
-      rec.worktree = { ...w, repo: path.basename(checkout), mainCheckout: checkout, path: where, branch };
+      writeSlot(rec, { kind: 'arrived', worktree: { ...w, repo: path.basename(checkout), mainCheckout: checkout, path: where, branch } }, Date.now());
       cwd = under(where, meta.subdir);
     } else {
       const r = await unpackGit(checkout, meta, bundleFile);
       if (!r.ok) throw new Error(r.reason);
-      delete rec.worktree;
+      writeSlot(rec, { kind: 'arrived' }, Date.now());
       cwd = under(checkout, meta.subdir);
     }
   } finally {
@@ -290,7 +291,7 @@ export class SaveHold {
 const kindOf = (e: unknown): unknown => (e as { data?: { kind?: unknown } } | null)?.data?.kind;
 
 /**
- * The `save` command (docs/protocol.md, "Box mode"): the thread stopped
+ * The `save` command (docs/protocol/boxes.md, "Box mode"): the thread stopped
  * (Runner.quiesceForSave), packed, sealed, uploaded through the box key's
  * upload URL (sync:iconUploadUrl) and named in boxes:boxSaved, which
  * replaces the last save. A save past one upload fails the command, saying

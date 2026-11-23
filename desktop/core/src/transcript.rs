@@ -1,5 +1,5 @@
 // A thread's events folded into what the transcript draws, by the rules in
-// docs/protocol.md ("Events" and "Transient events"). Events stay as JSON, so
+// docs/protocol/events.md ("Events" and "Transient events"). Events stay as JSON, so
 // a type or field this app doesn't know is simply passed over.
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};

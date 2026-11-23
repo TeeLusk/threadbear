@@ -1,4 +1,4 @@
-// The Recipes view (the `recipes` experiment, docs/protocol.md "Recipes"):
+// The Recipes view (the `recipes` experiment, docs/protocol/projects.md "Recipes"):
 // techniques worth keeping that an agent sets up for anyone. The sidebar
 // lists the ones added, each with its switch and its latest runs; the main
 // panel shows them all as a gallery of cards, or one recipe's page: what it
@@ -524,7 +524,10 @@ impl Threadbear {
     }
 
     /// A run under its recipe in the sidebar, behind a guide line.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+    )]
     fn recipe_run_line(
         &mut self,
         key: String,
@@ -719,7 +722,7 @@ impl Threadbear {
         for recipe in list {
             grid = grid.child(self.render_recipe_card(recipe, card_width, cx));
         }
-        let probe = measured.clone();
+        let probe = measured;
         let notify = cx.entity().downgrade();
         div()
             .relative()
@@ -1166,7 +1169,7 @@ impl Threadbear {
             ),
         );
         if recipe.state.added() {
-            let remove_id = id.clone();
+            let remove_id = id;
             row = row.child(
                 div().id("recipe-remove").test_support().child(
                     Button::new("recipe-remove-button")
@@ -1355,7 +1358,10 @@ impl Threadbear {
 
 /// The sidebar's buttons over the list (`SidebarButtonRow`): a plus or a
 /// grid where a row's title starts.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "baselined when the lint was turned on (20 Nov 2026); take it off when this is next split up"
+)]
 fn sidebar_button(
     id: &'static str,
     symbol: &'static str,

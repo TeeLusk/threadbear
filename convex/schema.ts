@@ -28,7 +28,7 @@ export const shareField = v.object({
 
 // The phone's view of a thread, named as in docs/protocol.md's
 // ThreadSummary. Written on change, coalesced, never per token.
-// A reply button as a message row carries it (API 59, docs/protocol.md
+// A reply button as a message row carries it (API 59, docs/protocol/events.md
 // "Reply buttons"): what the phone and website need to draw it, never the
 // brief or message behind it, which stay on the runner. target is the new
 // thread's folder name or the title of the thread it messages.
@@ -65,10 +65,10 @@ export const threadFields = {
   // "Woke up" (docs/protocol.md, ThreadSummary.woke).
   woke: v.optional(v.object({ at: v.string(), since: v.optional(v.string()) })),
   // Who started it, when that wasn't Mike: the row's byline
-  // (docs/protocol.md, "Who started a thread"). Since API 22.
+  // (docs/protocol/threads.md, "Who started a thread"). Since API 22.
   startedBy: v.optional(v.object({ kind: v.string(), label: v.string(), icon: v.optional(v.string()), why: v.optional(v.string()) })),
   // What Mike last said to it, one line: the row's "You: ..."
-  // (docs/protocol.md, "What Mike last asked"). Since API 31.
+  // (docs/protocol/threads.md, "What Mike last asked"). Since API 31.
   asked: v.optional(v.string()),
   // The recap box's text, from API 70. The box went on 11 Nov; kept so rows that have it still load.
   recap: v.optional(v.string()),
@@ -85,11 +85,11 @@ export const threadFields = {
   // Whether anyone with the /s/<slug> link can read it (docs/website.md,
   // "Sharing"). Absent: never shared.
   share: v.optional(shareField),
-  // The open card of asks from the agent's end_turn (docs/protocol.md,
+  // The open card of asks from the agent's end_turn (docs/protocol/needs-you.md,
   // "Needs you"), since API 14: what Mike has to do, which the phone shows
   // under the reply with its options as buttons. asksSeq says which card a
-  // picked answer belongs to. Only web links: the phone can't open a file
-  // on the Mac.
+  // picked answer belongs to. Only links the phone can open (web pages,
+  // thread:<id>, review:<id>): it can't open a file on the Mac.
   asks: v.optional(
     v.array(
       v.object({
@@ -113,7 +113,7 @@ export const threadFields = {
   asksSeq: v.optional(v.number()),
   // A finished turn's suggested follow-ups (end_turn's `next`), since API 14.
   next: v.optional(v.array(v.string())),
-  // The done card's loose ends (docs/protocol.md, "Loose ends"; experiment
+  // The done card's loose ends (docs/protocol/threads.md, "Loose ends"; experiment
   // looseEnds), since API 73: what the runner found still open on a thread
   // whose last turn needs nothing, for the phone's done card. kind is
   // unlanded, uncommitted, unpushed, unmerged, thread, scheduled or open, and a later
@@ -152,7 +152,7 @@ export const threadFields = {
       ),
     }),
   ),
-  // The thread's patch link buttons (url actions, docs/protocol.md
+  // The thread's patch link buttons (url actions, docs/protocol/patches.md
   // "Patches"), since API 28: the phone shows them and opens them itself.
   // icon is an SF Symbol.
   links: v.optional(v.array(v.object({ title: v.string(), url: v.string(), icon: v.optional(v.string()) }))),
@@ -196,7 +196,7 @@ export const threadFields = {
           }),
         ),
       }),
-      // An agent asking for a secret (API 35, docs/protocol.md "Secrets"):
+      // An agent asking for a secret (API 35, docs/protocol/threads.md "Secrets"):
       // `key` is the runner's X25519 public key, which the phone seals its
       // answer to, so the value never reaches this deployment in the clear.
       v.object({
@@ -227,7 +227,7 @@ export const updateFailedValidator = v.object({
 
 export const views = ['inbox', 'hibernating', 'den'] as const;
 
-// A move's states, in order (docs/protocol.md, "Moving a thread to another runner").
+// A move's states, in order (docs/protocol/moves.md, "Moving a thread to another runner").
 export const moveStates = ['asking', 'ready', 'packing', 'unpacking', 'claimed', 'done', 'failed', 'cancelled'] as const;
 
 // Named as well as the default, so the state machines (machines.ts) can be
@@ -269,7 +269,7 @@ export const appSchema = defineSchema({
     // How a Mac app reaches this runner to open one of its threads (API 12):
     // wss://<MagicDNS name>:<port>/rpc, only on the tailnet (sync.rpcUrl).
     rpcUrl: v.optional(v.string()),
-    // Its last heartbeat came with the owner key (docs/protocol.md, "Runner
+    // Its last heartbeat came with the owner key (docs/protocol/keys.md, "Runner
     // keys"), so it's the main Mac: a phone's new thread goes there first.
     byOwner: v.optional(v.boolean()),
     // A thread's box on a virtual runner (docs/virtual-runners.md), not a
@@ -448,7 +448,7 @@ export const appSchema = defineSchema({
     tokenState: requiredUnlessStepping('tokenState', tokenStateV),
   }).index('by_login', ['login']),
 
-  // Runner keys (docs/protocol.md, "Runner keys"): each authenticates as its
+  // Runner keys (docs/protocol/keys.md, "Runner keys"): each authenticates as its
   // runnerId alone, where the owner key (RUNNER_KEY) can do everything. Only
   // the SHA-256 of a key is kept; the plain key goes back once, to the owner
   // that made it (sync:addRunnerKey). Making another for the same runner
@@ -468,7 +468,7 @@ export const appSchema = defineSchema({
   // provider and email (lowercase), written by the owner key alone
   // (sync:setRunnerLogins, `tb runner logins`). sync:sharedUsage goes by
   // these, never by the accounts rows a runner key writes for itself, which
-  // say whatever that key likes (docs/protocol.md, "Runner keys").
+  // say whatever that key likes (docs/protocol/keys.md, "Runner keys").
   runnerLogins: defineTable({
     runnerId: v.string(),
     provider: v.string(),
@@ -533,7 +533,7 @@ export const appSchema = defineSchema({
 
   // Every thread row ever deleted (removeThreads, prune), so a runner key
   // can't later make a row under that id and so read or show what was
-  // left under it (docs/protocol.md, "Runner keys"). One small row per
+  // left under it (docs/protocol/keys.md, "Runner keys"). One small row per
   // deleted thread, kept for good; the owner key may reuse any id.
   // A row with `slug` is a share link that thread had (deleted, or replaced
   // by Share again with a new link): no runner key may take it up.
@@ -809,7 +809,7 @@ export const appSchema = defineSchema({
     // The Machines page's counts and lists of commands in a state (viewer.ts).
     .index('by_command_state', ['commandState.kind']),
 
-  // A thread moving from one runner to another (docs/protocol.md, "Moving a
+  // A thread moving from one runner to another (docs/protocol/moves.md, "Moving a
   // thread to another runner", API 64). Only the owner key starts one; each
   // step is the runner whose turn it is (moves.ts), and the switch itself
   // (moveClaim) is the one mutation where the thread changes hands.
@@ -854,7 +854,7 @@ export const appSchema = defineSchema({
     .index('by_move_state', ['moveState.kind']),
 
   // A runner on a runner key asking for a new thread on another runner
-  // (docs/protocol.md, "Asking another runner"). It can't queue work there
+  // (docs/protocol/runners.md, "Asking another runner"). It can't queue work there
   // itself, so it files the whole request here, where nothing can change it
   // after, and the main Mac shows Mike exactly this before its runner (the
   // owner key) starts it. requestId is the card's approvalId.
@@ -992,7 +992,7 @@ export const appSchema = defineSchema({
     updatedAt: v.string(),
     threadCount: v.number(),
     lastActivityAt: v.optional(v.string()),
-    // The project's icon (docs/protocol.md, "Icons"), since API 5: its SF
+    // The project's icon (docs/protocol/projects.md, "Icons"), since API 5: its SF
     // Symbol, and `picture` naming the copy of its picture the runner has
     // put in projectIcons (the file's hash is in the name, so a changed
     // picture is a new name).
@@ -1146,7 +1146,7 @@ export const appSchema = defineSchema({
     runs: v.number(),
     lastRun: v.optional(v.object({ at: v.string(), outcome: v.string(), threadId: v.optional(v.string()), note: v.optional(v.string()) })),
     // Since API 9 a row can be the schedule itself rather than a runner's
-    // mirror of its own file (docs/protocol.md, Schedules, "Runners"):
+    // mirror of its own file (docs/protocol/projects.md, Schedules, "Runners"):
     // `owned` marks those, which only the sync:*Schedule functions write
     // and setSchedules never touches. They also keep what the mirror left
     // out, a run being sent (`claim`, which lapses at `until`), and a
@@ -1163,6 +1163,9 @@ export const appSchema = defineSchema({
     check: v.optional(v.string()),
     // Since API 55: how long that check may take, in seconds.
     checkTimeoutSecs: v.optional(v.number()),
+    // Since API 97: with poolId, the kind of login ("opencode") a pool of
+    // several kinds starts its threads on.
+    provider: v.optional(v.string()),
     claim: v.optional(v.object({ holder: v.string(), until: v.number() })),
     runRequestedAt: v.optional(v.string()),
     // When what a runner reads last changed (API 48), for sync:schedulesSince.
@@ -1185,7 +1188,7 @@ export const appSchema = defineSchema({
     .index('by_scheduleId', ['id'])
     .index('by_runner_at', ['runnerId', 'at']),
 
-  // Pools shared by every runner (API 38, docs/protocol.md, "Pools"): one
+  // Pools shared by every runner (API 38, docs/protocol/settings.md, "Pools"): one
   // row per pool, in `order`. Members are logins by provider and email, as
   // login ids are each runner's own; one with no email is named by the
   // runner that has it and its id there.

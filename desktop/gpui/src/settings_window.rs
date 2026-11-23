@@ -720,6 +720,10 @@ impl SettingsWindow {
             }))
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "baselined at 288 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
+    )]
     fn render_general(
         &mut self,
         settings: Option<&RunnerSettings>,
@@ -767,7 +771,7 @@ impl SettingsWindow {
                     .overflow_hidden()
                     .text_size(px(13.))
                     .text_color(style::secondary_text(cx))
-                    .tip(full.clone())
+                    .tip(full)
                     .child(folder),
             )
             .child(self.button(
@@ -1128,7 +1132,7 @@ impl SettingsWindow {
             cx,
         );
         let font_now = style::font_choice();
-        let font_app = app.clone();
+        let font_app = app;
         let font_menu = Button::new("settings-font")
             .label(font_now.title())
             .small()
@@ -1354,7 +1358,7 @@ impl SettingsWindow {
             } else {
                 reviewed.clone()
             };
-            let (use_text, file_text) = (reviewed.clone(), current.text.clone());
+            let (use_text, file_text) = (reviewed, current.text);
             let mut buttons = h_flex().gap(px(8.)).items_center();
             if self.resolving {
                 buttons = buttons.child(Spinner::new().with_size(px(12.)).color(secondary));
@@ -1747,7 +1751,7 @@ impl SettingsWindow {
             .test_support()
             .a11y_role(Role::GenericContainer)
             .aria_label(tip)
-            .tip(shown.clone())
+            .tip(shown)
             .flex_none()
             .child(
                 crate::mac_switch::MacSwitch::new(SharedString::from(id), on).on_change(
@@ -1828,10 +1832,7 @@ fn waiting_text(app: &WeakEntity<Threadbear>, cx: &App) -> String {
     let t = app.read(cx);
     if t.settings_unsupported {
         "This runner is too old for settings. It gets them when it next updates.".into()
-    } else if !matches!(
-        t.status,
-        threadbear_client::runner::Status::Connected { .. }
-    ) {
+    } else if !t.connected() {
         "Not connected to the runner.".into()
     } else {
         "Loading…".into()

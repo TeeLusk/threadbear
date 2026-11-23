@@ -1,5 +1,5 @@
 // Replies from threads this Mac started on other runners, passed back to the
-// thread that started them (docs/protocol.md, "Asking another runner",
+// thread that started them (docs/protocol/runners.md, "Asking another runner",
 // "Reporting back").
 //
 // The main Mac's create_thread with a runner starts the thread there through

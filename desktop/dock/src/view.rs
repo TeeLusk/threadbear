@@ -700,7 +700,7 @@ impl DockView {
     /// Reduce Motion. One already running starts again from where its groups
     /// are drawn now, as SwiftUI's does.
     fn start_motion(&mut self, layout: &DockLayout, available: &Rc<HashSet<PanelId>>, cx: &App) {
-        let before = std::mem::replace(&mut self.last_layout, Some(layout.clone()));
+        let before = self.last_layout.replace(layout.clone());
         let Some(before) = before.filter(|b| b.root != layout.root) else {
             return;
         };
@@ -1330,7 +1330,7 @@ impl DockView {
                 .child(title),
         );
         if closable {
-            let close_group = group_name.clone();
+            let close_group = group_name;
             let title_for_tip = content.title(panel, cx);
             row = row.child(
                 div()
@@ -1721,7 +1721,7 @@ fn listeners(
                     let _ = moved.update(cx, |v, cx| v.pointer_moved(e, window, cx));
                 }
             });
-            let released = view.clone();
+            let released = view;
             window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
                     let _ = released.update(cx, |v, cx| v.pointer_up(e, window, cx));

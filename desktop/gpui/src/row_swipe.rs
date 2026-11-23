@@ -827,7 +827,7 @@ impl Threadbear {
         canvas(
             |_, _, _| {},
             move |_, _, window, _| {
-                let (moved, released) = (app.clone(), app.clone());
+                let (moved, released) = (app.clone(), app);
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                     if phase != DispatchPhase::Capture
                         || event.pressed_button != Some(MouseButton::Left)
@@ -923,7 +923,7 @@ fn row_middle(
         .elements()
         .into_iter()
         .filter(|e| e.visible() && e.label().is_some_and(|l| l.starts_with(&label)))
-        .last();
+        .next_back();
     row.map(|r| r.visible_bounds().center())
         .ok_or_else(|| format!("the row {title:?} isn't on screen"))
 }

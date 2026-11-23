@@ -234,7 +234,7 @@ impl Threadbear {
             self.runners_panel.ticking = false;
             return false;
         }
-        if tick % 3 == 0 {
+        if tick.is_multiple_of(3) {
             self.load_runners_list(false, cx);
             self.load_open_runners_logins(cx);
         }
@@ -1171,7 +1171,7 @@ pub(crate) fn automation(
                 .elements()
                 .into_iter()
                 .filter(|e| e.visible() && e.label().is_some_and(|l| tips.contains(&l.to_string())))
-                .last();
+                .next_back();
             found
                 .map(|e| e.visible_bounds().center())
                 .ok_or_else(|| format!("no card for {name} on screen"))

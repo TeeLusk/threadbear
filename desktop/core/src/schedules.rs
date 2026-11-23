@@ -7,9 +7,9 @@ use crate::highlights::{schedule_relative, Schedule};
 pub use crate::home::HomeStat;
 use crate::logins::{
     choice_for, implied_effort, picker_rows, resolved_model, Account, ModelChoice, PickerRow,
-    RunnerLogins,
+    PickerSection, RunnerLogins,
 };
-use crate::new_thread::{pool_logins, short_folder};
+use crate::new_thread::{pool_logins, pool_providers, short_folder};
 use chrono::{DateTime, Datelike, TimeZone, Timelike};
 
 /// The list's headings, folded like the inbox's (Mike asked 30 Oct, with 31
@@ -251,7 +251,11 @@ const MONTHS: [&str; 12] = [
 /// "2:05 pm", with its minutes always (`formatted(date: .omitted, time: .shortened)`).
 pub fn time_of_day<Tz: TimeZone>(d: &DateTime<Tz>) -> String {
     let hour = d.hour();
-    let twelve = if hour % 12 == 0 { 12 } else { hour % 12 };
+    let twelve = if hour.is_multiple_of(12) {
+        12
+    } else {
+        hour % 12
+    };
     format!(
         "{twelve}:{:02} {}",
         d.minute(),
@@ -442,16 +446,24 @@ pub struct ScheduleModels {
     pub rows: Vec<PickerRow>,
     /// The levels for the model (or the default model).
     pub effort_levels: Vec<String>,
+    /// A named pool of several kinds of login: `provider`'s name, over
+    /// `rows`.
+    pub title: Option<String>,
+    /// And each other kind's models under its name, its default a row like
+    /// the rest: picking one runs the schedule on that kind (its `provider`).
+    pub others: Vec<PickerSection>,
 }
 
 impl ScheduleModels {
     /// `account_id` pins the login; `pool_id` lets the runner pick one each
-    /// run, so the list is the login in the pool for the chosen model's
-    /// provider (or its first). Neither is what the runner does with a thread
-    /// that names none: its default pool, else its default login.
+    /// run, so the list is the login in the pool of `provider` (the kind it
+    /// was picked under), else for the chosen model's provider (or its
+    /// first). Neither is what the runner does with a thread that names
+    /// none: its default pool, else its default login.
     pub fn new(
         account_id: Option<&str>,
         pool_id: Option<&str>,
+        provider: Option<&str>,
         model: Option<&str>,
         logins: &RunnerLogins,
     ) -> ScheduleModels {
@@ -460,27 +472,42 @@ impl ScheduleModels {
                 .filter(|m| !m.is_empty())
                 .is_some_and(|m| c.id == m || c.model == m)
         };
-        let pool = pool_id
-            .or(if account_id.is_none() {
-                logins.defaults.pool_id.as_deref()
-            } else {
-                None
-            })
-            .and_then(|id| logins.pool(id));
-        let account: Option<&Account> = match (account_id.and_then(|id| logins.account(id)), pool) {
-            (Some(pinned), _) => Some(pinned),
-            (None, Some(pool)) => {
-                let members = pool_logins(pool, &logins.accounts, None);
-                members
-                    .iter()
-                    .copied()
-                    .find(|a| a.models.iter().any(named))
-                    .or_else(|| members.first().copied())
+        // A pool it names wins over the login, as the save sends it: a
+        // thread or draft in a pool has both, the login being the one it's
+        // on now (Codex's review, 21 Nov).
+        let named_pool = pool_id.and_then(|id| logins.pool(id));
+        let pool = named_pool.or_else(|| {
+            if account_id.is_some() {
+                return None;
             }
-            (None, None) => logins
-                .account(&logins.defaults.account_id)
-                .or_else(|| logins.accounts.first()),
-        };
+            logins
+                .defaults
+                .pool_id
+                .as_deref()
+                .and_then(|id| logins.pool(id))
+        });
+        let pinned = account_id.and_then(|id| logins.account(id));
+        let account: Option<&Account> =
+            match (named_pool.is_none().then_some(pinned).flatten(), pool) {
+                (Some(pinned), _) => Some(pinned),
+                (None, Some(pool)) => {
+                    let mut members = pool_logins(pool, &logins.accounts, provider);
+                    if members.is_empty() {
+                        members = pool_logins(pool, &logins.accounts, None);
+                    }
+                    // The login it's on now, if it's one of them, then the one
+                    // listing the model, then the first.
+                    members
+                        .iter()
+                        .copied()
+                        .find(|a| Some(a.id.as_str()) == account_id)
+                        .or_else(|| members.iter().copied().find(|a| a.models.iter().any(named)))
+                        .or_else(|| members.first().copied())
+                }
+                (None, None) => logins
+                    .account(&logins.defaults.account_id)
+                    .or_else(|| logins.accounts.first()),
+            };
         let provider = account.map_or("claude", Account::provider_id).to_owned();
         let choices: &[ModelChoice] = account.map_or(&[], |a| a.models.as_slice());
         let default_model = resolved_model(&[
@@ -497,13 +524,57 @@ impl ScheduleModels {
         );
         let rows = picker_rows(choices, default_model.as_deref(), model, "", &provider);
         let effort_levels = logins.effort_levels(effective, choices, &provider);
+        // Only a pool it names: the runner takes a kind only with a poolId
+        // (a folder's pool is worked out when it runs).
+        let kinds: Vec<_> = named_pool.map_or_else(Vec::new, |pool| {
+            pool_providers(pool, &logins.accounts)
+                .into_iter()
+                .map(|p| (pool, p))
+                .collect()
+        });
+        let many = kinds.len() > 1;
+        let others = if many {
+            kinds
+                .iter()
+                .filter(|(_, p)| *p != provider)
+                .filter_map(|(pool, p)| {
+                    let members = pool_logins(pool, &logins.accounts, Some(p));
+                    let listing = members
+                        .iter()
+                        .find(|a| !a.models.is_empty())
+                        .or(members.first())
+                        .copied();
+                    let default = logins
+                        .defaults
+                        .model_for(p)
+                        .map(str::to_owned)
+                        .or_else(|| listing.and_then(|a| a.default_model.clone()));
+                    let rows = picker_rows(
+                        listing.map_or(&[][..], |a| a.models.as_slice()),
+                        default.as_deref(),
+                        None,
+                        "",
+                        p,
+                    );
+                    (!rows.is_empty()).then(|| PickerSection {
+                        provider: p.clone(),
+                        title: Some(logins.provider_title(p)),
+                        rows,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         ScheduleModels {
+            title: many.then(|| logins.provider_title(&provider)),
             provider,
             account: account.cloned(),
             default_model,
             default_effort,
             rows,
             effort_levels,
+            others,
         }
     }
 
@@ -673,14 +744,99 @@ mod tests {
             "defaults": { "accountId": "claude-main", "cwd": "/Users/m/dev/misc", "efforts": { "claude": "high" } },
         });
         let logins = RunnerLogins::from_hello(&hello);
-        let models = ScheduleModels::new(None, None, None, &logins);
+        let models = ScheduleModels::new(None, None, None, None, &logins);
         assert_eq!(models.provider, "claude");
         assert_eq!(models.default_model_title(), "Default (Opus 5.5)");
         assert_eq!(models.default_effort_title(), "Default (High)");
         assert_eq!(models.effort_levels, vec!["low", "high"]);
-        let pinned = ScheduleModels::new(Some("codex-main"), None, None, &logins);
+        let pinned = ScheduleModels::new(Some("codex-main"), None, None, None, &logins);
         assert_eq!(pinned.provider, "codex");
         assert!(pinned.rows.iter().any(|r| r.id == "gpt-6"));
+    }
+
+    // Mike's Main pool of Claude and OpenCode logins (21 Nov): the editor
+    // lists each kind's models under its name, as the composer's picker
+    // does, and the kind picked under is the one the list follows.
+    #[test]
+    fn a_pool_of_several_kinds_lists_each_ones_models() {
+        let hello = json!({
+            "accounts": [
+                { "id": "claude-main", "provider": "claude", "title": "Alex", "defaultModel": "opus",
+                  "models": [{ "id": "opus", "title": "Opus 5.5" }, { "id": "haiku", "title": "Haiku 5.5" }] },
+                { "id": "oc", "provider": "opencode", "title": "OpenCode", "defaultModel": "google/gemini-3-pro",
+                  "models": [{ "id": "google/gemini-3-pro", "title": "Gemini 3 Pro" }, { "id": "google/gemini-3-flash", "title": "Gemini 3 Flash" }] },
+            ],
+            "pools": [
+                { "id": "main", "title": "Main", "accountIds": ["claude-main", "oc"] },
+                { "id": "solo", "title": "Solo", "accountIds": ["claude-main"] },
+            ],
+            "defaults": { "accountId": "claude-main", "cwd": "/Users/m/dev/misc" },
+        });
+        let logins = RunnerLogins::from_hello(&hello);
+        let main = ScheduleModels::new(None, Some("main"), None, None, &logins);
+        assert_eq!(
+            main.provider, "claude",
+            "none picked: the pool's first kind"
+        );
+        assert_eq!(main.title.as_deref(), Some("Claude"));
+        assert_eq!(main.others.len(), 1);
+        assert_eq!(main.others[0].provider, "opencode");
+        assert_eq!(main.others[0].title.as_deref(), Some("OpenCode"));
+        assert!(
+            main.others[0]
+                .rows
+                .iter()
+                .any(|r| r.id == "google/gemini-3-pro"),
+            "the other kind's default is a row to pick"
+        );
+        assert!(main.others[0].rows.iter().all(|r| !r.is_selected));
+
+        let picked = ScheduleModels::new(
+            None,
+            Some("main"),
+            Some("opencode"),
+            Some("google/gemini-3-flash"),
+            &logins,
+        );
+        assert_eq!(picked.provider, "opencode");
+        assert_eq!(picked.default_model_title(), "Default (Gemini 3 Pro)");
+        assert!(picked
+            .rows
+            .iter()
+            .any(|r| r.id == "google/gemini-3-flash" && r.is_selected));
+        assert_eq!(picked.others[0].provider, "claude");
+
+        let solo = ScheduleModels::new(None, Some("solo"), None, None, &logins);
+        assert_eq!(solo.title, None, "one kind: no heading");
+        assert!(solo.others.is_empty());
+        let pinned =
+            ScheduleModels::new(Some("claude-main"), None, Some("opencode"), None, &logins);
+        assert!(pinned.others.is_empty(), "a login has its own kind");
+        // A thread in the pool has its login too: the pool still wins.
+        let from_thread = ScheduleModels::new(
+            Some("claude-main"),
+            Some("main"),
+            Some("claude"),
+            None,
+            &logins,
+        );
+        assert_eq!(from_thread.provider, "claude");
+        assert_eq!(
+            from_thread.others.len(),
+            1,
+            "the pool's other kind is listed"
+        );
+        let moved = ScheduleModels::new(
+            Some("claude-main"),
+            Some("main"),
+            Some("opencode"),
+            None,
+            &logins,
+        );
+        assert_eq!(
+            moved.provider, "opencode",
+            "picked under OpenCode, its list follows"
+        );
     }
 
     #[test]

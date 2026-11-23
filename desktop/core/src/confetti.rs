@@ -199,6 +199,6 @@ mod tests {
                 .fold(0., f32::max)
         };
         assert!(reach(TOKEN_BURST) < reach(INBOX_BURST));
-        assert!(TOKEN_BURST.count < INBOX_BURST.count);
+        const { assert!(TOKEN_BURST.count < INBOX_BURST.count) };
     }
 }

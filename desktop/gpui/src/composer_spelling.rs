@@ -279,9 +279,12 @@ impl Composer {
                 &text,
                 text_services::check(&text, 0..text.len(), &asked, false),
             );
+            // Pictures' chips, and links' addresses (the # and @ pickers'
+            // `[Title](thread:<id>)`), aren't words to mark.
             let chips: Vec<Range<usize>> = Self::chips_in(&input, cx)
                 .into_iter()
                 .map(|(r, _)| r)
+                .chain(spelling::link_targets(&text))
                 .collect();
             // The word being typed waits until it's finished.
             let caret = (selection.is_empty() && typing && !now).then_some(selection.end);

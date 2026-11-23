@@ -99,7 +99,16 @@ impl Finder {
     pub fn search(&mut self, text: &str, query: &str, from: usize) {
         self.query = query.to_owned();
         self.matches = find_all(text, query);
-        self.current = if self.matches.is_empty() { None } else { Some(self.matches.iter().position(|m| m.start >= from).unwrap_or(0)) };
+        self.current = if self.matches.is_empty() {
+            None
+        } else {
+            Some(
+                self.matches
+                    .iter()
+                    .position(|m| m.start >= from)
+                    .unwrap_or(0),
+            )
+        };
     }
 
     /// The text changed under the search (a reload): the same words again,
@@ -178,7 +187,11 @@ mod tests {
         assert_eq!(finder.next(), Some(74..77));
         assert_eq!(finder.label(), "3 of 3");
         assert_eq!(finder.next(), Some(0..3), "round to the first");
-        assert_eq!(finder.previous(), Some(74..77), "and back round to the last");
+        assert_eq!(
+            finder.previous(),
+            Some(74..77),
+            "and back round to the last"
+        );
         assert_eq!(finder.dump_line(), "the: 3 of 3");
     }
 
@@ -188,7 +201,11 @@ mod tests {
         finder.search(REVIEW, "the", 61);
         assert_eq!(finder.current_range(), Some(74..77));
         finder.search(REVIEW, "the", 100);
-        assert_eq!(finder.current, Some(0), "past the last match goes round to the first");
+        assert_eq!(
+            finder.current,
+            Some(0),
+            "past the last match goes round to the first"
+        );
         // A reload keeps to the match picked.
         finder.search(REVIEW, "the", 61);
         finder.refresh(&format!("Intro.\n{REVIEW}"));

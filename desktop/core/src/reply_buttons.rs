@@ -101,7 +101,10 @@ pub struct Failed {
 impl ReplyButton {
     pub fn decode(v: &serde_json::Value) -> Option<ReplyButton> {
         let button: ReplyButton = crate::wire::read(v.clone())?;
-        let actions = usize::from(button.start.is_some()) + usize::from(button.send.is_some()) + usize::from(button.run.is_some()) + usize::from(button.panel.is_some());
+        let actions = usize::from(button.start.is_some())
+            + usize::from(button.send.is_some())
+            + usize::from(button.run.is_some())
+            + usize::from(button.panel.is_some());
         if button.id.is_empty() || actions != 1 {
             crate::wire::dropped::<ReplyButton>("button action or identity");
             return None;
@@ -117,7 +120,15 @@ impl ReplyButton {
     pub fn supersedes(&self, old: &ReplyButton) -> bool {
         // A panel button is pressed again and again: the later press wins.
         if self.panel.is_some() {
-            let when = |b: &ReplyButton| [b.pressed.as_ref().map(|p| p.at.clone()), b.failed.as_ref().map(|f| f.at.clone())].into_iter().flatten().max();
+            let when = |b: &ReplyButton| {
+                [
+                    b.pressed.as_ref().map(|p| p.at.clone()),
+                    b.failed.as_ref().map(|f| f.at.clone()),
+                ]
+                .into_iter()
+                .flatten()
+                .max()
+            };
             return match (when(self), when(old)) {
                 (Some(new), Some(previous)) => new > previous || (new == previous && self != old),
                 (Some(_), None) => true,
@@ -133,7 +144,12 @@ impl ReplyButton {
         }
         // Running and failing can alternate (a run pressed again), so the
         // later of the two moments wins.
-        let when = |b: &ReplyButton| b.running.as_ref().map(|r| r.at.clone()).or_else(|| b.failed.as_ref().map(|f| f.at.clone()));
+        let when = |b: &ReplyButton| {
+            b.running
+                .as_ref()
+                .map(|r| r.at.clone())
+                .or_else(|| b.failed.as_ref().map(|f| f.at.clone()))
+        };
         match (when(self), when(old)) {
             (None, None) => self != old,
             (None, Some(_)) => false,
@@ -158,8 +174,17 @@ pub fn look(button: &ReplyButton, pressing: bool) -> Look {
     // Never spent: each press opens the panel again. A failure since the
     // last press shows.
     if button.panel.is_some() {
-        let failed_last = button.failed.as_ref().is_some_and(|f| button.pressed.as_ref().is_none_or(|p| f.at > p.at));
-        return if pressing { Look::Pressing } else if failed_last { Look::Failed } else { Look::Panel };
+        let failed_last = button
+            .failed
+            .as_ref()
+            .is_some_and(|f| button.pressed.as_ref().is_none_or(|p| f.at > p.at));
+        return if pressing {
+            Look::Pressing
+        } else if failed_last {
+            Look::Failed
+        } else {
+            Look::Panel
+        };
     }
     if button.pressed.is_some() {
         Look::Pressed
@@ -192,21 +217,68 @@ pub fn label(button: &ReplyButton, look: Look) -> String {
 /// The pill's tip: what pressing does, in the agent's own words.
 pub fn tip(button: &ReplyButton, look: Look) -> String {
     let what = if let Some(start) = &button.start {
-        let folder = start.cwd.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        format!("Starts a thread in {}: {}", if folder.is_empty() { start.cwd.as_str() } else { folder }, excerpt(&start.text, 200))
+        let folder = start
+            .cwd
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("");
+        format!(
+            "Starts a thread in {}: {}",
+            if folder.is_empty() {
+                start.cwd.as_str()
+            } else {
+                folder
+            },
+            excerpt(&start.text, 200)
+        )
     } else if let Some(send) = &button.send {
-        format!("Sends to \"{}\": {}", send.thread_title, excerpt(&send.text, 200))
+        format!(
+            "Sends to \"{}\": {}",
+            send.thread_title,
+            excerpt(&send.text, 200)
+        )
     } else if let Some(panel) = &button.panel {
-        let folder = panel.cwd.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-        format!("Opens {} from {} beside this thread", if panel.title.is_empty() { "the panel" } else { panel.title.as_str() }, if folder.is_empty() { panel.cwd.as_str() } else { folder })
+        let folder = panel
+            .cwd
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or("");
+        format!(
+            "Opens {} from {} beside this thread",
+            if panel.title.is_empty() {
+                "the panel"
+            } else {
+                panel.title.as_str()
+            },
+            if folder.is_empty() {
+                panel.cwd.as_str()
+            } else {
+                folder
+            }
+        )
     } else {
         button.title.clone()
     };
     match look {
         Look::Start | Look::Send | Look::Panel => what,
         Look::Pressing => format!("On its way. {what}"),
-        Look::Pressed => format!("{}\n\n{what}", if button.send.is_some() { "Sent. Click to open the thread it went to." } else { "Started. Click to open the thread it started." }),
-        Look::Failed => format!("That didn't work: {}. Click to try again.\n\n{what}", button.failed.as_ref().map_or("unknown error", |f| f.error.as_str())),
+        Look::Pressed => format!(
+            "{}\n\n{what}",
+            if button.send.is_some() {
+                "Sent. Click to open the thread it went to."
+            } else {
+                "Started. Click to open the thread it started."
+            }
+        ),
+        Look::Failed => format!(
+            "That didn't work: {}. Click to try again.\n\n{what}",
+            button
+                .failed
+                .as_ref()
+                .map_or("unknown error", |f| f.error.as_str())
+        ),
     }
 }
 
@@ -228,7 +300,11 @@ pub fn ids_in(text: &str) -> Vec<String> {
         let after = &rest[at + "](button:".len()..];
         let Some(end) = after.find(')') else { break };
         let id = after[..end].trim();
-        if !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        if !id.is_empty()
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
             ids.push(id.to_owned());
         }
         rest = &after[end..];
@@ -271,43 +347,94 @@ mod tests {
 
     #[test]
     fn looks_and_says_what_it_does() {
-        let start = button(json!({ "id": "abc12345", "title": "Fill in the form", "start": { "text": "Open the form   and\\nfill it in", "cwd": "/Users/alex/code/misc" } }));
+        let start = button(
+            json!({ "id": "abc12345", "title": "Fill in the form", "start": { "text": "Open the form   and\\nfill it in", "cwd": "/Users/alex/code/misc" } }),
+        );
         assert_eq!(look(&start, false), Look::Start);
-        assert_eq!(label(&start, Look::Start), "\u{25B6}\u{FE0E} Fill in the form");
-        assert_eq!(tip(&start, Look::Start), "Starts a thread in misc: Open the form and\\nfill it in");
+        assert_eq!(
+            label(&start, Look::Start),
+            "\u{25B6}\u{FE0E} Fill in the form"
+        );
+        assert_eq!(
+            tip(&start, Look::Start),
+            "Starts a thread in misc: Open the form and\\nfill it in"
+        );
         assert_eq!(look(&start, true), Look::Pressing);
-        let send = button(json!({ "id": "x", "title": "Reply yes", "send": { "threadId": "t2", "threadTitle": "Meetup", "text": "yes" } }));
-        assert_eq!(label(&send, look(&send, false)), "\u{21AA}\u{FE0E} Reply yes");
-        let failed = button(json!({ "id": "x", "title": "Go", "start": { "text": "go", "cwd": "/a" }, "failed": { "at": "2026-11-11T10:00:00Z", "error": "the folder has gone" } }));
-        assert!(tip(&failed, look(&failed, false)).starts_with("That didn't work: the folder has gone. Click to try again."));
-        let pressed = button(json!({ "id": "x", "title": "Go", "send": { "threadId": "t", "threadTitle": "T", "text": "a" }, "pressed": { "at": "z", "threadId": "t" } }));
-        assert_eq!(look(&pressed, true), Look::Pressed, "pressed wins over a press on its way");
-        assert!(tip(&pressed, Look::Pressed).starts_with("Sent. Click to open the thread it went to."));
+        let send = button(
+            json!({ "id": "x", "title": "Reply yes", "send": { "threadId": "t2", "threadTitle": "Meetup", "text": "yes" } }),
+        );
+        assert_eq!(
+            label(&send, look(&send, false)),
+            "\u{21AA}\u{FE0E} Reply yes"
+        );
+        let failed = button(
+            json!({ "id": "x", "title": "Go", "start": { "text": "go", "cwd": "/a" }, "failed": { "at": "2026-11-11T10:00:00Z", "error": "the folder has gone" } }),
+        );
+        assert!(tip(&failed, look(&failed, false))
+            .starts_with("That didn't work: the folder has gone. Click to try again."));
+        let pressed = button(
+            json!({ "id": "x", "title": "Go", "send": { "threadId": "t", "threadTitle": "T", "text": "a" }, "pressed": { "at": "z", "threadId": "t" } }),
+        );
+        assert_eq!(
+            look(&pressed, true),
+            Look::Pressed,
+            "pressed wins over a press on its way"
+        );
+        assert!(
+            tip(&pressed, Look::Pressed).starts_with("Sent. Click to open the thread it went to.")
+        );
     }
 
     #[test]
     fn a_panel_button_is_never_spent() {
-        let made = button(json!({ "id": "p", "title": "Go through comments", "panel": { "cwd": "/Users/alex/code/yt", "panelId": "youtube.youtube", "title": "YouTube" } }));
+        let made = button(
+            json!({ "id": "p", "title": "Go through comments", "panel": { "cwd": "/Users/alex/code/yt", "panelId": "youtube.youtube", "title": "YouTube" } }),
+        );
         assert_eq!(look(&made, false), Look::Panel);
-        assert_eq!(label(&made, Look::Panel), "\u{25E8}\u{FE0E} Go through comments");
-        assert_eq!(tip(&made, Look::Panel), "Opens YouTube from yt beside this thread");
-        let pressed = button(json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T10:00:00Z", "threadId": "t" } }));
-        assert_eq!(look(&pressed, false), Look::Panel, "pressed, it still opens the panel");
+        assert_eq!(
+            label(&made, Look::Panel),
+            "\u{25E8}\u{FE0E} Go through comments"
+        );
+        assert_eq!(
+            tip(&made, Look::Panel),
+            "Opens YouTube from yt beside this thread"
+        );
+        let pressed = button(
+            json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T10:00:00Z", "threadId": "t" } }),
+        );
+        assert_eq!(
+            look(&pressed, false),
+            Look::Panel,
+            "pressed, it still opens the panel"
+        );
         assert_eq!(look(&pressed, true), Look::Pressing);
-        let failed = button(json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T10:00:00Z", "threadId": "t" }, "failed": { "at": "2026-11-18T11:00:00Z", "error": "gone" } }));
+        let failed = button(
+            json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T10:00:00Z", "threadId": "t" }, "failed": { "at": "2026-11-18T11:00:00Z", "error": "gone" } }),
+        );
         assert_eq!(look(&failed, false), Look::Failed);
         assert!(failed.supersedes(&pressed));
-        let again = button(json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T12:00:00Z", "threadId": "t" }, "failed": { "at": "2026-11-18T11:00:00Z", "error": "gone" } }));
-        assert_eq!(look(&again, false), Look::Panel, "a press after the failure");
+        let again = button(
+            json!({ "id": "p", "title": "Go", "panel": { "cwd": "/a", "panelId": "x" }, "pressed": { "at": "2026-11-18T12:00:00Z", "threadId": "t" }, "failed": { "at": "2026-11-18T11:00:00Z", "error": "gone" } }),
+        );
+        assert_eq!(
+            look(&again, false),
+            Look::Panel,
+            "a press after the failure"
+        );
         assert!(again.supersedes(&failed));
         assert!(!pressed.supersedes(&again));
     }
 
     #[test]
     fn a_newer_snapshot_wins_and_a_pressed_one_stays() {
-        let made = button(json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"} }));
-        let failed = button(json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"}, "failed": { "at": "2026-11-11T10:00:00Z", "error": "e" } }));
-        let pressed = button(json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"}, "pressed": { "at": "2026-11-11T11:00:00Z", "threadId": "t" } }));
+        let made =
+            button(json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"} }));
+        let failed = button(
+            json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"}, "failed": { "at": "2026-11-11T10:00:00Z", "error": "e" } }),
+        );
+        let pressed = button(
+            json!({ "id": "x", "title": "Go", "start": {"text":"Brief","cwd":"/work"}, "pressed": { "at": "2026-11-11T11:00:00Z", "threadId": "t" } }),
+        );
         assert!(failed.supersedes(&made));
         assert!(!made.supersedes(&failed));
         assert!(pressed.supersedes(&failed));
@@ -322,6 +449,9 @@ mod tests {
         assert_eq!(id_of("https://example.com"), None);
         assert_eq!(id_of("button:"), None);
         assert_eq!(excerpt("one two three", 7), "one two\u{2026}");
-        assert_eq!(ids_in("a [x](button:ab12) b [y](button: cd34 ) [z](https://e)"), ["ab12", "cd34"]);
+        assert_eq!(
+            ids_in("a [x](button:ab12) b [y](button: cd34 ) [z](https://e)"),
+            ["ab12", "cd34"]
+        );
     }
 }

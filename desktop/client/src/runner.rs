@@ -36,7 +36,9 @@ pub fn timeout_for(method: &str, params: &Value) -> Duration {
         // claude setup-token waits on Mike in the browser, 10 minutes at most.
         "cloudTokens.make" => Duration::from_secs(11 * 60),
         // A slow parse of "when" on the pool's CLI, a Convex CLI's first key.
-        "threads.hibernateWhen" | "panels.convexDeployments" | "panels.convexKey" => Duration::from_secs(150),
+        "threads.hibernateWhen" | "panels.convexDeployments" | "panels.convexKey" => {
+            Duration::from_secs(150)
+        }
         // A message stays dimmed in the transcript while it's on its way,
         // and a runner on a Mac that's out of memory can stall for minutes
         // and still take it (19 Nov: four minutes, then it went). Better a
@@ -71,11 +73,21 @@ pub fn set_hello_build(build: Value) {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
-    Connecting { url: String },
+    Connecting {
+        url: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Connected { url: String, hello: Value },
+    Connected {
+        url: String,
+        hello: Value,
+    },
     #[serde(rename_all = "camelCase")]
-    Disconnected { url: String, reason: String, retry_in_ms: u64, kind: Disconnect },
+    Disconnected {
+        url: String,
+        reason: String,
+        retry_in_ms: u64,
+        kind: Disconnect,
+    },
 }
 
 /// Why it isn't connected, as the Swift app tells them apart for its banner
@@ -102,7 +114,10 @@ pub fn plain_reason(reason: &str) -> String {
     if lower.contains("timed out") {
         return "The runner didn't answer in time.".into();
     }
-    if reason.starts_with(TURNED_DOWN) || reason.starts_with("The runner") || reason.starts_with("Whatever is on") {
+    if reason.starts_with(TURNED_DOWN)
+        || reason.starts_with("The runner")
+        || reason.starts_with("Whatever is on")
+    {
         return reason.to_owned();
     }
     "Something went wrong reaching it. The app's log has the details.".into()
@@ -122,7 +137,11 @@ pub struct RpcError {
 
 impl RpcError {
     fn local(code: i64, message: impl Into<String>) -> Self {
-        RpcError { code, message: message.into(), data: None }
+        RpcError {
+            code,
+            message: message.into(),
+            data: None,
+        }
     }
 
     fn not_connected() -> Self {
@@ -151,7 +170,11 @@ impl RpcError {
             // A handover's refusal, or a restart's own once it has begun
             // ("The runner is restarting; send again in a moment.",
             // restart.ts `begin`): both before anything was taken.
-            BUSY => self.message.starts_with("The runner is handing over to a new one") || self.message.starts_with("The runner is restarting"),
+            BUSY => {
+                self.message
+                    .starts_with("The runner is handing over to a new one")
+                    || self.message.starts_with("The runner is restarting")
+            }
             _ => false,
         }
     }
@@ -212,7 +235,13 @@ impl Place {
     /// Nothing made before this one for its thread is still waiting or
     /// going.
     fn is_first(&self) -> bool {
-        !self.order.places.lock().unwrap().range(..self.id).any(|(_, t)| *t == self.thread)
+        !self
+            .order
+            .places
+            .lock()
+            .unwrap()
+            .range(..self.id)
+            .any(|(_, t)| *t == self.thread)
     }
 }
 
@@ -314,7 +343,10 @@ impl Client {
         }
         if restart.restarting_since().is_some() && before.restarting_since().is_none() {
             log::write("restart", "the runner is restarting");
-        } else if let Some(text) = restart.pending_text(|_| false).filter(|t| Some(t) != before.pending_text(|_| false).as_ref()) {
+        } else if let Some(text) = restart
+            .pending_text(|_| false)
+            .filter(|t| Some(t) != before.pending_text(|_| false).as_ref())
+        {
             log::write("restart", &text);
         }
     }
@@ -353,7 +385,10 @@ impl Client {
         let result = self.call_once(method, params).await;
         if let Err(e) = &result {
             // The runner's words or the connection's, never what was sent.
-            log::write("rpc", &format!("{method} failed ({}): {}", e.code, e.message));
+            log::write(
+                "rpc",
+                &format!("{method} failed ({}): {}", e.code, e.message),
+            );
         }
         result
     }
@@ -362,8 +397,13 @@ impl Client {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         let wait = timeout_for(method, &params);
-        let wait = self.timeout_cap.lock().unwrap().map_or(wait, |cap| wait.min(cap));
-        let text = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string();
+        let wait = self
+            .timeout_cap
+            .lock()
+            .unwrap()
+            .map_or(wait, |cap| wait.min(cap));
+        let text =
+            json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string();
         {
             let out = self.out.lock().unwrap();
             let Some(out) = out.as_ref() else {
@@ -381,8 +421,15 @@ impl Client {
             Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
                 let minutes = wait.as_secs() / 60;
-                let took = if wait.as_secs() >= 600 { format!("{minutes} minutes") } else { format!("{} seconds", wait.as_secs()) };
-                Err(RpcError::local(TIMED_OUT, format!("The runner didn't answer {method} in {took}")))
+                let took = if wait.as_secs() >= 600 {
+                    format!("{minutes} minutes")
+                } else {
+                    format!("{} seconds", wait.as_secs())
+                };
+                Err(RpcError::local(
+                    TIMED_OUT,
+                    format!("The runner didn't answer {method} in {took}"),
+                ))
             }
         }
     }
@@ -397,14 +444,28 @@ impl Client {
     /// going again after it, and a message can't start its turn before the
     /// model he picked first. `progress` hears when it's held and when it
     /// goes.
-    pub async fn call_in_restart_order(&self, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
+    pub async fn call_in_restart_order(
+        &self,
+        method: &str,
+        params: Value,
+        progress: ProgressFn,
+    ) -> Result<Value, RpcError> {
         let place = self.place(params["threadId"].as_str().unwrap_or(""));
-        self.call_in_restart_order_at(place, method, params, progress).await
+        self.call_in_restart_order_at(place, method, params, progress)
+            .await
     }
 
     /// `call_in_restart_order` from a place taken when the request was made.
-    pub async fn call_in_restart_order_at(&self, place: Place, method: &str, params: Value, progress: ProgressFn) -> Result<Value, RpcError> {
-        self.in_restart_order(place, method, params, &progress, None).await.map(|v| v.unwrap_or(Value::Null))
+    pub async fn call_in_restart_order_at(
+        &self,
+        place: Place,
+        method: &str,
+        params: Value,
+        progress: ProgressFn,
+    ) -> Result<Value, RpcError> {
+        self.in_restart_order(place, method, params, &progress, None)
+            .await
+            .map(|v| v.unwrap_or(Value::Null))
     }
 
     /// A place in the order of requests about this runner's threads, to
@@ -412,8 +473,16 @@ impl Client {
     /// `send_through_restart` or `call_in_restart_order_at`.
     pub fn place(&self, thread_id: &str) -> Place {
         let id = self.order.next.fetch_add(1, Ordering::SeqCst);
-        self.order.places.lock().unwrap().insert(id, thread_id.to_owned());
-        Place { id, thread: thread_id.to_owned(), order: self.order.clone() }
+        self.order
+            .places
+            .lock()
+            .unwrap()
+            .insert(id, thread_id.to_owned());
+        Place {
+            id,
+            thread: thread_id.to_owned(),
+            order: self.order.clone(),
+        }
     }
 
     /// As the app quits: requests still held for a restarting runner stay
@@ -441,11 +510,25 @@ impl Client {
     /// and goes again there, unless the thread shows it arrived. Only for an
     /// idle thread with nothing else on its way to it (`Resend::was_idle`).
     /// Ok(None) when it had arrived after all.
-    pub async fn send_through_restart(&self, place: Place, params: Value, resend: Resend, progress: ProgressFn) -> Result<Option<Value>, RpcError> {
-        self.in_restart_order(place, "threads.send", params, &progress, Some(&resend)).await
+    pub async fn send_through_restart(
+        &self,
+        place: Place,
+        params: Value,
+        resend: Resend,
+        progress: ProgressFn,
+    ) -> Result<Option<Value>, RpcError> {
+        self.in_restart_order(place, "threads.send", params, &progress, Some(&resend))
+            .await
     }
 
-    async fn in_restart_order(&self, place: Place, method: &str, params: Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
+    async fn in_restart_order(
+        &self,
+        place: Place,
+        method: &str,
+        params: Value,
+        progress: &ProgressFn,
+        resend: Option<&Resend>,
+    ) -> Result<Option<Value>, RpcError> {
         let sent_down = self.connected_session().is_none();
         if sent_down && !self.restart_under_way() {
             return Err(RpcError::not_connected());
@@ -468,8 +551,15 @@ impl Client {
                 // the new runner, while a restart's under way.
                 None if self.restart_under_way() => {
                     let (hold, resend_wait) = *self.waits.lock().unwrap();
-                    let Some(now) = self.wait_for_session(None, if sent_down { hold } else { resend_wait }).await else {
-                        return Err(if sent_down { RpcError::local(NOT_CONNECTED, "The runner didn't come back") } else { RpcError::not_connected() });
+                    let Some(now) = self
+                        .wait_for_session(None, if sent_down { hold } else { resend_wait })
+                        .await
+                    else {
+                        return Err(if sent_down {
+                            RpcError::local(NOT_CONNECTED, "The runner didn't come back")
+                        } else {
+                            RpcError::not_connected()
+                        });
                     };
                     now
                 }
@@ -477,7 +567,8 @@ impl Client {
             };
             self.go(progress)?;
             let first = self.call(method, params.clone()).await;
-            self.settle(first, now, method, &params, progress, resend).await
+            self.settle(first, now, method, &params, progress, resend)
+                .await
         })
         .await
     }
@@ -492,17 +583,33 @@ impl Client {
     /// restart queue, so nothing behind it overtakes it while it goes again:
     /// one turned away goes again on the new runner (`againAfterRestart`),
     /// and a message cut off on its way goes again unless it arrived.
-    async fn settle(&self, first: Result<Value, RpcError>, sent_on: u64, method: &str, params: &Value, progress: &ProgressFn, resend: Option<&Resend>) -> Result<Option<Value>, RpcError> {
+    async fn settle(
+        &self,
+        first: Result<Value, RpcError>,
+        sent_on: u64,
+        method: &str,
+        params: &Value,
+        progress: &ProgressFn,
+        resend: Option<&Resend>,
+    ) -> Result<Option<Value>, RpcError> {
         let mut result = first;
         if let Err(e) = &result {
             if e.turned_away_by_restart() && self.restart_under_way() {
-                result = self.again_after_restart(e.clone(), sent_on, method, params, progress).await;
+                result = self
+                    .again_after_restart(e.clone(), sent_on, method, params, progress)
+                    .await;
             }
         }
         match result {
             Err(e) if Self::may_resend(&e, method, resend) && self.restart_under_way() => {
                 progress(Progress::Held);
-                self.resend_cut_off(e, params.clone(), resend.expect("may_resend has one"), progress).await
+                self.resend_cut_off(
+                    e,
+                    params.clone(),
+                    resend.expect("may_resend has one"),
+                    progress,
+                )
+                .await
             }
             // No answer in time from a runner that's still there: a stalled
             // one may have taken it all the same, so look before saying it
@@ -510,11 +617,21 @@ impl Client {
             // an idle thread with nothing else on its way: another message
             // with the same words could otherwise pass for this one, and a
             // busy thread's runner may have queued it unseen.
-            Err(e) if e.code == TIMED_OUT && method == "threads.send" && resend.is_some_and(|r| r.was_idle) => {
+            Err(e)
+                if e.code == TIMED_OUT
+                    && method == "threads.send"
+                    && resend.is_some_and(|r| r.was_idle) =>
+            {
                 let resend = resend.expect("checked");
                 match self.has_landed(resend, None).await {
                     Ok(true) => {
-                        log::write("send", &format!("a send with no answer in time had arrived: {}", resend.thread_id));
+                        log::write(
+                            "send",
+                            &format!(
+                                "a send with no answer in time had arrived: {}",
+                                resend.thread_id
+                            ),
+                        );
                         Ok(None)
                     }
                     _ => Err(e),
@@ -530,7 +647,12 @@ impl Client {
     async fn has_landed(&self, resend: &Resend, last_seq: Option<i64>) -> Result<bool, RpcError> {
         let mut after = resend.after_seq;
         for _ in 0..20 {
-            let page = self.call("threads.events", json!({ "threadId": resend.thread_id, "afterSeq": after })).await?;
+            let page = self
+                .call(
+                    "threads.events",
+                    json!({ "threadId": resend.thread_id, "afterSeq": after }),
+                )
+                .await?;
             let events = page["events"].as_array().cloned().unwrap_or_default();
             if events.iter().any(|e| (resend.landed)(e)) {
                 return Ok(true);
@@ -543,7 +665,13 @@ impl Client {
         Ok(false)
     }
 
-    async fn resend_cut_off(&self, error: RpcError, params: Value, resend: &Resend, progress: &ProgressFn) -> Result<Option<Value>, RpcError> {
+    async fn resend_cut_off(
+        &self,
+        error: RpcError,
+        params: Value,
+        resend: &Resend,
+        progress: &ProgressFn,
+    ) -> Result<Option<Value>, RpcError> {
         let id = resend.thread_id.as_str();
         // The connection it was cut off on is gone, so any that's up now is
         // the new runner's (`run` clears it before failing what was on its way).
@@ -554,20 +682,43 @@ impl Client {
         // Still with the old runner (finishing a turn-end hook, say) or
         // busy: it may sit in a queue there that nothing shows, so back in
         // the box rather than go twice.
-        let list = self.call("threads.list", json!({ "include": ["inbox", "snoozed", "archived"], "ids": [id] })).await?;
-        let summary = list["threads"].as_array().into_iter().flatten().find(|t| t["id"] == id).cloned().unwrap_or(Value::Null);
-        let busy = matches!(summary["status"].as_str(), Some("running" | "starting" | "waiting"));
+        let list = self
+            .call(
+                "threads.list",
+                json!({ "include": ["inbox", "snoozed", "archived"], "ids": [id] }),
+            )
+            .await?;
+        let summary = list["threads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|t| t["id"] == id)
+            .cloned()
+            .unwrap_or(Value::Null);
+        let busy = matches!(
+            summary["status"].as_str(),
+            Some("running" | "starting" | "waiting")
+        );
         if summary.is_null() || summary["onOldRunner"] == true || busy {
-            log::write("send", &format!("a send the restart cut off may be queued on the old runner: {id}"));
+            log::write(
+                "send",
+                &format!("a send the restart cut off may be queued on the old runner: {id}"),
+            );
             return Err(error);
         }
         let last_seq = summary["lastSeq"].as_i64().unwrap_or(0);
         // Every page since it was sent, not just the first.
         if self.has_landed(resend, Some(last_seq)).await? {
-            log::write("send", &format!("a send the restart cut off had arrived: {id}"));
+            log::write(
+                "send",
+                &format!("a send the restart cut off had arrived: {id}"),
+            );
             return Ok(None);
         }
-        log::write("send", &format!("sending again after the restart cut it off: {id}"));
+        log::write(
+            "send",
+            &format!("sending again after the restart cut it off: {id}"),
+        );
         self.go(progress)?;
         self.call("threads.send", params).await.map(Some)
     }
@@ -576,7 +727,14 @@ impl Client {
     /// refusal and the new runner connects within the resend wait;
     /// otherwise `error`. Inside the queue's step, never through it again,
     /// which would wait on itself (`againAfterRestart`).
-    async fn again_after_restart(&self, error: RpcError, sent_on: u64, method: &str, params: &Value, progress: &ProgressFn) -> Result<Value, RpcError> {
+    async fn again_after_restart(
+        &self,
+        error: RpcError,
+        sent_on: u64,
+        method: &str,
+        params: &Value,
+        progress: &ProgressFn,
+    ) -> Result<Value, RpcError> {
         if !error.turned_away_by_restart() || !self.restart_under_way() {
             return Err(error);
         }
@@ -585,7 +743,10 @@ impl Client {
         if self.wait_for_session(Some(sent_on), resend).await.is_none() {
             return Err(error);
         }
-        log::write("restart", &format!("sending {method} again after the restart"));
+        log::write(
+            "restart",
+            &format!("sending {method} again after the restart"),
+        );
         self.go(progress)?;
         self.call(method, params.clone()).await
     }
@@ -638,7 +799,10 @@ impl Client {
                 Ok(()) => {
                     backoff_ms = 500;
                     log::write("connection", "lost the connection to the runner");
-                    ("The runner closed the connection".to_string(), Disconnect::Lost)
+                    (
+                        "The runner closed the connection".to_string(),
+                        Disconnect::Lost,
+                    )
                 }
                 Err(e) if e.starts_with(TURNED_DOWN) => {
                     log::write("connection", &e);
@@ -664,8 +828,17 @@ impl Client {
             // A restart is over in a few seconds; backing off to 4 s and more
             // left the window saying "Reconnecting" well after the runner
             // was back (`connectLoop`).
-            let wait_ms = if self.restart.lock().unwrap().is_restarting(Instant::now()) { backoff_ms.min(500) } else { backoff_ms };
-            self.set_status(Status::Disconnected { url, reason, retry_in_ms: wait_ms, kind });
+            let wait_ms = if self.restart.lock().unwrap().is_restarting(Instant::now()) {
+                backoff_ms.min(500)
+            } else {
+                backoff_ms
+            };
+            self.set_status(Status::Disconnected {
+                url,
+                reason,
+                retry_in_ms: wait_ms,
+                kind,
+            });
             // "Try again" in the connection banner cuts the wait short.
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
@@ -682,7 +855,9 @@ impl Client {
     /// and then closed; Err with what went wrong before that.
     async fn session(self: Arc<Self>, url: &str) -> Result<(), String> {
         let token = self.config.read_token()?;
-        let (ws, _) = tokio_tungstenite::connect_async(url).await.map_err(|e| format!("Couldn't reach the runner at {url}: {e}"))?;
+        let (ws, _) = tokio_tungstenite::connect_async(url)
+            .await
+            .map_err(|e| format!("Couldn't reach the runner at {url}: {e}"))?;
         let (mut write, mut read) = ws.split();
 
         // The challenge, our proof, and the runner's proof back.
@@ -702,15 +877,33 @@ impl Client {
             "jsonrpc": "2.0", "id": 1, "method": "auth.prove",
             "params": { "nonce": client_nonce, "proof": auth::proof(&token, Role::Client, &runner_nonce, &client_nonce, "primary", port) }
         });
-        write.send(Message::text(prove.to_string())).await.map_err(|e| e.to_string())?;
+        write
+            .send(Message::text(prove.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
         let answer = tokio::time::timeout(AUTH_TIMEOUT, next_json(&mut read))
             .await
             .map_err(|_| "The runner didn't answer the sign-in".to_string())??;
         if let Some(err) = answer.get("error") {
-            return Err(format!("{TURNED_DOWN}: {}", err.get("message").and_then(Value::as_str).unwrap_or("no reason given")));
+            return Err(format!(
+                "{TURNED_DOWN}: {}",
+                err.get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("no reason given")
+            ));
         }
-        let expected = auth::proof(&token, Role::Runner, &runner_nonce, &client_nonce, "primary", port);
-        let theirs = answer.pointer("/result/proof").and_then(Value::as_str).unwrap_or("");
+        let expected = auth::proof(
+            &token,
+            Role::Runner,
+            &runner_nonce,
+            &client_nonce,
+            "primary",
+            port,
+        );
+        let theirs = answer
+            .pointer("/result/proof")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if !auth::proof_matches(&expected, theirs) {
             return Err("Whatever is on the runner's port couldn't prove it's the runner, so this app won't talk to it".into());
         }
@@ -746,9 +939,18 @@ impl Client {
                     // comes back with hello's notice and runner.status.
                     me.update_restart(|r| r.connected());
                     *me.last_down.lock().unwrap() = None;
-                    log::write("connection", &format!("connected to runner {} at {url_owned}", hello["runnerVersion"].as_str().unwrap_or("?")));
+                    log::write(
+                        "connection",
+                        &format!(
+                            "connected to runner {} at {url_owned}",
+                            hello["runnerVersion"].as_str().unwrap_or("?")
+                        ),
+                    );
                     let session = me.sessions.fetch_add(1, Ordering::SeqCst) + 1;
-                    me.set_status(Status::Connected { url: url_owned, hello });
+                    me.set_status(Status::Connected {
+                        url: url_owned,
+                        hello,
+                    });
                     me.session.send_replace(session);
                     None
                 }
@@ -789,7 +991,13 @@ impl Client {
                     // half an emoji in one event, a "\ud83e" serde refuses,
                     // kept a thread from opening). Where it broke, never
                     // what it says, as it may hold anything.
-                    log::write("rpc", &format!("dropped a message from the runner that isn't JSON ({} bytes): {e}", text.len()));
+                    log::write(
+                        "rpc",
+                        &format!(
+                            "dropped a message from the runner that isn't JSON ({} bytes): {e}",
+                            text.len()
+                        ),
+                    );
                     continue;
                 }
             };
@@ -812,7 +1020,11 @@ impl Client {
                 let result = match v.get("error") {
                     Some(e) => Err(RpcError {
                         code: e.get("code").and_then(Value::as_i64).unwrap_or(-32000),
-                        message: e.get("message").and_then(Value::as_str).unwrap_or("The runner gave no reason").to_string(),
+                        message: e
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("The runner gave no reason")
+                            .to_string(),
                         data: e.get("data").cloned(),
                     }),
                     None => Ok(v.get("result").cloned().unwrap_or(Value::Null)),
@@ -822,7 +1034,10 @@ impl Client {
         } else if let Some(method) = v.get("method").and_then(Value::as_str) {
             let params = v.get("params").unwrap_or(&Value::Null);
             if method == "runner.notice" {
-                let (level, message) = (params["level"].as_str().unwrap_or("info"), params["message"].as_str().unwrap_or(""));
+                let (level, message) = (
+                    params["level"].as_str().unwrap_or("info"),
+                    params["message"].as_str().unwrap_or(""),
+                );
                 log::write("notice", &format!("{level}: {message}"));
                 self.update_restart(|r| {
                     r.notice(message, Instant::now());
@@ -839,11 +1054,20 @@ where
 {
     while let Some(msg) = read.next().await {
         match msg {
-            Ok(Message::Text(t)) => return serde_json::from_str(t.as_str()).map_err(|e| format!("The runner sent something that isn't JSON: {e}")),
+            Ok(Message::Text(t)) => {
+                return serde_json::from_str(t.as_str())
+                    .map_err(|e| format!("The runner sent something that isn't JSON: {e}"))
+            }
             // The runner closes with 4401 when the proof doesn't match: the
             // token isn't its (Transport.swift reads the same code).
-            Ok(Message::Close(Some(frame))) if u16::from(frame.code) == 4401 => return Err(format!("{TURNED_DOWN}: the token in secrets/runner-token isn't the runner's")),
-            Ok(Message::Close(_)) => return Err("The runner closed the connection while signing in".into()),
+            Ok(Message::Close(Some(frame))) if u16::from(frame.code) == 4401 => {
+                return Err(format!(
+                    "{TURNED_DOWN}: the token in secrets/runner-token isn't the runner's"
+                ))
+            }
+            Ok(Message::Close(_)) => {
+                return Err("The runner closed the connection while signing in".into())
+            }
             Ok(_) => continue,
             Err(e) => return Err(e.to_string()),
         }
@@ -858,28 +1082,66 @@ mod tests {
     /// `RunnerAPI`'s longer waits: a chip's command, a slow parse.
     #[test]
     fn slow_requests_get_longer_to_answer() {
-        assert_eq!(timeout_for("actions.run", &json!({ "actionId": "worktree.land" })), Duration::from_secs(61 * 60));
-        assert_eq!(timeout_for("actions.run", &json!({ "actionId": "checks.quick" })), Duration::from_secs(11 * 60));
-        assert_eq!(timeout_for("threads.hibernateWhen", &json!({})), Duration::from_secs(150));
-        assert_eq!(timeout_for("panels.convexKey", &json!({})), Duration::from_secs(150));
-        assert_eq!(timeout_for("threads.list", &json!({})), Duration::from_secs(120));
-        assert_eq!(timeout_for("threads.send", &json!({})), Duration::from_secs(300));
-        assert_eq!(timeout_for("cloudTokens.make", &json!({ "login": "a@b" })), Duration::from_secs(11 * 60), "it waits on claude.ai in the browser");
+        assert_eq!(
+            timeout_for("actions.run", &json!({ "actionId": "worktree.land" })),
+            Duration::from_secs(61 * 60)
+        );
+        assert_eq!(
+            timeout_for("actions.run", &json!({ "actionId": "checks.quick" })),
+            Duration::from_secs(11 * 60)
+        );
+        assert_eq!(
+            timeout_for("threads.hibernateWhen", &json!({})),
+            Duration::from_secs(150)
+        );
+        assert_eq!(
+            timeout_for("panels.convexKey", &json!({})),
+            Duration::from_secs(150)
+        );
+        assert_eq!(
+            timeout_for("threads.list", &json!({})),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            timeout_for("threads.send", &json!({})),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            timeout_for("cloudTokens.make", &json!({ "login": "a@b" })),
+            Duration::from_secs(11 * 60),
+            "it waits on claude.ai in the browser"
+        );
     }
 
     #[test]
     fn reasons_are_said_plainly() {
         assert_eq!(plain_reason("Couldn't reach the runner at ws://127.0.0.1:8797/rpc: IO error: Connection refused (os error 61)"), "Nothing is answering on the runner's port, so it isn't running.");
-        assert_eq!(plain_reason("The runner closed the connection"), "The runner closed the connection");
-        assert!(!plain_reason("Couldn't reach the runner at ws://127.0.0.1:8797/rpc: IO error: unexpected EOF").contains("ws://"));
+        assert_eq!(
+            plain_reason("The runner closed the connection"),
+            "The runner closed the connection"
+        );
+        assert!(!plain_reason(
+            "Couldn't reach the runner at ws://127.0.0.1:8797/rpc: IO error: unexpected EOF"
+        )
+        .contains("ws://"));
     }
 
     #[test]
     fn what_a_restart_turned_away() {
-        let e = |code, message: &str| RpcError { code, message: message.into(), data: None };
+        let e = |code, message: &str| RpcError {
+            code,
+            message: message.into(),
+            data: None,
+        };
         assert!(e(THREAD_NOT_FOUND, "Thread not found").turned_away_by_restart());
-        assert!(e(BUSY, "The runner is handing over to a new one; send again in a moment.").turned_away_by_restart());
-        assert!(e(BUSY, "The runner is restarting; send again in a moment.").turned_away_by_restart());
+        assert!(e(
+            BUSY,
+            "The runner is handing over to a new one; send again in a moment."
+        )
+        .turned_away_by_restart());
+        assert!(
+            e(BUSY, "The runner is restarting; send again in a moment.").turned_away_by_restart()
+        );
         assert!(!e(BUSY, "The thread is busy").turned_away_by_restart());
         assert!(e(NOT_CONNECTED, "Not connected to the runner").turned_away_by_restart());
         // It may have arrived: that's for `send_through_restart` to find out.

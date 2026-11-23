@@ -66,7 +66,12 @@ impl Threadbear {
     /// opens, so a tab opened meanwhile is there. `thread` is None for the
     /// New Thread box, which asks with no thread (`allowed` is then every
     /// thread's list).
-    pub(crate) fn load_browser_tabs(&mut self, key: String, thread: Option<String>, cx: &mut Context<Self>) {
+    pub(crate) fn load_browser_tabs(
+        &mut self,
+        key: String,
+        thread: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.tab_picker.fetching.insert(key.clone()) {
             return;
         }
@@ -90,7 +95,9 @@ impl Threadbear {
                                 bear.update(cx, |bear, cx| {
                                     bear.ask("status", json!({}), cx, move |status, cx| {
                                         let result = match status {
-                                            Ok(s) if tabs::no_profile(&s) => Err(Unavailable::NoProfile),
+                                            Ok(s) if tabs::no_profile(&s) => {
+                                                Err(Unavailable::NoProfile)
+                                            }
                                             _ => Ok(vec![]),
                                         };
                                         Self::took_tabs(&me_status, key_status, result, cx);
@@ -108,12 +115,19 @@ impl Threadbear {
         });
         if !asked {
             self.tab_picker.fetching.remove(&key);
-            self.tab_picker.tabs.insert(key, Err(Unavailable::NotRunning));
+            self.tab_picker
+                .tabs
+                .insert(key, Err(Unavailable::NotRunning));
             self.notify_composers(cx);
         }
     }
 
-    fn took_tabs(me: &WeakEntity<Threadbear>, key: String, result: Result<Vec<BrowserTab>, Unavailable>, cx: &mut App) {
+    fn took_tabs(
+        me: &WeakEntity<Threadbear>,
+        key: String,
+        result: Result<Vec<BrowserTab>, Unavailable>,
+        cx: &mut App,
+    ) {
         me.update(cx, |this, cx| {
             this.tab_picker.fetching.remove(&key);
             this.tab_picker.tabs.insert(key, result);
@@ -134,8 +148,18 @@ impl Threadbear {
     /// place by the agent's first command. Until BrowserBear answers, the
     /// message would carry words made here; a lend that fails says so, and
     /// the row it showed as lent goes back as it was.
-    pub(crate) fn lend_tab(&mut self, tab: BrowserTab, thread: String, before: Option<(Option<String>, Option<bool>)>, cx: &mut Context<Self>) {
-        self.tab_picker.lent.entry(thread.clone()).or_default().insert(tab.tab_id, tabs::fallback_words(&tab));
+    pub(crate) fn lend_tab(
+        &mut self,
+        tab: BrowserTab,
+        thread: String,
+        before: Option<(Option<String>, Option<bool>)>,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_picker
+            .lent
+            .entry(thread.clone())
+            .or_default()
+            .insert(tab.tab_id, tabs::fallback_words(&tab));
         let me = cx.entity().downgrade();
         let failed = {
             let me = me.clone();
@@ -146,13 +170,22 @@ impl Threadbear {
                         lent.remove(&tab.tab_id);
                     }
                     // The row it showed as lent here goes back as it was.
-                    if let (Some(Ok(list)), Some((lent_to, allowed))) = (this.tab_picker.tabs.get_mut(&thread), before.clone()) {
+                    if let (Some(Ok(list)), Some((lent_to, allowed))) =
+                        (this.tab_picker.tabs.get_mut(&thread), before.clone())
+                    {
                         if let Some(row) = list.iter_mut().find(|t| t.tab_id == tab.tab_id) {
                             row.lent_to = lent_to;
                             row.allowed = allowed;
                         }
                     }
-                    this.show_error(format!("Couldn't lend \"{}\" to this thread: {}.", tab.shown_title(), why.reason()), cx);
+                    this.show_error(
+                        format!(
+                            "Couldn't lend \"{}\" to this thread: {}.",
+                            tab.shown_title(),
+                            why.reason()
+                        ),
+                        cx,
+                    );
                     this.notify_composers(cx);
                 })
                 .ok();
@@ -168,11 +201,18 @@ impl Threadbear {
                         Some(words) => {
                             let words = words.to_owned();
                             me.update(cx, |this, _| {
-                                this.tab_picker.lent.entry(lent_thread).or_default().insert(tab_id, words);
+                                this.tab_picker
+                                    .lent
+                                    .entry(lent_thread)
+                                    .or_default()
+                                    .insert(tab_id, words);
                             })
                             .ok();
                         }
-                        None => failed_for_answer(Unavailable::Failed("BrowserBear didn't say how to use the tab".into()), cx),
+                        None => failed_for_answer(
+                            Unavailable::Failed("BrowserBear didn't say how to use the tab".into()),
+                            cx,
+                        ),
                     },
                     Err(why) => failed_for_answer(Unavailable::Failed(why), cx),
                 })
@@ -187,7 +227,11 @@ impl Threadbear {
     /// to lend it to yet, so the message carries words made here, and it's
     /// lent the moment the thread exists.
     pub(crate) fn lend_when_made(&mut self, tab: BrowserTab) {
-        self.tab_picker.lent.entry(NEW_THREAD_KEY.to_owned()).or_default().insert(tab.tab_id, tabs::fallback_words(&tab));
+        self.tab_picker
+            .lent
+            .entry(NEW_THREAD_KEY.to_owned())
+            .or_default()
+            .insert(tab.tab_id, tabs::fallback_words(&tab));
         self.tab_picker.to_lend.insert(tab.tab_id, tab);
     }
 
@@ -196,7 +240,13 @@ impl Threadbear {
     /// the tabs it mentions are lent once the thread is made.
     pub(crate) fn with_tab_words(&mut self, key: &str, text: String) -> String {
         if key == NEW_THREAD_KEY {
-            self.tab_picker.lend_on_create = self.tab_picker.to_lend.values().filter(|t| tabs::mentions(&text, t.tab_id)).cloned().collect();
+            self.tab_picker.lend_on_create = self
+                .tab_picker
+                .to_lend
+                .values()
+                .filter(|t| tabs::mentions(&text, t.tab_id))
+                .cloned()
+                .collect();
         }
         match self.tab_picker.lent.get(key) {
             Some(lent) => tabs::message(&text, lent),
@@ -222,7 +272,9 @@ impl Threadbear {
         if self.tab_picker.favicons.contains_key(&url) {
             return;
         }
-        self.tab_picker.favicons.insert(url.clone(), Favicon::Loading);
+        self.tab_picker
+            .favicons
+            .insert(url.clone(), Favicon::Loading);
         let task = cx.background_spawn({
             let url = url.clone();
             async move { fetch_icon(&url) }
@@ -230,7 +282,9 @@ impl Threadbear {
         cx.spawn(async move |this, cx| {
             let got = task.await;
             this.update(cx, |this, cx| {
-                let icon = got.map_or(Favicon::None, |(format, bytes)| Favicon::Ready(Arc::new(Image::from_bytes(gpui_format(format), bytes))));
+                let icon = got.map_or(Favicon::None, |(format, bytes)| {
+                    Favicon::Ready(Arc::new(Image::from_bytes(gpui_format(format), bytes)))
+                });
                 this.tab_picker.favicons.insert(url, icon);
                 this.notify_composers(cx);
             })
@@ -254,12 +308,24 @@ fn gpui_format(format: IconFormat) -> ImageFormat {
 /// A favicon's picture: a `data:` address's bytes, or a plain GET of a web
 /// one, at most `MAX_ICON_BYTES`, within a few seconds.
 fn fetch_icon(url: &str) -> Option<(IconFormat, Vec<u8>)> {
-    if url.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("data:")) {
+    if url
+        .get(..5)
+        .is_some_and(|p| p.eq_ignore_ascii_case("data:"))
+    {
         return tabs::icon_picture(&tabs::data_url_bytes(url)?);
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(ICON_WITHIN)).user_agent("threadbear-desktop").build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(ICON_WITHIN))
+        .user_agent("threadbear-desktop")
+        .build()
+        .into();
     let mut response = agent.get(url).call().ok()?;
-    let bytes = response.body_mut().with_config().limit(tabs::MAX_ICON_BYTES as u64).read_to_vec().ok()?;
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(tabs::MAX_ICON_BYTES as u64)
+        .read_to_vec()
+        .ok()?;
     tabs::icon_picture(&bytes)
 }
 
@@ -295,7 +361,9 @@ impl PickerView {
 impl Composer {
     /// Where this box's tabs are kept: its thread's id, or "new".
     fn tab_key(&self) -> String {
-        self.thread_id.clone().unwrap_or_else(|| NEW_THREAD_KEY.to_owned())
+        self.thread_id
+            .clone()
+            .unwrap_or_else(|| NEW_THREAD_KEY.to_owned())
     }
 
     /// `tabQuery`: the "@word" before the cursor while the picker is open.
@@ -305,7 +373,9 @@ impl Composer {
     fn tab_query(&self, cx: &App) -> Option<tabs::Query> {
         let state = self.input.read(cx);
         let text = state.value().to_string();
-        if self.tab_picker.closed_at.as_deref() == Some(text.as_str()) || self.palette_typed(&text).is_some() {
+        if self.tab_picker.closed_at.as_deref() == Some(text.as_str())
+            || self.palette_typed(&text).is_some()
+        {
             return None;
         }
         if !state.selected_range().is_empty() {
@@ -323,8 +393,16 @@ impl Composer {
     fn tab_view(&self, cx: &App) -> Option<PickerView> {
         let query = self.tab_query(cx)?;
         let key = self.tab_key();
-        let tabs = self.app.upgrade().and_then(|app| app.read(cx).tab_picker.tabs.get(&key).cloned());
-        Some(PickerView { key, thread: self.thread_id.clone(), query, tabs })
+        let tabs = self
+            .app
+            .upgrade()
+            .and_then(|app| app.read(cx).tab_picker.tabs.get(&key).cloned());
+        Some(PickerView {
+            key,
+            thread: self.thread_id.clone(),
+            query,
+            tabs,
+        })
     }
 
     /// The message as it goes: BrowserBear's words added for each tab picked
@@ -345,7 +423,12 @@ impl Composer {
     /// it asks for the tabs afresh each time it opens.
     pub(crate) fn tab_text_changed(&mut self, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().to_string();
-        if self.tab_picker.closed_at.as_deref().is_some_and(|c| c != text) {
+        if self
+            .tab_picker
+            .closed_at
+            .as_deref()
+            .is_some_and(|c| c != text)
+        {
             self.tab_picker.closed_at = None;
         }
         if self.tab_query(cx).is_none() {
@@ -358,9 +441,16 @@ impl Composer {
     /// while it's open. With nothing to pick (none match, or no BrowserBear)
     /// Return sends and the arrows move the cursor, as if it weren't open;
     /// Esc still closes it.
-    pub(crate) fn tab_palette_key(&mut self, key: PaletteKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn tab_palette_key(
+        &mut self,
+        key: PaletteKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         // With no @ picker open, the # thread picker may want it (thread_palette.rs).
-        let Some(view) = self.tab_view(cx) else { return self.thread_palette_key(key, window, cx) };
+        let Some(view) = self.tab_view(cx) else {
+            return self.thread_palette_key(key, window, cx);
+        };
         let matches = view.matches();
         if matches.is_empty() && key != PaletteKey::Escape {
             return false;
@@ -370,7 +460,10 @@ impl Composer {
             self.pick_tab(tab, window, cx);
         }
         if matches!(key, PaletteKey::Up | PaletteKey::Down) {
-            if let Some(index) = matches.iter().position(|t| Some(t.tab_id) == self.tab_picker.selected) {
+            if let Some(index) = matches
+                .iter()
+                .position(|t| Some(t.tab_id) == self.tab_picker.selected)
+            {
                 self.tab_scroll.scroll_to_item(index);
             }
         }
@@ -382,8 +475,15 @@ impl Composer {
     /// as one undo, and lends the tab to the thread now (a new thread's once
     /// it's made). The row shows as lent here at once; the next list says
     /// how it went.
-    pub(crate) fn pick_tab(&mut self, tab: BrowserTab, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(query) = self.tab_query(cx) else { return };
+    pub(crate) fn pick_tab(
+        &mut self,
+        tab: BrowserTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(query) = self.tab_query(cx) else {
+            return;
+        };
         self.tab_picker = Default::default();
         let reference = tabs::reference(&tab) + " ";
         self.input.update(cx, |s, cx| {
@@ -414,7 +514,11 @@ impl Composer {
     }
 
     /// The picker's layer over the box, or None while it's closed.
-    pub(crate) fn render_tab_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn render_tab_palette(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let view = self.tab_view(cx)?;
         // Asked for afresh each time it opens, so a tab opened meanwhile is
         // there (also when the cursor moves into an @word).
@@ -422,7 +526,9 @@ impl Composer {
             self.tab_asked = true;
             let (key, thread) = (view.key.clone(), view.thread.clone());
             if let Some(app) = self.app.upgrade() {
-                cx.defer(move |cx| app.update(cx, |app, cx| app.load_browser_tabs(key, thread, cx)));
+                cx.defer(move |cx| {
+                    app.update(cx, |app, cx| app.load_browser_tabs(key, thread, cx))
+                });
             }
         }
         let matches = view.matches();
@@ -437,16 +543,42 @@ impl Composer {
         let height = tabs::height(rows, f64::from(viewport.height / zoom));
         // No taller than the room over the box (the new-thread page).
         let room = f64::from(self.box_top.get() / zoom) - 16.;
-        let height = if room > 0. { height.min(room.max(160.)) } else { height };
+        let height = if room > 0. {
+            height.min(room.max(160.))
+        } else {
+            height
+        };
         let content = match view.note() {
-            Some(note) => div().id("tab-palette-note").test_support().role(Role::ListItem).aria_label(SharedString::from(note.clone())).p(px(16.)).w_full().text_size(px(size::LABEL + 1.)).text_color(style::secondary_text(cx)).child(note).into_any_element(),
+            Some(note) => div()
+                .id("tab-palette-note")
+                .test_support()
+                .role(Role::ListItem)
+                .aria_label(SharedString::from(note.clone()))
+                .p(px(16.))
+                .w_full()
+                .text_size(px(size::LABEL + 1.))
+                .text_color(style::secondary_text(cx))
+                .child(note)
+                .into_any_element(),
             None => {
                 let mut list = v_flex().w_full();
                 for tab in &matches {
-                    let row = self.render_tab_row(tab, Some(tab.tab_id) == picked, view.thread.as_deref().unwrap_or(NEW_THREAD_KEY), cx);
+                    let row = self.render_tab_row(
+                        tab,
+                        Some(tab.tab_id) == picked,
+                        view.thread.as_deref().unwrap_or(NEW_THREAD_KEY),
+                        cx,
+                    );
                     list = list.child(row);
                 }
-                div().id("tab-palette-list").size_full().py(px(6.)).overflow_y_scroll().track_scroll(&self.tab_scroll).child(list).into_any_element()
+                div()
+                    .id("tab-palette-list")
+                    .size_full()
+                    .py(px(6.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.tab_scroll)
+                    .child(list)
+                    .into_any_element()
             }
         };
         let panel = div()
@@ -469,17 +601,37 @@ impl Composer {
                     .bottom_full()
                     .mb(px(8.))
                     .h(px(height as f32))
-                    .child(div().absolute().top_0().bottom_0().left_0().w(px(width as f32)).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(panel)),
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left_0()
+                            .w(px(width as f32))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(panel),
+                    ),
             )
             .with_priority(2)
             .into_any_element(),
         )
     }
 
-    fn render_tab_row(&mut self, tab: &BrowserTab, on: bool, thread: &str, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_tab_row(
+        &mut self,
+        tab: &BrowserTab,
+        on: bool,
+        thread: &str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let tip: SharedString = tabs::tip(tab, thread).into();
         let title = tab.shown_title();
-        let place = [Some(tab.host()), tab.profile.clone()].into_iter().flatten().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+        let place = [Some(tab.host()), tab.profile.clone()]
+            .into_iter()
+            .flatten()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
         let hint = tabs::hint(tab, thread);
         // Its favicon, once fetched; a globe meanwhile, or when there's none.
         let icon = tab.icon_url().and_then(|url| {
@@ -493,18 +645,36 @@ impl Composer {
                 }
             }
         });
-        let (fg, accent, hover) = (cx.theme().foreground, style::accent(cx).opacity(0.75), style::primary_opacity(cx, 0.05));
+        let (fg, accent, hover) = (
+            cx.theme().foreground,
+            style::accent(cx).opacity(0.75),
+            style::primary_opacity(cx, 0.05),
+        );
         let text = if on { gpui_kit::white() } else { fg };
         let picture = match icon {
-            Some(image) => img(ImageSource::Image(image)).size(px(16.)).rounded(px(3.)).object_fit(ObjectFit::Contain).into_any_element(),
-            None => div().size(px(16.)).flex().items_center().justify_center().opacity(0.5).child(crate::icons::symbol("globe").size(px(14.)).text_color(text)).into_any_element(),
+            Some(image) => img(ImageSource::Image(image))
+                .size(px(16.))
+                .rounded(px(3.))
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
+            None => div()
+                .size(px(16.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .opacity(0.5)
+                .child(crate::icons::symbol("globe").size(px(14.)).text_color(text))
+                .into_any_element(),
         };
         let picked = tab.clone();
         h_flex()
             .id(SharedString::from(format!("tab-row-{}", tab.tab_id)))
             .test_support()
             .role(Role::ListItem)
-            .aria_label(SharedString::from(format!("{title}, {place}{}", hint.map(|h| format!(", {h}")).unwrap_or_default())))
+            .aria_label(SharedString::from(format!(
+                "{title}, {place}{}",
+                hint.map(|h| format!(", {h}")).unwrap_or_default()
+            )))
             .w_full()
             .gap(px(10.))
             .px(px(14.))
@@ -514,30 +684,59 @@ impl Composer {
             .when(on, |s| s.bg(accent))
             .when(!on, |s| s.hover(move |s| s.bg(hover)))
             .tip(tip)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.pick_tab(picked.clone(), window, cx)))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.pick_tab(picked.clone(), window, cx)
+            }))
             .child(div().flex_none().child(picture))
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
                     .gap(px(2.))
-                    .child(div().truncate().text_size(px(size::LABEL + 1.)).font_weight(FontWeight::MEDIUM).child(title))
-                    .child(div().truncate().text_size(px(size::LABEL - 1.)).opacity(0.7).child(place)),
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(size::LABEL + 1.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(size::LABEL - 1.))
+                            .opacity(0.7)
+                            .child(place),
+                    ),
             )
             // Whole: cut short it read "this tab…", the part that matters.
-            .children(hint.map(|h| div().flex_none().text_size(px(size::LABEL - 1.)).opacity(0.75).child(h)))
+            .children(hint.map(|h| {
+                div()
+                    .flex_none()
+                    .text_size(px(size::LABEL - 1.))
+                    .opacity(0.75)
+                    .child(h)
+            }))
     }
 
     /// `dump`'s picker, while it's open.
     #[cfg(feature = "automation")]
     pub(crate) fn tab_palette_dump(&self, cx: &App) -> Value {
-        let Some(view) = self.tab_view(cx) else { return Value::Null };
+        let Some(view) = self.tab_view(cx) else {
+            return Value::Null;
+        };
         let matches = view.matches();
         let picked = tabs::picked(&matches, &self.tab_picker).map(|t| t.tab_id);
         let thread = view.thread.as_deref().unwrap_or(NEW_THREAD_KEY);
         let favicons = self.app.upgrade().map(|app| {
             let t = app.read(cx);
-            matches.iter().map(|tab| tab.icon_url().is_some_and(|u| matches!(t.tab_picker.favicons.get(&u), Some(Favicon::Ready(_))))).collect::<Vec<_>>()
+            matches
+                .iter()
+                .map(|tab| {
+                    tab.icon_url().is_some_and(|u| {
+                        matches!(t.tab_picker.favicons.get(&u), Some(Favicon::Ready(_)))
+                    })
+                })
+                .collect::<Vec<_>>()
         });
         json!({
             "query": view.query.text,

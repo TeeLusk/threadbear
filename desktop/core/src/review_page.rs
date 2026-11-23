@@ -36,10 +36,14 @@ const WIDE_PICTURE: i64 = 1000;
 
 /// The pane's width for `review`: wide if any of its pictures is a wide design.
 pub fn pane_width(review: &DesignReview) -> f32 {
-    let wide = review.options.iter().flat_map(ReviewOption::all_shots).any(|shot| match (shot.image.width, shot.image.height) {
-        (Some(w), Some(h)) => w >= WIDE_PICTURE && w > h,
-        _ => false,
-    });
+    let wide = review
+        .options
+        .iter()
+        .flat_map(ReviewOption::all_shots)
+        .any(|shot| match (shot.image.width, shot.image.height) {
+            (Some(w), Some(h)) => w >= WIDE_PICTURE && w > h,
+            _ => false,
+        });
     if wide {
         WIDE_WIDTH
     } else {
@@ -68,9 +72,16 @@ pub fn ask(rest: &str, review: &DesignReview, links: usize) -> Option<Ask> {
         return None;
     }
     // Digits only, and few: a number the page wrote.
-    let number = |part: Option<&str>| part.filter(|p| !p.is_empty() && p.len() <= 4 && p.bytes().all(|b| b.is_ascii_digit())).and_then(|p| p.parse::<usize>().ok());
+    let number = |part: Option<&str>| {
+        part.filter(|p| !p.is_empty() && p.len() <= 4 && p.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|p| p.parse::<usize>().ok())
+    };
     match (what, number(first), second) {
-        ("pick", Some(option), None) => review.options.get(option).filter(|o| !o.reference && review.is_pending()).map(|_| Ask::Pick(option)),
+        ("pick", Some(option), None) => review
+            .options
+            .get(option)
+            .filter(|o| !o.reference && review.is_pending())
+            .map(|_| Ask::Pick(option)),
         ("open", Some(option), Some(_)) => {
             let shot = number(second)?;
             (shot < review.options.get(option)?.shot_count()).then_some(Ask::Open(option, shot))
@@ -88,7 +99,11 @@ pub fn ask(rest: &str, review: &DesignReview, links: usize) -> Option<Ask> {
 /// did, 20 Nov 2026). Only digits and true or false go into it; it answers
 /// true when every option was on the page.
 pub fn tick_script(changes: &[(usize, bool)]) -> String {
-    let list = changes.iter().map(|(option, on)| format!("[{option},{on}]")).collect::<Vec<_>>().join(",");
+    let list = changes
+        .iter()
+        .map(|(option, on)| format!("[{option},{on}]"))
+        .collect::<Vec<_>>()
+        .join(",");
     format!("(()=>{{let ok=true;for(const [i,on] of [{list}]){{const s=document.getElementById('o'+i);if(s){{s.classList.toggle('picked',on)}}else{{ok=false}}}}return ok}})()")
 }
 
@@ -129,7 +144,12 @@ pub struct Page {
 /// The review's page. `picked` are the options ticked now; `source` gives a
 /// picture's or clip's path under the review's folder, with `/` between its
 /// parts, or None for one that isn't there, which the page says in its place.
-pub fn page(review: &DesignReview, picked: &[String], look: &Look, source: &dyn Fn(&ImageRef) -> Option<String>) -> Page {
+pub fn page(
+    review: &DesignReview,
+    picked: &[String],
+    look: &Look,
+    source: &dyn Fn(&ImageRef) -> Option<String>,
+) -> Page {
     let mut links: Vec<String> = Vec::new();
     let mut assets: Vec<String> = Vec::new();
     // Each file once, in the order the page has them.
@@ -156,12 +176,18 @@ pub fn page(review: &DesignReview, picked: &[String], look: &Look, source: &dyn 
         if option.reference {
             classes.push("ref");
         }
-        body.push_str(&format!("<section id=\"o{index}\" class=\"{}\"><h2>", classes.join(" ")));
+        body.push_str(&format!(
+            "<section id=\"o{index}\" class=\"{}\"><h2>",
+            classes.join(" ")
+        ));
         // A tick to click while it can still be answered, the tick alone on
         // what was picked once it's over, and nothing on a reference.
         if !option.reference {
             if pending {
-                body.push_str(&format!("<a class=\"pick\" href=\"{ASK_PREFIX}pick/{index}\" title=\"{}\"></a>", escape(&format!("Pick {}", option.id))));
+                body.push_str(&format!(
+                    "<a class=\"pick\" href=\"{ASK_PREFIX}pick/{index}\" title=\"{}\"></a>",
+                    escape(&format!("Pick {}", option.id))
+                ));
             } else if is_picked {
                 body.push_str("<span class=\"pick\"></span>");
             }
@@ -184,7 +210,11 @@ pub fn page(review: &DesignReview, picked: &[String], look: &Look, source: &dyn 
         escape(&review.title),
         style(look)
     );
-    Page { html, links, assets }
+    Page {
+        html,
+        links,
+        assets,
+    }
 }
 
 /// A file's path as an address on the page: every byte that isn't plainly
@@ -204,8 +234,16 @@ fn url_path(path: &str) -> String {
 
 /// One shot: its picture (a clip plays, quietly, on a loop; a page shows its
 /// still), which a click opens full size, and its title under it.
-fn shot_html(option: usize, index: usize, shot: &ReviewShot, source: &mut dyn FnMut(&ImageRef) -> Option<String>) -> String {
-    let video = shot.media.as_ref().filter(|m| m.media_type.starts_with("video/"));
+fn shot_html(
+    option: usize,
+    index: usize,
+    shot: &ReviewShot,
+    source: &mut dyn FnMut(&ImageRef) -> Option<String>,
+) -> String {
+    let video = shot
+        .media
+        .as_ref()
+        .filter(|m| m.media_type.starts_with("video/"));
     let still = source(&shot.image);
     let tall = matches!((shot.image.width, shot.image.height), (Some(w), Some(h)) if h > w);
     let class = if tall { " class=\"tall\"" } else { "" };
@@ -215,13 +253,27 @@ fn shot_html(option: usize, index: usize, shot: &ReviewShot, source: &mut dyn Fn
     };
     let inner = match (video.and_then(|clip| source(clip)), &still) {
         (Some(clip), _) => {
-            let poster = still.as_ref().map(|s| format!(" poster=\"{}\"", escape(s))).unwrap_or_default();
-            format!("<video src=\"{}\"{poster}{class}{size} muted loop autoplay playsinline></video>", escape(&clip))
+            let poster = still
+                .as_ref()
+                .map(|s| format!(" poster=\"{}\"", escape(s)))
+                .unwrap_or_default();
+            format!(
+                "<video src=\"{}\"{poster}{class}{size} muted loop autoplay playsinline></video>",
+                escape(&clip)
+            )
         }
         (None, Some(still)) => format!("<img src=\"{}\"{class}{size} alt=\"\">", escape(still)),
-        (None, None) => return "<figure><div class=\"gone\">This picture isn't here any more.</div></figure>".to_owned(),
+        (None, None) => {
+            return "<figure><div class=\"gone\">This picture isn't here any more.</div></figure>"
+                .to_owned()
+        }
     };
-    let caption = shot.title.as_deref().filter(|t| !t.is_empty()).map(|t| format!("<figcaption>{}</figcaption>", escape(t))).unwrap_or_default();
+    let caption = shot
+        .title
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("<figcaption>{}</figcaption>", escape(t)))
+        .unwrap_or_default();
     format!("<figure><a href=\"{ASK_PREFIX}open/{option}/{index}\">{inner}</a>{caption}</figure>")
 }
 
@@ -230,17 +282,40 @@ fn shot_html(option: usize, index: usize, shot: &ReviewShot, source: &mut dyn Fn
 /// code, links) in each.
 fn note_html(note: &str, links: &mut Vec<String>) -> String {
     let mut out = String::new();
-    for block in note.replace("\r\n", "\n").split("\n\n").map(str::trim).filter(|b| !b.is_empty()) {
-        let lines: Vec<&str> = block.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-        let item = |line: &str| line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")).map(str::to_owned);
+    for block in note
+        .replace("\r\n", "\n")
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
+        let lines: Vec<&str> = block
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        let item = |line: &str| {
+            line.strip_prefix("- ")
+                .or_else(|| line.strip_prefix("* "))
+                .map(str::to_owned)
+        };
         if lines.iter().all(|l| item(l).is_some()) {
             out.push_str("<ul>");
             for line in &lines {
-                out.push_str(&format!("<li>{}</li>", inline_html(&item(line).unwrap_or_default(), links)));
+                out.push_str(&format!(
+                    "<li>{}</li>",
+                    inline_html(&item(line).unwrap_or_default(), links)
+                ));
             }
             out.push_str("</ul>");
         } else {
-            out.push_str(&format!("<p>{}</p>", lines.iter().map(|l| inline_html(l, links)).collect::<Vec<_>>().join("<br>")));
+            out.push_str(&format!(
+                "<p>{}</p>",
+                lines
+                    .iter()
+                    .map(|l| inline_html(l, links))
+                    .collect::<Vec<_>>()
+                    .join("<br>")
+            ));
         }
     }
     out
@@ -248,7 +323,14 @@ fn note_html(note: &str, links: &mut Vec<String>) -> String {
 
 fn inline_html(text: &str, links: &mut Vec<String>) -> String {
     let mut out = String::new();
-    for InlineRun { text, bold, italic, code, link } in inline_markdown(text) {
+    for InlineRun {
+        text,
+        bold,
+        italic,
+        code,
+        link,
+    } in inline_markdown(text)
+    {
         let mut piece = escape(&text);
         if code {
             piece = format!("<code>{piece}</code>");
@@ -261,10 +343,13 @@ fn inline_html(text: &str, links: &mut Vec<String>) -> String {
         }
         if let Some(address) = link {
             // One number an address, however many runs its words are in.
-            let number = links.iter().position(|l| l.as_str() == &*address).unwrap_or_else(|| {
-                links.push(address.to_string());
-                links.len() - 1
-            });
+            let number = links
+                .iter()
+                .position(|l| l.as_str() == &*address)
+                .unwrap_or_else(|| {
+                    links.push(address.to_string());
+                    links.len() - 1
+                });
             piece = format!("<a class=\"link\" href=\"{ASK_PREFIX}link/{number}\">{piece}</a>");
         }
         out.push_str(&piece);
@@ -291,7 +376,10 @@ pub fn escape(text: &str) -> String {
 /// A colour or font name is the app's own, but it goes into a stylesheet:
 /// nothing that could end a rule or the style element.
 fn css_value(value: &str) -> String {
-    value.chars().filter(|c| !matches!(c, ';' | '{' | '}' | '<' | '>' | '\\' | '\n' | '\r')).collect()
+    value
+        .chars()
+        .filter(|c| !matches!(c, ';' | '{' | '}' | '<' | '>' | '\\' | '\n' | '\r'))
+        .collect()
 }
 
 fn style(look: &Look) -> String {
@@ -300,7 +388,11 @@ fn style(look: &Look) -> String {
     for weight in &look.font_weights {
         css.push_str(&format!("@font-face{{font-family:\"Threadbear\";font-weight:{weight};src:url({FONT_PREFIX}{weight}.otf)}}"));
     }
-    let family = if look.font_weights.is_empty() { v(&look.font_family) } else { format!("\"Threadbear\",{}", v(&look.font_family)) };
+    let family = if look.font_weights.is_empty() {
+        v(&look.font_family)
+    } else {
+        format!("\"Threadbear\",{}", v(&look.font_family))
+    };
     let (size, line) = (look.size, look.line);
     let scheme = if look.dark { "dark" } else { "light" };
     css.push_str(&format!(
@@ -429,7 +521,12 @@ mod tests {
 
     #[test]
     fn a_files_name_is_escaped_in_its_address_and_plain_in_what_the_site_reads() {
-        let page = page(&review("pending"), &[], &look(), &|image| image.path.strip_prefix("/r/").map(|name| format!("my shots/{name}")));
+        let page = page(&review("pending"), &[], &look(), &|image| {
+            image
+                .path
+                .strip_prefix("/r/")
+                .map(|name| format!("my shots/{name}"))
+        });
         assert!(page.html.contains("<img src=\"my%20shots/a.png\""));
         assert_eq!(page.assets[0], "my shots/a.png");
     }
@@ -437,7 +534,11 @@ mod tests {
     #[test]
     fn a_reference_has_no_tick_and_a_missing_picture_says_so() {
         let page = page(&review("pending"), &[], &look(), &under_r);
-        let today = page.html.split("<section id=\"o2\"").nth(1).expect("the reference's section");
+        let today = page
+            .html
+            .split("<section id=\"o2\"")
+            .nth(1)
+            .expect("the reference's section");
         assert!(today.starts_with(" class=\"opt ref\"><h2><span>Today</span></h2>"));
         assert!(today.contains("This picture isn't here any more."));
         assert!(!today.contains("_threadbear/pick"));
@@ -447,15 +548,21 @@ mod tests {
     fn an_answered_review_keeps_its_ticks_but_takes_no_more() {
         let page = page(&review("answered"), &["B".to_owned()], &look(), &under_r);
         assert!(!page.html.contains("_threadbear/pick"));
-        assert!(page.html.contains("<section id=\"o1\" class=\"opt picked\"><h2><span class=\"pick\"></span>"));
-        assert!(page.html.contains("<section id=\"o0\" class=\"opt\"><h2><span>Tools, like Canva</span>"));
+        assert!(page
+            .html
+            .contains("<section id=\"o1\" class=\"opt picked\"><h2><span class=\"pick\"></span>"));
+        assert!(page
+            .html
+            .contains("<section id=\"o0\" class=\"opt\"><h2><span>Tools, like Canva</span>"));
     }
 
     #[test]
     fn a_notes_link_is_an_ask_with_its_address_kept_beside_the_page() {
         let page = page(&review("pending"), &[], &look(), &under_r);
         assert_eq!(page.links, vec!["https://example.com/a?b=1&c=2".to_owned()]);
-        assert!(page.html.contains("<a class=\"link\" href=\"_threadbear/link/0\">the notes</a>"));
+        assert!(page
+            .html
+            .contains("<a class=\"link\" href=\"_threadbear/link/0\">the notes</a>"));
         assert!(!page.html.contains("example.com"));
     }
 
@@ -466,11 +573,15 @@ mod tests {
         r.note = Some("<img src=x onerror=alert(1)> `</style>` **<b>**".into());
         r.options[0].title = "\"><script>".into();
         r.options[0].id = "\"><script>".into();
-        let page = page(&r, &[], &look(), &|_| Some("x\" onerror=\"alert(1).png".to_owned()));
+        let page = page(&r, &[], &look(), &|_| {
+            Some("x\" onerror=\"alert(1).png".to_owned())
+        });
         assert!(!page.html.contains("<script"));
         assert!(!page.html.contains("<img src=x"));
         assert!(!page.html.contains("\" onerror"));
-        assert!(page.html.contains("<img src=\"x%22%20onerror%3D%22alert%281%29.png\""));
+        assert!(page
+            .html
+            .contains("<img src=\"x%22%20onerror%3D%22alert%281%29.png\""));
         assert_eq!(page.html.matches("</style>").count(), 1);
         assert_eq!(page.html.matches("</title>").count(), 1);
     }
@@ -489,10 +600,14 @@ mod tests {
     fn the_fonts_are_the_sites_own_files() {
         let page = page(&review("pending"), &[], &look(), &under_r);
         assert!(page.html.contains("@font-face{font-family:\"Threadbear\";font-weight:400;src:url(threadbear-font-400.otf)}"));
-        assert!(page.html.contains("font:400 15px/23px \"Threadbear\",-apple-system,sans-serif"));
+        assert!(page
+            .html
+            .contains("font:400 15px/23px \"Threadbear\",-apple-system,sans-serif"));
         let mut plain = look();
         plain.font_weights.clear();
-        assert!(!super::page(&review("pending"), &[], &plain, &under_r).html.contains("@font-face"));
+        assert!(!super::page(&review("pending"), &[], &plain, &under_r)
+            .html
+            .contains("@font-face"));
     }
 
     #[test]
@@ -508,19 +623,39 @@ mod tests {
         assert_eq!(ask("open/0/1", &r, 1), None);
         assert_eq!(ask("open/1/2", &r, 1), None);
         assert_eq!(ask("link/1", &r, 1), None);
-        for odd in ["", "pick", "pick/", "pick/-1", "pick/0/0", "pick/00000", "pick/0x1", "open/0", "open/0/0/0", "open/a/b", "run/0", "pick/0?x", "../pick/0", "pick/%30"] {
+        for odd in [
+            "",
+            "pick",
+            "pick/",
+            "pick/-1",
+            "pick/0/0",
+            "pick/00000",
+            "pick/0x1",
+            "open/0",
+            "open/0/0/0",
+            "open/a/b",
+            "run/0",
+            "pick/0?x",
+            "../pick/0",
+            "pick/%30",
+        ] {
             assert_eq!(ask(odd, &r, 1), None, "{odd}");
         }
         // Once it's answered there's nothing to pick.
         assert_eq!(ask("pick/0", &review("answered"), 1), None);
-        assert_eq!(ask("open/0/0", &review("answered"), 1), Some(Ask::Open(0, 0)));
+        assert_eq!(
+            ask("open/0/0", &review("answered"), 1),
+            Some(Ask::Open(0, 0))
+        );
     }
 
     #[test]
     fn the_tick_script_names_options_by_number_only() {
         assert_eq!(tick_script(&[(1, true), (3, false)]), "(()=>{let ok=true;for(const [i,on] of [[1,true],[3,false]]){const s=document.getElementById('o'+i);if(s){s.classList.toggle('picked',on)}else{ok=false}}return ok})()");
         // The sections it looks for are the ones the page has.
-        assert!(page(&review("pending"), &[], &look(), &under_r).html.contains("<section id=\"o1\" class=\"opt\">"));
+        assert!(page(&review("pending"), &[], &look(), &under_r)
+            .html
+            .contains("<section id=\"o1\" class=\"opt\">"));
     }
 
     #[test]
@@ -530,7 +665,12 @@ mod tests {
         r.options[0].image.width = Some(800);
         assert_eq!(pane_width(&r), REGULAR_WIDTH);
         // A tall picture is never a wide design, however many pixels across.
-        r.options[0].image = ImageRef { path: "/r/a.png".into(), media_type: "image/png".into(), width: Some(1290), height: Some(2796) };
+        r.options[0].image = ImageRef {
+            path: "/r/a.png".into(),
+            media_type: "image/png".into(),
+            width: Some(1290),
+            height: Some(2796),
+        };
         assert_eq!(pane_width(&r), REGULAR_WIDTH);
     }
 

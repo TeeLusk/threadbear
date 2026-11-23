@@ -17,20 +17,20 @@ pub use download::Progress;
 
 #[cfg(target_os = "macos")]
 pub use mac::host::{bundle_identifier, initialize_called, retry, start, status, Launch, Status};
-#[cfg(target_os = "macos")]
-pub use mac::offscreen::{picture, png_size, Offscreen, Options, Reply};
-/// The transcript's diagrams and pages, drawn into pictures (mac/rich.rs).
-#[cfg(target_os = "macos")]
-pub use mac::rich::{data_url, draw_diagram, draw_page, reset as reset_rich, Drawn};
-/// A page in a native view, placed from a GPUI layout slot (mac/page.rs).
-#[cfg(target_os = "macos")]
-pub use mac::page::Page;
 /// A web panel's page: a patch's site or the Convex dashboard (mac/panel.rs),
 /// and the native menu for controls over one.
 #[cfg(target_os = "macos")]
 pub use mac::host::{keyboard_holder, popup_menu, send_click, send_keys, take_keyboard, MenuItem};
 #[cfg(target_os = "macos")]
+pub use mac::offscreen::{picture, png_size, Offscreen, Options, Reply};
+/// A page in a native view, placed from a GPUI layout slot (mac/page.rs).
+#[cfg(target_os = "macos")]
+pub use mac::page::Page;
+#[cfg(target_os = "macos")]
 pub use mac::panel::PanelPage;
+/// The transcript's diagrams and pages, drawn into pictures (mac/rich.rs).
+#[cfg(target_os = "macos")]
+pub use mac::rich::{data_url, draw_diagram, draw_page, reset as reset_rich, Drawn};
 pub use panel_rules::{site, Event as PanelEvent, Kind as PanelKind};
 pub use preview_rules::PreviewSite;
 
@@ -141,7 +141,12 @@ mod elsewhere {
         pub checked: bool,
     }
 
-    pub fn popup_menu(_view: *mut std::ffi::c_void, _x: f32, _y: f32, _items: &[MenuItem]) -> Option<usize> {
+    pub fn popup_menu(
+        _view: *mut std::ffi::c_void,
+        _x: f32,
+        _y: f32,
+        _items: &[MenuItem],
+    ) -> Option<usize> {
         None
     }
 
@@ -164,10 +169,24 @@ mod elsewhere {
     pub struct PanelPage(());
 
     impl PanelPage {
-        pub fn open(_parent: *mut std::ffi::c_void, _url: &str, _kind: crate::PanelKind) -> Result<(PanelPage, futures::channel::mpsc::UnboundedReceiver<crate::PanelEvent>), String> {
+        pub fn open(
+            _parent: *mut std::ffi::c_void,
+            _url: &str,
+            _kind: crate::PanelKind,
+        ) -> Result<
+            (
+                PanelPage,
+                futures::channel::mpsc::UnboundedReceiver<crate::PanelEvent>,
+            ),
+            String,
+        > {
             Err("there's no web runtime for this system yet".into())
         }
-        pub fn devtools(&self, _method: &str, _params: serde_json::Value) -> futures::channel::oneshot::Receiver<Result<serde_json::Value, String>> {
+        pub fn devtools(
+            &self,
+            _method: &str,
+            _params: serde_json::Value,
+        ) -> futures::channel::oneshot::Receiver<Result<serde_json::Value, String>> {
             let (tx, rx) = futures::channel::oneshot::channel();
             let _ = tx.send(Err("there's no web runtime for this system yet".into()));
             rx
@@ -191,7 +210,8 @@ mod elsewhere {
         }
         pub fn go_back(&self) {}
         pub fn move_to(&self, _parent: *mut std::ffi::c_void) {}
-        pub fn set_bounds(&self, _x: f32, _y: f32, _width: f32, _height: f32, _parent_height: f32) {}
+        pub fn set_bounds(&self, _x: f32, _y: f32, _width: f32, _height: f32, _parent_height: f32) {
+        }
         pub fn bounds(&self) -> (f32, f32, f32, f32) {
             (0., 0., 0., 0.)
         }

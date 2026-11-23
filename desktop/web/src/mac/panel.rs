@@ -23,7 +23,10 @@
 // - Nothing downloads; Chromium's View Source isn't offered; what a page
 //   logs to its console stays out of Chromium's log.
 // - The app hears when it can go back, and when it's loading.
-use super::host::{tb_view_has_keyboard, tb_view_input_count, tb_view_picture_size, tb_view_note_input, tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent, tb_view_watch_input};
+use super::host::{
+    tb_view_has_keyboard, tb_view_input_count, tb_view_note_input, tb_view_picture_size,
+    tb_view_remove, tb_view_set_frame, tb_view_set_hidden, tb_view_set_parent, tb_view_watch_input,
+};
 use crate::panel_rules::{browse, popup, site, Browse, Event, Kind, LeaveGate, Popup};
 use cef::*;
 use futures::channel::{mpsc, oneshot};
@@ -86,8 +89,12 @@ impl Shared {
     /// A page for the browser, one for each click and at most one a second
     /// from this panel; any more are dropped without a word (`LeaveGate`).
     fn leave(&self, url: String) {
-        let inputs = unsafe { tb_view_input_count(self.view.load(Ordering::Acquire) as *mut c_void) };
-        let allowed = self.gate.lock().is_ok_and(|mut gate| gate.allow(std::time::Instant::now(), inputs));
+        let inputs =
+            unsafe { tb_view_input_count(self.view.load(Ordering::Acquire) as *mut c_void) };
+        let allowed = self
+            .gate
+            .lock()
+            .is_ok_and(|mut gate| gate.allow(std::time::Instant::now(), inputs));
         if allowed {
             self.send(Event::Leave(url));
         }
@@ -95,7 +102,11 @@ impl Shared {
 
     pub(crate) fn fail_calls(&self, why: &str) {
         self.gone.store(true, Ordering::Release);
-        let calls: Vec<_> = self.calls.lock().map(|mut c| c.drain().map(|(_, tx)| tx).collect()).unwrap_or_default();
+        let calls: Vec<_> = self
+            .calls
+            .lock()
+            .map(|mut c| c.drain().map(|(_, tx)| tx).collect())
+            .unwrap_or_default();
         for tx in calls {
             let _ = tx.send(Err(why.to_owned()));
         }
@@ -111,7 +122,8 @@ fn convex_context() -> Option<RequestContext> {
     CONVEX_CONTEXT.with(|c| {
         if c.borrow().is_none() {
             // No cache path: in memory only, shared with nothing else.
-            *c.borrow_mut() = request_context_create_context(Some(&RequestContextSettings::default()), None);
+            *c.borrow_mut() =
+                request_context_create_context(Some(&RequestContextSettings::default()), None);
         }
         c.borrow().clone()
     })
@@ -141,7 +153,11 @@ impl PanelPage {
     /// Opens `url` in a child view of `parent` (a window's own NSView),
     /// hidden until it's first placed. The receiver hears what the page tells
     /// the app.
-    pub fn open(parent: *mut c_void, url: &str, kind: Kind) -> Result<(PanelPage, mpsc::UnboundedReceiver<Event>), String> {
+    pub fn open(
+        parent: *mut c_void,
+        url: &str,
+        kind: Kind,
+    ) -> Result<(PanelPage, mpsc::UnboundedReceiver<Event>), String> {
         if super::host::status() != super::host::Status::Ready {
             return Err("the web runtime isn't running".into());
         }
@@ -167,12 +183,28 @@ impl PanelPage {
             gone: AtomicBool::new(false),
         });
         // Alloy (no Chrome toolbar or menus), a native child view.
-        let window_info = WindowInfo { runtime_style: RuntimeStyle::ALLOY, ..WindowInfo::default() }.set_as_child(parent, &Rect { x: 0, y: 0, width: 1, height: 1 });
+        let window_info = WindowInfo {
+            runtime_style: RuntimeStyle::ALLOY,
+            ..WindowInfo::default()
+        }
+        .set_as_child(
+            parent,
+            &Rect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        );
         let (settings, mut client) = match &kind {
             // A local page: the sealed rules, its scripts off unless Mike
             // chose Run them (mac/preview.rs, preview_rules.rs).
             Kind::Preview(preview) => {
-                let scripts = if preview.scripts { State::ENABLED } else { State::DISABLED };
+                let scripts = if preview.scripts {
+                    State::ENABLED
+                } else {
+                    State::DISABLED
+                };
                 let settings = BrowserSettings {
                     javascript: scripts,
                     javascript_access_clipboard: State::DISABLED,
@@ -197,7 +229,10 @@ impl PanelPage {
             }
             _ => {
                 // A page reads the clipboard only when Mike pastes, as in a browser.
-                let settings = BrowserSettings { javascript_access_clipboard: State::DISABLED, ..Default::default() };
+                let settings = BrowserSettings {
+                    javascript_access_clipboard: State::DISABLED,
+                    ..Default::default()
+                };
                 let client = PanelClient::new(
                     PanelRequests::new(shared.clone()),
                     PanelLife::new(shared.clone()),
@@ -228,8 +263,15 @@ impl PanelPage {
         if matches!(&kind, Kind::Preview(p) if p.scripts) && !super::sealed::all_rules() {
             return Err("the web runtime couldn't keep a page with scripts off the network here, so it isn't run".into());
         }
-        let browser = browser_host_create_browser_sync(Some(&window_info), Some(&mut client), Some(&CefString::from(first.as_str())), Some(&settings), None, context.as_mut())
-            .ok_or("Chromium didn't make the page")?;
+        let browser = browser_host_create_browser_sync(
+            Some(&window_info),
+            Some(&mut client),
+            Some(&CefString::from(first.as_str())),
+            Some(&settings),
+            None,
+            context.as_mut(),
+        )
+        .ok_or("Chromium didn't make the page")?;
         let host = browser.host().ok_or("the page has no host")?;
         let view = host.window_handle();
         // A person's clicks and keys in it, counted for the gate.
@@ -265,7 +307,10 @@ impl PanelPage {
                 if let Ok(mut after) = page.shared.load_after.lock() {
                     *after = Some((first + 1, preview.page_url()));
                 }
-                drop(page.devtools("Page.addScriptToEvaluateOnNewDocument", json!({ "source": crate::preview_rules::CLIPBOARD_GUARD })));
+                drop(page.devtools(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({ "source": crate::preview_rules::CLIPBOARD_GUARD }),
+                ));
                 drop(page.devtools("Page.addScriptToEvaluateOnNewDocument", json!({ "source": crate::preview_rules::COPY_GUARD, "worldName": "threadbear-guard" })));
             }
             return Ok((page, rx));
@@ -283,7 +328,10 @@ impl PanelPage {
             if let Ok(mut after) = page.shared.load_after.lock() {
                 *after = Some((id, url.to_owned()));
             }
-            drop(page.devtools("Page.addScriptToEvaluateOnNewDocument", json!({ "source": credentials_script })));
+            drop(page.devtools(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": credentials_script }),
+            ));
         }
         Ok((page, rx))
     }
@@ -301,9 +349,19 @@ impl PanelPage {
             calls.insert(id, tx);
         }
         let message = json!({ "id": id, "method": method, "params": params }).to_string();
-        let sent = self.browser.host().map(|h| h.send_dev_tools_message(Some(message.as_bytes()))).unwrap_or(0);
+        let sent = self
+            .browser
+            .host()
+            .map(|h| h.send_dev_tools_message(Some(message.as_bytes())))
+            .unwrap_or(0);
         if sent != 1 {
-            if let Some(tx) = self.shared.calls.lock().ok().and_then(|mut c| c.remove(&id)) {
+            if let Some(tx) = self
+                .shared
+                .calls
+                .lock()
+                .ok()
+                .and_then(|mut c| c.remove(&id))
+            {
                 let _ = tx.send(Err(format!("DevTools didn't take {method}")));
             }
         }
@@ -344,12 +402,20 @@ impl PanelPage {
     }
 
     pub fn title(&self) -> String {
-        self.shared.title.lock().map(|t| t.clone()).unwrap_or_default()
+        self.shared
+            .title
+            .lock()
+            .map(|t| t.clone())
+            .unwrap_or_default()
     }
 
     /// Where the page is now: its own page, or wherever a same-site link took it.
     pub fn address(&self) -> String {
-        self.shared.address.lock().map(|a| a.clone()).unwrap_or_default()
+        self.shared
+            .address
+            .lock()
+            .map(|a| a.clone())
+            .unwrap_or_default()
     }
 
     pub fn go_back(&self) {
@@ -380,7 +446,15 @@ impl PanelPage {
             return;
         }
         self.frame.set(frame);
-        unsafe { tb_view_set_frame(self.view, f64::from(x), f64::from(y), f64::from(width), f64::from(height)) };
+        unsafe {
+            tb_view_set_frame(
+                self.view,
+                f64::from(x),
+                f64::from(y),
+                f64::from(width),
+                f64::from(height),
+            )
+        };
         if let Some(host) = self.browser.host() {
             host.was_resized();
         }
@@ -418,7 +492,10 @@ impl PanelPage {
         let mut ids = CefStringList::new();
         self.browser.frame_identifiers(Some(&mut ids));
         for id in ids {
-            if let Some(frame) = self.browser.frame_by_identifier(Some(&CefString::from(id.as_str()))) {
+            if let Some(frame) = self
+                .browser
+                .frame_by_identifier(Some(&CefString::from(id.as_str())))
+            {
                 frame.execute_java_script(Some(&CefString::from(PAUSE)), None, 0);
             }
         }
@@ -438,7 +515,13 @@ impl PanelPage {
         if self.no_copy && matches!(command, "copy" | "cut") {
             return;
         }
-        let Some(frame) = self.browser.focused_frame().or_else(|| self.browser.main_frame()) else { return };
+        let Some(frame) = self
+            .browser
+            .focused_frame()
+            .or_else(|| self.browser.main_frame())
+        else {
+            return;
+        };
         match command {
             "copy" => frame.copy(),
             "cut" => frame.cut(),
@@ -454,7 +537,8 @@ impl PanelPage {
     /// own, unless its layer has drifted (appkit_hooks.m, `tb_pin_page_layers`).
     pub fn picture_size(&self) -> Option<(f64, f64)> {
         let (mut width, mut height) = (0., 0.);
-        unsafe { tb_view_picture_size(self.view, &mut width, &mut height) }.then_some((width, height))
+        unsafe { tb_view_picture_size(self.view, &mut width, &mut height) }
+            .then_some((width, height))
     }
 
     /// Whether the page's view, or one inside it, has the keyboard.

@@ -12,7 +12,10 @@ pub struct DockModel {
 
 impl DockModel {
     pub fn new(layout: DockLayout) -> Self {
-        Self { controller: DockController::new(layout), on_change: None }
+        Self {
+            controller: DockController::new(layout),
+            on_change: None,
+        }
     }
 
     /// Called whenever the layout changes (a drag, a divider, a close...),
@@ -26,7 +29,11 @@ impl DockModel {
     }
 
     /// Runs a change to the controller, telling the app if the layout moved.
-    pub fn update_controller<R>(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut DockController) -> R) -> R {
+    pub fn update_controller<R>(
+        &mut self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut DockController) -> R,
+    ) -> R {
         let before = self.controller.layout.clone();
         let out = f(&mut self.controller);
         if self.controller.layout != before {
@@ -60,7 +67,13 @@ impl DockModel {
         self.update_controller(cx, |c| c.show(panel, near, &fallback));
     }
 
-    pub fn toggle(&mut self, panel: &str, near: &[&str], fallback: DockDrop, cx: &mut Context<Self>) {
+    pub fn toggle(
+        &mut self,
+        panel: &str,
+        near: &[&str],
+        fallback: DockDrop,
+        cx: &mut Context<Self>,
+    ) {
         self.update_controller(cx, |c| c.toggle(panel, near, &fallback));
     }
 
@@ -80,8 +93,23 @@ impl DockModel {
     /// by; `DockView::widen_panel` asks the content itself. Returns what it
     /// changed, for `restore_width`. None if nothing changed, or before the
     /// dock has been laid out.
-    pub fn widen_panel(&mut self, panel: &str, width: f32, keep: f32, available: &dyn Fn(&str) -> bool, cx: &mut Context<Self>) -> Option<Widened> {
-        self.update_controller(cx, |c| c.widen(panel, width as f64, keep as f64, available, crate::theme::GAP as f64))
+    pub fn widen_panel(
+        &mut self,
+        panel: &str,
+        width: f32,
+        keep: f32,
+        available: &dyn Fn(&str) -> bool,
+        cx: &mut Context<Self>,
+    ) -> Option<Widened> {
+        self.update_controller(cx, |c| {
+            c.widen(
+                panel,
+                width as f64,
+                keep as f64,
+                available,
+                crate::theme::GAP as f64,
+            )
+        })
     }
 
     /// Puts back what `widen_panel` changed, and says whether it did: not
@@ -98,7 +126,12 @@ impl DockModel {
         self.update_controller(cx, |c| c.open_in_window(panel));
     }
 
-    pub fn open_in_new_window(&mut self, panel: &str, size: threadbear_dock_layout::Size, cx: &mut Context<Self>) {
+    pub fn open_in_new_window(
+        &mut self,
+        panel: &str,
+        size: threadbear_dock_layout::Size,
+        cx: &mut Context<Self>,
+    ) {
         self.update_controller(cx, |c| c.open_in_new_window(panel, size));
     }
 }

@@ -25,7 +25,11 @@ impl Drop for Mock {
 
 fn start_mock() -> (Mock, RunnerConfig) {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let home = std::env::temp_dir().join(format!("tb-desktop-mock-{}-{}", std::process::id(), rand_suffix()));
+    let home = std::env::temp_dir().join(format!(
+        "tb-desktop-mock-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
     std::fs::create_dir_all(&home).unwrap();
     let ready = home.join("ready");
     let child = Command::new("node")
@@ -38,13 +42,23 @@ fn start_mock() -> (Mock, RunnerConfig) {
         .stderr(Stdio::inherit())
         .spawn()
         .expect("node on PATH");
-    let mock = Mock { child, home: home.clone() };
+    let mock = Mock {
+        child,
+        home: home.clone(),
+    };
     let start = Instant::now();
     while !ready.exists() {
-        assert!(start.elapsed() < Duration::from_secs(20), "the mock runner didn't start");
+        assert!(
+            start.elapsed() < Duration::from_secs(20),
+            "the mock runner didn't start"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
-    let port: u16 = std::fs::read_to_string(&ready).unwrap().trim().parse().unwrap();
+    let port: u16 = std::fs::read_to_string(&ready)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     (mock, RunnerConfig { home, port })
 }
 
@@ -76,13 +90,17 @@ async fn until_connected(rx: &mut mpsc::UnboundedReceiver<Seen>) -> Value {
         loop {
             match rx.recv().await {
                 Some(Seen::Status(Status::Connected { hello, .. })) => return hello,
-                Some(Seen::Status(Status::Disconnected { reason, .. })) => panic!("disconnected: {reason}"),
+                Some(Seen::Status(Status::Disconnected { reason, .. })) => {
+                    panic!("disconnected: {reason}")
+                }
                 Some(_) => continue,
                 None => panic!("sink closed"),
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(10), wait).await.expect("connected in time")
+    tokio::time::timeout(Duration::from_secs(10), wait)
+        .await
+        .expect("connected in time")
 }
 
 #[tokio::test]
@@ -95,18 +113,33 @@ async fn signs_in_lists_the_inbox_and_reads_a_thread() {
     let hello = until_connected(&mut rx).await;
     assert_eq!(hello["protocol"], 1);
 
-    let list = client.call("threads.list", json!({ "include": ["inbox"] })).await.unwrap();
+    let list = client
+        .call("threads.list", json!({ "include": ["inbox"] }))
+        .await
+        .unwrap();
     let threads = list["threads"].as_array().unwrap();
     assert!(!threads.is_empty(), "the mock has demo threads");
     let id = threads[0]["id"].as_str().unwrap();
 
     // As the app reads a thread: its history, then everything after it.
-    let page = client.call("threads.events", json!({ "threadId": id, "limit": 500 })).await.unwrap();
+    let page = client
+        .call("threads.events", json!({ "threadId": id, "limit": 500 }))
+        .await
+        .unwrap();
     assert!(page["events"].as_array().is_some_and(|e| !e.is_empty()));
-    let sub = client.call("threads.subscribe", json!({ "threadId": id, "afterSeq": page["lastSeq"] })).await.unwrap();
+    let sub = client
+        .call(
+            "threads.subscribe",
+            json!({ "threadId": id, "afterSeq": page["lastSeq"] }),
+        )
+        .await
+        .unwrap();
     assert!(sub["events"].as_array().is_some_and(|e| e.is_empty()));
 
-    let err = client.call("threads.events", json!({ "threadId": "no-such-thread" })).await.unwrap_err();
+    let err = client
+        .call("threads.events", json!({ "threadId": "no-such-thread" }))
+        .await
+        .unwrap_err();
     assert_eq!(err.code, -32004);
 }
 
@@ -123,7 +156,9 @@ async fn refuses_a_runner_that_cannot_prove_itself() {
         loop {
             match rx.recv().await {
                 Some(Seen::Status(Status::Disconnected { reason, .. })) => return reason,
-                Some(Seen::Status(Status::Connected { .. })) => panic!("connected with the wrong token"),
+                Some(Seen::Status(Status::Connected { .. })) => {
+                    panic!("connected with the wrong token")
+                }
                 _ => continue,
             }
         }

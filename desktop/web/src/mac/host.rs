@@ -32,14 +32,27 @@ unsafe extern "C" {
     pub(crate) fn tb_view_note_input(view: *mut c_void);
     pub(crate) fn tb_view_has_keyboard(view: *mut c_void) -> bool;
     // The layer Chromium shows a page's picture in, which should be the view's size (panel.rs).
-    pub(crate) fn tb_view_picture_size(view: *mut c_void, width: *mut f64, height: *mut f64) -> bool;
+    pub(crate) fn tb_view_picture_size(
+        view: *mut c_void,
+        width: *mut f64,
+        height: *mut f64,
+    ) -> bool;
     // Who has a window's keyboard, and giving it back to GPUI's view.
     fn tb_view_keyboard_holder(view: *mut c_void) -> i32;
     fn tb_view_take_keyboard(view: *mut c_void) -> bool;
     fn tb_view_send_keys(view: *mut c_void, text: *const c_char);
     fn tb_view_send_click(view: *mut c_void, x: f64, y: f64) -> *mut c_char;
     fn free(ptr: *mut c_void);
-    fn tb_popup_menu(view: *mut c_void, x: f64, y: f64, titles: *const *const c_char, symbols: *const *const c_char, tips: *const *const c_char, checked: *const bool, count: i32) -> i32;
+    fn tb_popup_menu(
+        view: *mut c_void,
+        x: f64,
+        y: f64,
+        titles: *const *const c_char,
+        symbols: *const *const c_char,
+        tips: *const *const c_char,
+        checked: *const bool,
+        count: i32,
+    ) -> i32;
     fn tb_main_bundle_identifier() -> *const c_char;
 }
 
@@ -68,7 +81,18 @@ pub fn popup_menu(view: *mut c_void, x: f32, y: f32, items: &[MenuItem]) -> Opti
     let pointers = |v: &[CString]| v.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
     let (t, s, p) = (pointers(&titles), pointers(&symbols), pointers(&tips));
     let checked: Vec<bool> = items.iter().map(|i| i.checked).collect();
-    let chosen = unsafe { tb_popup_menu(view, f64::from(x), f64::from(y), t.as_ptr(), s.as_ptr(), p.as_ptr(), checked.as_ptr(), items.len() as i32) };
+    let chosen = unsafe {
+        tb_popup_menu(
+            view,
+            f64::from(x),
+            f64::from(y),
+            t.as_ptr(),
+            s.as_ptr(),
+            p.as_ptr(),
+            checked.as_ptr(),
+            items.len() as i32,
+        )
+    };
     usize::try_from(chosen).ok().filter(|i| *i < items.len())
 }
 
@@ -138,7 +162,10 @@ pub(crate) fn set_status(status: Status) {
 }
 
 pub fn status() -> Status {
-    STATUS.lock().map(|s| s.clone()).unwrap_or(Status::Failed("the web runtime's state was lost".into()))
+    STATUS
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or(Status::Failed("the web runtime's state was lost".into()))
 }
 
 /// cef::initialize has been called in this process. After that a failed
@@ -170,7 +197,9 @@ pub fn retry() -> bool {
 fn log_line(log_file: &std::path::Path, line: &str) {
     use std::io::Write as _;
     eprintln!("threadbear-web: {line}");
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     if let Ok(mut f) = threadbear_core::private_file::append(log_file) {
         let _ = writeln!(f, "[{secs} threadbear] {line}");
     }
@@ -180,7 +209,8 @@ fn log_line(log_file: &std::path::Path, line: &str) {
 fn initialize_failure(profile: &std::path::Path) -> String {
     let code = get_exit_code();
     let holder = threadbear_core::web_runtime::profile_lock_pid(profile);
-    let in_use = code == sys::cef_resultcode_t::CEF_RESULT_CODE_PROFILE_IN_USE as i32 || code == sys::cef_resultcode_t::CEF_RESULT_CODE_NORMAL_EXIT_PROCESS_NOTIFIED as i32;
+    let in_use = code == sys::cef_resultcode_t::CEF_RESULT_CODE_PROFILE_IN_USE as i32
+        || code == sys::cef_resultcode_t::CEF_RESULT_CODE_NORMAL_EXIT_PROCESS_NOTIFIED as i32;
     match (in_use, holder) {
         (true, Some(pid)) if pid != std::process::id() => format!("its profile was in use by another process (pid {pid}, another copy of Threadbear?), exit code {code}"),
         (true, _) => format!("its profile was in use, exit code {code}"),
@@ -224,9 +254,14 @@ pub fn start(launch: Launch) -> Result<(), String> {
         Status::Starting | Status::Ready => return Ok(()),
     }
     let binary = launch.framework.join("Chromium Embedded Framework");
-    let path = CString::new(binary.to_string_lossy().into_owned()).map_err(|_| "the runtime's path has a NUL in it".to_owned())?;
+    let path = CString::new(binary.to_string_lossy().into_owned())
+        .map_err(|_| "the runtime's path has a NUL in it".to_owned())?;
     if unsafe { super::loader_support::cef_load_library(path.as_ptr()) } != 1 {
-        let why = format!("the web runtime couldn't be loaded from {}: {}", binary.display(), super::loader_support::last_load_error().unwrap_or_else(|| "no reason given".into()));
+        let why = format!(
+            "the web runtime couldn't be loaded from {}: {}",
+            binary.display(),
+            super::loader_support::last_load_error().unwrap_or_else(|| "no reason given".into())
+        );
         log_line(&launch.log_file, &why);
         set_status(Status::Failed(why.clone()));
         return Err(why);
@@ -239,7 +274,12 @@ pub fn start(launch: Launch) -> Result<(), String> {
 
     let args = Args::new();
     let mut app = BrowserApp::new();
-    if execute_process(Some(args.as_main_args()), Some(&mut app), std::ptr::null_mut()) >= 0 {
+    if execute_process(
+        Some(args.as_main_args()),
+        Some(&mut app),
+        std::ptr::null_mut(),
+    ) >= 0
+    {
         // CEF took this for one of its own helpers: it never is, as they
         // have their own binary (threadbear-web-helper).
         let why = "the web runtime thought the app was one of its helpers".to_owned();
@@ -291,7 +331,13 @@ pub fn start(launch: Launch) -> Result<(), String> {
         *p.borrow_mut() = Some(Box::new(move || {
             let mut app = app;
             INITIALIZE_CALLED.store(true, Ordering::Release);
-            if initialize(Some(args.as_main_args()), Some(&settings), Some(&mut app), std::ptr::null_mut()) != 1 {
+            if initialize(
+                Some(args.as_main_args()),
+                Some(&settings),
+                Some(&mut app),
+                std::ptr::null_mut(),
+            ) != 1
+            {
                 let why = initialize_failure(&profile);
                 log_line(&log_file, &format!("Chromium didn't start: {why}"));
                 set_status(Status::Failed(why));
@@ -323,7 +369,12 @@ fn browser_switches(command_line: &mut CommandLine) {
     // its own (docs/on-your-mac.md).
     // No background requests of Chromium's own (updates of its components,
     // variations, and so on): it goes online for the pages it shows.
-    for switch in ["use-mock-keychain", "disable-background-networking", "disable-component-update", "no-pings"] {
+    for switch in [
+        "use-mock-keychain",
+        "disable-background-networking",
+        "disable-component-update",
+        "no-pings",
+    ] {
         command_line.append_switch(Some(&CefString::from(switch)));
     }
 }

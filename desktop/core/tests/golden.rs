@@ -15,7 +15,11 @@ use std::path::{Path, PathBuf};
 use threadbear_core::reducer::*;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).expect("repo root").to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("repo root")
+        .to_path_buf()
 }
 
 fn golden_rows(model: &TranscriptModel) -> Vec<Value> {
@@ -63,8 +67,14 @@ fn load_fixture(folder: &Path) -> (Vec<Event>, String, Vec<BackgroundTask>, Opti
             Event::decode(&value).expect("an event object")
         })
         .collect();
-    let thread: Value = serde_json::from_str(&fs::read_to_string(folder.join("thread.json")).expect("thread.json")).expect("thread.json parses");
-    let cwd = thread.get("cwd").and_then(Value::as_str).unwrap_or("").to_owned();
+    let thread: Value =
+        serde_json::from_str(&fs::read_to_string(folder.join("thread.json")).expect("thread.json"))
+            .expect("thread.json parses");
+    let cwd = thread
+        .get("cwd")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
     let background = thread
         .get("background")
         .and_then(Value::as_array)
@@ -74,20 +84,35 @@ fn load_fixture(folder: &Path) -> (Vec<Event>, String, Vec<BackgroundTask>, Opti
     (events, cwd, background, loose_ends)
 }
 
-fn check_rows(name: &str, which: &str, produced: &[Value], expected: Option<&Value>, failures: &mut Vec<String>) {
+fn check_rows(
+    name: &str,
+    which: &str,
+    produced: &[Value],
+    expected: Option<&Value>,
+    failures: &mut Vec<String>,
+) {
     let Some(expected) = expected.and_then(Value::as_array) else {
         failures.push(format!("{name} {which}: no rows in the golden file"));
         return;
     };
-    let produced_ids: Vec<&str> = produced.iter().map(|r| r["id"].as_str().unwrap_or("")).collect();
-    let expected_ids: Vec<&str> = expected.iter().map(|r| r["id"].as_str().unwrap_or("")).collect();
+    let produced_ids: Vec<&str> = produced
+        .iter()
+        .map(|r| r["id"].as_str().unwrap_or(""))
+        .collect();
+    let expected_ids: Vec<&str> = expected
+        .iter()
+        .map(|r| r["id"].as_str().unwrap_or(""))
+        .collect();
     if produced_ids != expected_ids {
         failures.push(format!("{name} {which}: the row ids differ\n  produced {produced_ids:?}\n  expected {expected_ids:?}"));
         return;
     }
     for (produced_row, expected_row) in produced.iter().zip(expected) {
         if produced_row != expected_row {
-            failures.push(format!("{name} {which}: {}\n  produced {produced_row}\n  expected {expected_row}", expected_row["id"]));
+            failures.push(format!(
+                "{name} {which}: {}\n  produced {produced_row}\n  expected {expected_row}",
+                expected_row["id"]
+            ));
         }
     }
 }
@@ -99,7 +124,12 @@ fn every_fixture_matches_its_golden_file() {
     let golden = repo.join("desktop/core/tests/golden");
     let mut names: Vec<String> = fs::read_dir(&fixtures)
         .expect("the fixtures folder")
-        .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
         .filter(|name| fixtures.join(name).join("events.ndjson").exists())
         .collect();
     names.sort();
@@ -107,7 +137,11 @@ fn every_fixture_matches_its_golden_file() {
 
     let mut failures = Vec::new();
     for entry in fs::read_dir(&golden).expect("the golden folder") {
-        let file = entry.expect("an entry").file_name().to_string_lossy().into_owned();
+        let file = entry
+            .expect("an entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
         if let Some(stem) = file.strip_suffix(".json") {
             if !names.iter().any(|n| n == stem) {
                 failures.push(format!("{file} has no fixture"));
@@ -125,7 +159,12 @@ fn every_fixture_matches_its_golden_file() {
         let closed = golden_rows(&model);
 
         // Every group open, so the steps folded in them show.
-        let group_ids: Vec<String> = model.rows().iter().filter(|r| r.kind() == RowKind::Group).map(|r| r.id.clone()).collect();
+        let group_ids: Vec<String> = model
+            .rows()
+            .iter()
+            .filter(|r| r.kind() == RowKind::Group)
+            .map(|r| r.id.clone())
+            .collect();
         for id in group_ids {
             model.set_expanded(&id, true);
         }
@@ -135,13 +174,26 @@ fn every_fixture_matches_its_golden_file() {
         let text = match fs::read_to_string(&golden_path) {
             Ok(text) => text,
             Err(_) => {
-                failures.push(format!("{name}: no golden file (write them from the Swift test with UPDATE_GOLDEN=1)"));
+                failures.push(format!(
+                    "{name}: no golden file (write them from the Swift test with UPDATE_GOLDEN=1)"
+                ));
                 continue;
             }
         };
         let expected: Value = serde_json::from_str(&text).expect("a golden file parses");
-        check_rows(name, "closed", &closed, expected.get("closed"), &mut failures);
+        check_rows(
+            name,
+            "closed",
+            &closed,
+            expected.get("closed"),
+            &mut failures,
+        );
         check_rows(name, "open", &open, expected.get("open"), &mut failures);
     }
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

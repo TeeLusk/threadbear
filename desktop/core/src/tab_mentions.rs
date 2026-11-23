@@ -41,19 +41,29 @@ pub struct BrowserTab {
 impl BrowserTab {
     /// "music.youtube.com", "localhost:5173"; the whole address for a file.
     pub fn host(&self) -> String {
-        authority(&self.url).filter(|a| !a.is_empty()).unwrap_or_else(|| self.url.clone())
+        authority(&self.url)
+            .filter(|a| !a.is_empty())
+            .unwrap_or_else(|| self.url.clone())
     }
 
     /// Its title, or its host for a page without one.
     pub fn shown_title(&self) -> String {
-        if self.title.trim().is_empty() { self.host() } else { self.title.clone() }
+        if self.title.trim().is_empty() {
+            self.host()
+        } else {
+            self.title.clone()
+        }
     }
 
     /// The picture for its row: Chrome's favicon when BrowserBear gives one
     /// (a web or data address, never chrome://), else the site's own
     /// /favicon.ico. None for a file.
     pub fn icon_url(&self) -> Option<String> {
-        if let Some(icon) = self.fav_icon_url.as_deref().filter(|i| matches!(scheme(i).as_deref(), Some("http" | "https" | "data"))) {
+        if let Some(icon) = self
+            .fav_icon_url
+            .as_deref()
+            .filter(|i| matches!(scheme(i).as_deref(), Some("http" | "https" | "data")))
+        {
             return Some(icon.to_owned());
         }
         let page_scheme = scheme(&self.url).filter(|s| s == "http" || s == "https")?;
@@ -65,14 +75,23 @@ impl BrowserTab {
 /// An address's scheme, lower-cased.
 fn scheme(url: &str) -> Option<String> {
     let (scheme, _) = url.split_once(':')?;
-    (!scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))).then(|| scheme.to_ascii_lowercase())
+    (!scheme.is_empty()
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+    .then(|| scheme.to_ascii_lowercase())
 }
 
 /// `host[:port]` of `scheme://user@host:port/...`, without the user.
 fn authority(url: &str) -> Option<String> {
     let (_, rest) = url.split_once("://")?;
     let authority = rest.split(['/', '?', '#']).next()?;
-    Some(authority.rsplit_once('@').map_or(authority, |(_, h)| h).to_owned())
+    Some(
+        authority
+            .rsplit_once('@')
+            .map_or(authority, |(_, h)| h)
+            .to_owned(),
+    )
 }
 
 /// BrowserBear's `tabList` answer: a list, or one under `tabs` (leniently,
@@ -80,15 +99,24 @@ fn authority(url: &str) -> Option<String> {
 pub fn decode_tabs(value: &Value) -> Vec<BrowserTab> {
     let list = match value {
         Value::Array(list) => list.as_slice(),
-        Value::Object(map) => map.get("tabs").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+        Value::Object(map) => map
+            .get("tabs")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice),
         _ => &[],
     };
-    list.iter().filter_map(|t| serde_json::from_value::<BrowserTab>(t.clone()).ok()).filter(|t| t.tab_id != 0 || !t.url.is_empty()).collect()
+    list.iter()
+        .filter_map(|t| serde_json::from_value::<BrowserTab>(t.clone()).ok())
+        .filter(|t| t.tab_id != 0 || !t.url.is_empty())
+        .collect()
 }
 
 /// Whether `status` says no Chrome profile is connected.
 pub fn no_profile(status: &Value) -> bool {
-    status.get("profiles").and_then(Value::as_array).is_none_or(|p| p.is_empty())
+    status
+        .get("profiles")
+        .and_then(Value::as_array)
+        .is_none_or(|p| p.is_empty())
 }
 
 /// Why the picker has no tabs to show: said in its one row, never as an
@@ -104,7 +132,9 @@ impl Unavailable {
     /// The picker's one row.
     pub fn text(&self) -> String {
         match self {
-            Unavailable::NotRunning => "BrowserBear isn't running, so there are no Chrome tabs to pick.".to_owned(),
+            Unavailable::NotRunning => {
+                "BrowserBear isn't running, so there are no Chrome tabs to pick.".to_owned()
+            }
             Unavailable::NoProfile => "No Chrome profile is connected to BrowserBear.".to_owned(),
             Unavailable::Failed(why) => format!("BrowserBear couldn't list your tabs: {why}"),
         }
@@ -142,10 +172,18 @@ pub fn query(text: &str, cursor: usize) -> Option<Query> {
     let before = &text[..cursor];
     for (i, c) in before.char_indices().rev() {
         if c == '@' {
-            if before[..i].chars().next_back().is_some_and(|p| !is_space(p)) {
+            if before[..i]
+                .chars()
+                .next_back()
+                .is_some_and(|p| !is_space(p))
+            {
                 return None;
             }
-            return Some(Query { start: i, end: cursor, text: before[i + 1..].to_owned() });
+            return Some(Query {
+                start: i,
+                end: cursor,
+                text: before[i + 1..].to_owned(),
+            });
         }
         if is_space(c) || c == crate::composer::PICTURE_MARK || c == '[' || c == ']' {
             return None;
@@ -161,7 +199,11 @@ pub fn matches(tabs: &[BrowserTab], query: &str) -> Vec<BrowserTab> {
     let q = query.trim().to_lowercase();
     tabs.iter()
         .filter(|t| t.whose.as_deref() != Some("agent"))
-        .filter(|t| q.is_empty() || t.title.to_lowercase().contains(&q) || t.host().to_lowercase().contains(&q))
+        .filter(|t| {
+            q.is_empty()
+                || t.title.to_lowercase().contains(&q)
+                || t.host().to_lowercase().contains(&q)
+        })
         .cloned()
         .collect()
 }
@@ -169,7 +211,12 @@ pub fn matches(tabs: &[BrowserTab], query: &str) -> Vec<BrowserTab> {
 /// What goes in the message for a picked tab:
 /// `@[YouTube Music](https://music.youtube.com/) (tab 283150292)`.
 pub fn reference(tab: &BrowserTab) -> String {
-    let mut title = tab.title.trim().replace('[', "(").replace(']', ")").replace('\n', " ");
+    let mut title = tab
+        .title
+        .trim()
+        .replace('[', "(")
+        .replace(']', ")")
+        .replace('\n', " ");
     if title.is_empty() {
         title = tab.host();
     }
@@ -183,12 +230,21 @@ pub fn reference(tab: &BrowserTab) -> String {
 /// refers to, after it, in the order they're mentioned. The reference says
 /// which tab; the words say how to use it.
 pub fn message(text: &str, lent: &BTreeMap<i64, String>) -> String {
-    let mut found: Vec<(usize, &str)> = lent.iter().filter_map(|(id, words)| text.find(&format!("(tab {id})")).map(|at| (at, words.as_str()))).collect();
+    let mut found: Vec<(usize, &str)> = lent
+        .iter()
+        .filter_map(|(id, words)| {
+            text.find(&format!("(tab {id})"))
+                .map(|at| (at, words.as_str()))
+        })
+        .collect();
     if found.is_empty() {
         return text.to_owned();
     }
     found.sort_by_key(|(at, _)| *at);
-    std::iter::once(text).chain(found.into_iter().map(|(_, w)| w)).collect::<Vec<_>>().join("\n\n")
+    std::iter::once(text)
+        .chain(found.into_iter().map(|(_, w)| w))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Whether the text still mentions this tab.
@@ -232,7 +288,11 @@ pub fn tip(tab: &BrowserTab, thread: &str) -> String {
 
 /// The empty list's line.
 pub fn empty_text(query: &str) -> String {
-    if query.is_empty() { "No open tabs in Chrome.".to_owned() } else { format!("No tab matches @{query}.") }
+    if query.is_empty() {
+        "No open tabs in Chrome.".to_owned()
+    } else {
+        format!("No tab matches @{query}.")
+    }
 }
 
 /// What the composer keeps for its @ picker: the tab picked with the arrows,
@@ -245,13 +305,24 @@ pub struct PickerState {
 
 /// The tab Return would pick: the one the arrows are on, else the first.
 pub fn picked<'a>(matches: &'a [BrowserTab], state: &PickerState) -> Option<&'a BrowserTab> {
-    matches.iter().find(|t| Some(t.tab_id) == state.selected).or_else(|| matches.first())
+    matches
+        .iter()
+        .find(|t| Some(t.tab_id) == state.selected)
+        .or_else(|| matches.first())
 }
 
 /// What a key does with these matches: moves the pick, or gives the tab to
 /// pick (Tab, Return). None: nothing picked.
-pub fn handle_key(key: PaletteKey, matches: &[BrowserTab], state: &mut PickerState, text: &str) -> Option<BrowserTab> {
-    let index = matches.iter().position(|t| Some(t.tab_id) == state.selected).unwrap_or(0);
+pub fn handle_key(
+    key: PaletteKey,
+    matches: &[BrowserTab],
+    state: &mut PickerState,
+    text: &str,
+) -> Option<BrowserTab> {
+    let index = matches
+        .iter()
+        .position(|t| Some(t.tab_id) == state.selected)
+        .unwrap_or(0);
     match key {
         PaletteKey::Up => {
             if !matches.is_empty() {
@@ -320,13 +391,24 @@ pub fn icon_picture(bytes: &[u8]) -> Option<(IconFormat, Vec<u8>)> {
 
 /// An .ico's biggest picture.
 fn ico_picture(bytes: &[u8]) -> Option<(IconFormat, Vec<u8>)> {
-    let u16_at = |at: usize| bytes.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
-    let u32_at = |at: usize| bytes.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let u16_at = |at: usize| {
+        bytes
+            .get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let u32_at = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
     let count = u16_at(4)? as usize;
     let mut best: Option<(u32, usize, usize)> = None;
     for i in 0..count.min(64) {
         let entry = 6 + i * 16;
-        let w = match *bytes.get(entry)? { 0 => 256, w => u32::from(w) };
+        let w = match *bytes.get(entry)? {
+            0 => 256,
+            w => u32::from(w),
+        };
         let size = u32_at(entry + 8)? as usize;
         let offset = u32_at(entry + 12)? as usize;
         if offset.checked_add(size).is_none_or(|end| end > bytes.len()) || size < 40 {
@@ -349,7 +431,11 @@ fn ico_picture(bytes: &[u8]) -> Option<(IconFormat, Vec<u8>)> {
     }
     let bits = u16::from_le_bytes(image[14..16].try_into().ok()?);
     let colours = u32::from_le_bytes(image[32..36].try_into().ok()?);
-    let palette = if bits <= 8 { (if colours == 0 { 1u32 << bits } else { colours }) * 4 } else { 0 };
+    let palette = if bits <= 8 {
+        (if colours == 0 { 1u32 << bits } else { colours }) * 4
+    } else {
+        0
+    };
     let mut dib = image.to_vec();
     let height = i32::from_le_bytes(dib[8..12].try_into().ok()?);
     dib[8..12].copy_from_slice(&(height / 2).to_le_bytes());
@@ -367,10 +453,15 @@ fn ico_picture(bytes: &[u8]) -> Option<(IconFormat, Vec<u8>)> {
 /// A `data:` address's bytes (base64 or plain).
 pub fn data_url_bytes(url: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
-    let rest = url.get(5..).filter(|_| url.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("data:")))?;
+    let rest = url.get(5..).filter(|_| {
+        url.get(..5)
+            .is_some_and(|p| p.eq_ignore_ascii_case("data:"))
+    })?;
     let (meta, data) = rest.split_once(',')?;
     if meta.to_ascii_lowercase().ends_with(";base64") {
-        base64::engine::general_purpose::STANDARD.decode(data.trim()).ok()
+        base64::engine::general_purpose::STANDARD
+            .decode(data.trim())
+            .ok()
     } else {
         Some(percent_decode(data))
     }
@@ -382,7 +473,10 @@ fn percent_decode(text: &str) -> Vec<u8> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
                 out.push(b);
                 i += 3;
                 continue;
@@ -400,24 +494,63 @@ mod tests {
     use serde_json::json;
 
     fn tab(id: i64, title: &str, url: &str) -> BrowserTab {
-        BrowserTab { tab_id: id, title: title.into(), url: url.into(), profile: Some("me@example.com".into()), active: Some(false), whose: Some("user".into()), lent_to: None, allowed: Some(true), fav_icon_url: None }
+        BrowserTab {
+            tab_id: id,
+            title: title.into(),
+            url: url.into(),
+            profile: Some("me@example.com".into()),
+            active: Some(false),
+            whose: Some("user".into()),
+            lent_to: None,
+            allowed: Some(true),
+            fav_icon_url: None,
+        }
     }
 
     #[test]
     fn query_is_the_at_word_before_the_cursor() {
-        assert_eq!(query("@", 1), Some(Query { start: 0, end: 1, text: String::new() }));
-        assert_eq!(query("look at @you", 12).map(|q| q.text), Some("you".into()));
-        assert_eq!(query("look at @you", 12).map(|q| (q.start, q.end)), Some((8, 12)));
-        assert_eq!(query("@you and more", 4).map(|q| q.text), Some("you".into()), "only up to the cursor");
+        assert_eq!(
+            query("@", 1),
+            Some(Query {
+                start: 0,
+                end: 1,
+                text: String::new()
+            })
+        );
+        assert_eq!(
+            query("look at @you", 12).map(|q| q.text),
+            Some("you".into())
+        );
+        assert_eq!(
+            query("look at @you", 12).map(|q| (q.start, q.end)),
+            Some((8, 12))
+        );
+        assert_eq!(
+            query("@you and more", 4).map(|q| q.text),
+            Some("you".into()),
+            "only up to the cursor"
+        );
         assert_eq!(query("mail me@example.com", 19), None, "an email address");
         assert_eq!(query("@you there", 10), None, "a space ends it");
         assert_eq!(query("@a\nb", 4), None);
         assert_eq!(query("hello", 5), None);
-        assert_eq!(query("@[Music](https://m.example) (tab 3) ", 36), None, "a reference already made");
+        assert_eq!(
+            query("@[Music](https://m.example) (tab 3) ", 36),
+            None,
+            "a reference already made"
+        );
         assert_eq!(query("line\n@x", 7).map(|q| q.text), Some("x".into()));
         let emoji = "🙂 @y";
-        assert_eq!(query(emoji, emoji.len()).map(|q| (q.start, q.end)), Some((5, 7)), "byte offsets");
-        assert_eq!(query("a\u{FFFC}@x", "a\u{FFFC}@x".len()), None, "right after a picture");
+        assert_eq!(
+            query(emoji, emoji.len()).map(|q| (q.start, q.end)),
+            Some((5, 7)),
+            "byte offsets"
+        );
+        assert_eq!(
+            query("a\u{FFFC}@x", "a\u{FFFC}@x".len()),
+            None,
+            "right after a picture"
+        );
     }
 
     #[test]
@@ -426,8 +559,18 @@ mod tests {
         agent.whose = Some("agent".into());
         let mut handed = tab(4, "Dev", "http://localhost:5173/");
         handed.whose = Some("handed".into());
-        let tabs = vec![tab(1, "YouTube Music", "https://music.youtube.com/"), agent, tab(3, "Inbox", "https://mail.google.com/mail/u/0/"), handed];
-        let ids = |q: &str| matches(&tabs, q).iter().map(|t| t.tab_id).collect::<Vec<_>>();
+        let tabs = vec![
+            tab(1, "YouTube Music", "https://music.youtube.com/"),
+            agent,
+            tab(3, "Inbox", "https://mail.google.com/mail/u/0/"),
+            handed,
+        ];
+        let ids = |q: &str| {
+            matches(&tabs, q)
+                .iter()
+                .map(|t| t.tab_id)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids(""), vec![1, 3, 4]);
         assert_eq!(ids("MUS"), vec![1]);
         assert_eq!(ids("google"), vec![3], "by its host");
@@ -439,41 +582,81 @@ mod tests {
     fn host_and_reference() {
         let t = tab(283150292, "YouTube Music", "https://music.youtube.com/");
         assert_eq!(t.host(), "music.youtube.com");
-        assert_eq!(tab(1, "x", "http://localhost:5173/a").host(), "localhost:5173");
-        assert_eq!(reference(&t), "@[YouTube Music](https://music.youtube.com/) (tab 283150292)");
-        assert_eq!(reference(&tab(5, "a [b] c", "https://x.com/")), "@[a (b) c](https://x.com/) (tab 5)");
-        assert_eq!(reference(&tab(6, "  ", "https://x.com/")), "@[x.com](https://x.com/) (tab 6)");
+        assert_eq!(
+            tab(1, "x", "http://localhost:5173/a").host(),
+            "localhost:5173"
+        );
+        assert_eq!(
+            reference(&t),
+            "@[YouTube Music](https://music.youtube.com/) (tab 283150292)"
+        );
+        assert_eq!(
+            reference(&tab(5, "a [b] c", "https://x.com/")),
+            "@[a (b) c](https://x.com/) (tab 5)"
+        );
+        assert_eq!(
+            reference(&tab(6, "  ", "https://x.com/")),
+            "@[x.com](https://x.com/) (tab 6)"
+        );
         let long = "a".repeat(100);
-        assert_eq!(reference(&tab(7, &long, "https://x.com/")), format!("@[{}…](https://x.com/) (tab 7)", "a".repeat(59)));
+        assert_eq!(
+            reference(&tab(7, &long, "https://x.com/")),
+            format!("@[{}…](https://x.com/) (tab 7)", "a".repeat(59))
+        );
     }
 
     #[test]
     fn message_adds_words_for_tabs_still_referenced() {
-        let lent = BTreeMap::from([(5, "Tab 5 is yours.".to_owned()), (9, "Tab 9 is yours.".to_owned())]);
-        assert_eq!(message("see @[A](https://a.com/) (tab 5) please", &lent), "see @[A](https://a.com/) (tab 5) please\n\nTab 5 is yours.");
+        let lent = BTreeMap::from([
+            (5, "Tab 5 is yours.".to_owned()),
+            (9, "Tab 9 is yours.".to_owned()),
+        ]);
+        assert_eq!(
+            message("see @[A](https://a.com/) (tab 5) please", &lent),
+            "see @[A](https://a.com/) (tab 5) please\n\nTab 5 is yours."
+        );
         assert_eq!(message("no tabs", &lent), "no tabs");
-        assert_eq!(message("(tab 9) and (tab 5)", &lent), "(tab 9) and (tab 5)\n\nTab 9 is yours.\n\nTab 5 is yours.");
+        assert_eq!(
+            message("(tab 9) and (tab 5)", &lent),
+            "(tab 9) and (tab 5)\n\nTab 9 is yours.\n\nTab 5 is yours."
+        );
         assert_eq!(message("(tab 55)", &lent), "(tab 55)", "not tab 5");
     }
 
     #[test]
     fn icon_is_chromes_or_the_sites_own() {
         let mut t = tab(1, "A", "http://localhost:5173/7k/orders?x=1");
-        assert_eq!(t.icon_url().as_deref(), Some("http://localhost:5173/favicon.ico"));
+        assert_eq!(
+            t.icon_url().as_deref(),
+            Some("http://localhost:5173/favicon.ico")
+        );
         t.fav_icon_url = Some("https://music.youtube.com/img/favicon_32.png".into());
-        assert_eq!(t.icon_url().as_deref(), Some("https://music.youtube.com/img/favicon_32.png"), "Chrome's when BrowserBear sends it");
+        assert_eq!(
+            t.icon_url().as_deref(),
+            Some("https://music.youtube.com/img/favicon_32.png"),
+            "Chrome's when BrowserBear sends it"
+        );
         t.fav_icon_url = Some("chrome://favicon/x".into());
-        assert_eq!(t.icon_url().as_deref(), Some("http://localhost:5173/favicon.ico"), "not one of Chrome's own pages");
+        assert_eq!(
+            t.icon_url().as_deref(),
+            Some("http://localhost:5173/favicon.ico"),
+            "not one of Chrome's own pages"
+        );
         assert_eq!(tab(2, "f", "file:///Users/me/a.html").icon_url(), None);
     }
 
     #[test]
     fn decodes_the_services_list() {
-        let tabs = decode_tabs(&json!([{"tabId":1,"title":"A","url":"https://a.com/","profile":"p","active":true,"whose":"user","lentTo":null,"allowed":false,"extra":1}, "junk"]));
+        let tabs = decode_tabs(
+            &json!([{"tabId":1,"title":"A","url":"https://a.com/","profile":"p","active":true,"whose":"user","lentTo":null,"allowed":false,"extra":1}, "junk"]),
+        );
         assert_eq!(tabs.len(), 1);
         assert_eq!(tabs[0].allowed, Some(false));
         assert_eq!(tabs[0].lent_to, None);
-        assert_eq!(decode_tabs(&json!({"tabs":[{"tabId":2,"url":"https://b.com/"}]}))[0].tab_id, 2);
+        assert_eq!(
+            decode_tabs(&json!({"tabs":[{"tabId":2,"url":"https://b.com/"}]}))[0].tab_id,
+            2
+        );
         assert!(no_profile(&json!({"profiles":[]})));
         assert!(no_profile(&json!({})));
         assert!(!no_profile(&json!({"profiles":[{"id":"p"}]})));
@@ -484,7 +667,10 @@ mod tests {
         let mut t = tab(1, "A", "https://a.com/");
         assert_eq!(hint(&t, "th"), None);
         t.allowed = Some(false);
-        assert_eq!(hint(&t, "th"), Some("Picking gives this chat this tab only"));
+        assert_eq!(
+            hint(&t, "th"),
+            Some("Picking gives this chat this tab only")
+        );
         assert!(tip(&t, "th").contains("a.com isn't on the allowed sites"));
         t.lent_to = Some("th".into());
         assert_eq!(hint(&t, "th"), Some("Lent here"));
@@ -495,7 +681,11 @@ mod tests {
 
     #[test]
     fn keys_move_and_pick() {
-        let tabs = vec![tab(1, "A", "https://a.com/"), tab(2, "B", "https://b.com/"), tab(3, "C", "https://c.com/")];
+        let tabs = vec![
+            tab(1, "A", "https://a.com/"),
+            tab(2, "B", "https://b.com/"),
+            tab(3, "C", "https://c.com/"),
+        ];
         let mut state = PickerState::default();
         assert_eq!(picked(&tabs, &state).map(|t| t.tab_id), Some(1));
         assert_eq!(handle_key(PaletteKey::Down, &tabs, &mut state, "@"), None);
@@ -504,16 +694,28 @@ mod tests {
         handle_key(PaletteKey::Down, &tabs, &mut state, "@");
         assert_eq!(state.selected, Some(3), "stays on the last");
         handle_key(PaletteKey::Up, &tabs, &mut state, "@");
-        assert_eq!(handle_key(PaletteKey::Enter, &tabs, &mut state, "@").map(|t| t.tab_id), Some(2));
+        assert_eq!(
+            handle_key(PaletteKey::Enter, &tabs, &mut state, "@").map(|t| t.tab_id),
+            Some(2)
+        );
         handle_key(PaletteKey::Escape, &tabs, &mut state, "@x");
         assert_eq!(state.closed_at.as_deref(), Some("@x"));
-        assert_eq!(handle_key(PaletteKey::Tab, &[], &mut PickerState::default(), ""), None);
+        assert_eq!(
+            handle_key(PaletteKey::Tab, &[], &mut PickerState::default(), ""),
+            None
+        );
     }
 
     #[test]
     fn icon_pictures() {
-        assert_eq!(icon_picture(b"\x89PNG\r\n").map(|p| p.0), Some(IconFormat::Png));
-        assert_eq!(icon_picture(b"<?xml version=\"1.0\"?><svg xmlns='x'/>").map(|p| p.0), Some(IconFormat::Svg));
+        assert_eq!(
+            icon_picture(b"\x89PNG\r\n").map(|p| p.0),
+            Some(IconFormat::Png)
+        );
+        assert_eq!(
+            icon_picture(b"<?xml version=\"1.0\"?><svg xmlns='x'/>").map(|p| p.0),
+            Some(IconFormat::Svg)
+        );
         assert_eq!(icon_picture(b"<html>nope</html>"), None);
         // An .ico holding one PNG.
         let png = b"\x89PNG\r\n\x1a\n0123456789012345678901234567890123456789".to_vec();
@@ -537,14 +739,28 @@ mod tests {
         let (format, bmp) = icon_picture(&ico).expect("a bitmap");
         assert_eq!(format, IconFormat::Bmp);
         assert_eq!(&bmp[..2], b"BM");
-        assert_eq!(i32::from_le_bytes(bmp[22..26].try_into().unwrap()), 1, "half the height");
-        assert_eq!(u32::from_le_bytes(bmp[10..14].try_into().unwrap()), 54, "pixels after the headers");
+        assert_eq!(
+            i32::from_le_bytes(bmp[22..26].try_into().unwrap()),
+            1,
+            "half the height"
+        );
+        assert_eq!(
+            u32::from_le_bytes(bmp[10..14].try_into().unwrap()),
+            54,
+            "pixels after the headers"
+        );
     }
 
     #[test]
     fn data_urls() {
-        assert_eq!(data_url_bytes("data:image/svg+xml;base64,PHN2Zy8+").as_deref(), Some(&b"<svg/>"[..]));
-        assert_eq!(data_url_bytes("data:image/svg+xml,%3Csvg/%3E").as_deref(), Some(&b"<svg/>"[..]));
+        assert_eq!(
+            data_url_bytes("data:image/svg+xml;base64,PHN2Zy8+").as_deref(),
+            Some(&b"<svg/>"[..])
+        );
+        assert_eq!(
+            data_url_bytes("data:image/svg+xml,%3Csvg/%3E").as_deref(),
+            Some(&b"<svg/>"[..])
+        );
         assert_eq!(data_url_bytes("https://x"), None);
     }
 }

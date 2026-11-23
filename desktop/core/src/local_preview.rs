@@ -32,7 +32,8 @@ use std::sync::Mutex;
 /// What a page can pull in besides itself: passive files only. A sibling page
 /// or script named by the page would let it read whatever that names in turn.
 pub const ASSET_EXTENSIONS: &[&str] = &[
-    "css", "png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "heic", "woff", "woff2", "ttf", "otf", "mp4", "webm", "m4v", "mov", "mp3", "m4a", "wav", "ogg",
+    "css", "png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "heic", "woff", "woff2",
+    "ttf", "otf", "mp4", "webm", "m4v", "mov", "mp3", "m4a", "wav", "ogg",
 ];
 /// What can be the page.
 pub const PAGE_EXTENSIONS: &[&str] = &["html", "htm"];
@@ -98,7 +99,9 @@ pub fn decide_page(path: &str, origin: crate::open_policy::Origin) -> Result<Pat
     let given = crate::highlights::last_component(path);
     let name = if given.is_empty() { "That file" } else { given };
     if origin == crate::open_policy::Origin::OtherMac {
-        return Err(format!("{name} is on another Mac, so it can't show here yet."));
+        return Err(format!(
+            "{name} is on another Mac, so it can't show here yet."
+        ));
     }
     let given_path = Path::new(path);
     if !given_path.is_absolute() {
@@ -107,10 +110,15 @@ pub fn decide_page(path: &str, origin: crate::open_policy::Origin) -> Result<Pat
     let Ok(real) = crate::open_policy::real_path(given_path) else {
         return Err(format!("{name} isn't there any more."));
     };
-    let real_name = real.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let real_name = real
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
     let is_file = std::fs::metadata(&real).is_ok_and(|m| m.is_file());
     if !is_page(real_name) || safe_parts(real_name).is_none() || !is_file {
-        return Err(format!("{name} isn't really a web page, so Threadbear didn't show it."));
+        return Err(format!(
+            "{name} isn't really a web page, so Threadbear didn't show it."
+        ));
     }
     Ok(real)
 }
@@ -162,12 +170,25 @@ impl Site {
             use std::os::fd::FromRawFd as _;
             use std::os::unix::ffi::OsStrExt as _;
             let c = std::ffi::CString::new(root.as_os_str().as_bytes()).ok()?;
-            let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+            let fd = unsafe {
+                libc::open(
+                    c.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                )
+            };
             if fd < 0 {
                 return None;
             }
             let root_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
-            Some(Site { root, made: None, allowed: Mutex::new((HashSet::from([page.clone()]), page.len())), page, page_digest, page_only: false, root_fd })
+            Some(Site {
+                root,
+                made: None,
+                allowed: Mutex::new((HashSet::from([page.clone()]), page.len())),
+                page,
+                page_digest,
+                page_only: false,
+                root_fd,
+            })
         }
         #[cfg(not(unix))]
         {
@@ -179,7 +200,10 @@ impl Site {
     /// A live page's site: its own bytes, while they're `page_digest`, and
     /// nothing else in its folder, whatever it names.
     pub fn page_only(file: &Path, page_digest: String) -> Option<Site> {
-        Site::new(file, Some(page_digest)).map(|site| Site { page_only: true, ..site })
+        Site::new(file, Some(page_digest)).map(|site| Site {
+            page_only: true,
+            ..site
+        })
     }
 
     /// A site whose page is `html`, made by the app (a design review's page,
@@ -193,15 +217,32 @@ impl Site {
     /// file the app hadn't, and two thousand links used up the names before
     /// the pictures were reached (Gemini's review, 20 Nov 2026). `folder` is
     /// already real (its symlinks followed by the caller, as `new`'s file is).
-    pub fn made(folder: &Path, page: &str, html: Vec<u8>, assets: &[String], extras: Vec<(String, Vec<u8>)>) -> Option<Site> {
+    pub fn made(
+        folder: &Path,
+        page: &str,
+        html: Vec<u8>,
+        assets: &[String],
+        extras: Vec<(String, Vec<u8>)>,
+    ) -> Option<Site> {
         // Names as the site would take them from a page: one safe part each,
         // the page a page and each extra a passive asset.
         let plain = |name: &str| safe_parts(name).is_some_and(|parts| parts.len() == 1);
-        if !is_page(page) || !plain(page) || extras.iter().any(|(name, _)| !plain(name) || !ASSET_EXTENSIONS.contains(&extension(name).as_str())) {
+        if !is_page(page)
+            || !plain(page)
+            || extras.iter().any(|(name, _)| {
+                !plain(name) || !ASSET_EXTENSIONS.contains(&extension(name).as_str())
+            })
+        {
             return None;
         }
         let site = Site::new(&folder.join(page), None)?;
-        let site = Site { made: Some(Made { html: Mutex::new(html), extras }), ..site };
+        let site = Site {
+            made: Some(Made {
+                html: Mutex::new(html),
+                extras,
+            }),
+            ..site
+        };
         site.allow_only(assets);
         Some(site)
     }
@@ -224,7 +265,9 @@ impl Site {
         let mut names = HashSet::from([self.page.clone()]);
         let mut bytes = self.page.len();
         for asset in assets.iter().take(MAX_REFERENCES_PER_FILE) {
-            let Some(parts) = safe_parts(asset) else { continue };
+            let Some(parts) = safe_parts(asset) else {
+                continue;
+            };
             let name = parts.join("/");
             if name.len() > MAX_REFERENCE_BYTES || bytes + name.len() > MAX_ALLOWED_BYTES {
                 continue;
@@ -256,8 +299,21 @@ impl Site {
         let is_page = relative == self.page;
         // The app's own page and files, from memory: an extra needs no
         // naming by the page, as the app put it there.
-        let own = self.made.as_ref().and_then(|made| if is_page { made.html.lock().ok().map(|html| html.clone()) } else { made.extras.iter().find(|(name, _)| *name == relative).map(|(_, data)| data.clone()) });
-        if !is_page && own.is_none() && (self.page_only || !(ASSET_EXTENSIONS.contains(&ext.as_str()) && self.allows(&relative))) {
+        let own = self.made.as_ref().and_then(|made| {
+            if is_page {
+                made.html.lock().ok().map(|html| html.clone())
+            } else {
+                made.extras
+                    .iter()
+                    .find(|(name, _)| *name == relative)
+                    .map(|(_, data)| data.clone())
+            }
+        });
+        if !is_page
+            && own.is_none()
+            && (self.page_only
+                || !(ASSET_EXTENSIONS.contains(&ext.as_str()) && self.allows(&relative)))
+        {
             return None;
         }
         let data = match own {
@@ -279,7 +335,11 @@ impl Site {
             // A character cut in two at the end reads as U+FFFD, which names nothing.
             let text = String::from_utf8_lossy(head);
             let dir = relative.rsplit_once('/').map_or("", |(d, _)| d);
-            let refs = if ext == "css" { css_references(&text, MAX_REFERENCES_PER_FILE) } else { html_references(&text, MAX_REFERENCES_PER_FILE) };
+            let refs = if ext == "css" {
+                css_references(&text, MAX_REFERENCES_PER_FILE)
+            } else {
+                html_references(&text, MAX_REFERENCES_PER_FILE)
+            };
             if let Ok(mut allowed) = self.allowed.lock() {
                 let (allowed, bytes) = &mut *allowed;
                 for found in refs.iter().filter_map(|r| resolve(r, dir)) {
@@ -315,7 +375,13 @@ impl Site {
         let mut dir = self.root_fd.as_raw_fd();
         for part in folders {
             let c = std::ffi::CString::new(part.as_bytes()).ok()?;
-            let fd = unsafe { libc::openat(dir, c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+            let fd = unsafe {
+                libc::openat(
+                    dir,
+                    c.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
             if fd < 0 {
                 return None;
             }
@@ -325,7 +391,13 @@ impl Site {
         }
         let c = std::ffi::CString::new(name.as_bytes()).ok()?;
         // O_NONBLOCK, so a FIFO named like a picture can't hang the open.
-        let fd = unsafe { libc::openat(dir, c.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+        let fd = unsafe {
+            libc::openat(
+                dir,
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
         if fd < 0 {
             return None;
         }
@@ -385,7 +457,10 @@ pub fn mime_type(ext: &str) -> &'static str {
 /// would cut the name short at the open, and a `%` left after decoding means
 /// it was encoded twice, which no real asset name needs.
 pub fn safe_parts(path: &str) -> Option<Vec<String>> {
-    if path.chars().any(|c| c.is_control() || c == '\\' || c == '%') {
+    if path
+        .chars()
+        .any(|c| c.is_control() || c == '\\' || c == '%')
+    {
         return None;
     }
     let parts: Vec<String> = path.split('/').map(str::to_owned).collect();
@@ -404,7 +479,12 @@ pub fn percent_decode(text: &str) -> Option<String> {
     while i < bytes.len() {
         if bytes[i] == b'%' {
             let hex = |b: u8| (b as char).to_digit(16);
-            let (Some(hi), Some(lo)) = (bytes.get(i + 1).and_then(|b| hex(*b)), bytes.get(i + 2).and_then(|b| hex(*b))) else { return None };
+            let (Some(hi), Some(lo)) = (
+                bytes.get(i + 1).and_then(|b| hex(*b)),
+                bytes.get(i + 2).and_then(|b| hex(*b)),
+            ) else {
+                return None;
+            };
             out.push((hi * 16 + lo) as u8);
             i += 3;
         } else {
@@ -419,7 +499,9 @@ pub fn percent_decode(text: &str) -> Option<String> {
 /// anything with a scheme (`https:`, `data:`), a `//host`, or a path that
 /// climbs out of the folder or isn't an asset.
 pub fn resolve(reference: &str, dir: &str) -> Option<String> {
-    let cut = reference.find(['?', '#']).map_or(reference, |i| &reference[..i]);
+    let cut = reference
+        .find(['?', '#'])
+        .map_or(reference, |i| &reference[..i]);
     if cut.is_empty() || cut.starts_with("//") || has_scheme(cut) {
         return None;
     }
@@ -427,7 +509,11 @@ pub fn resolve(reference: &str, dir: &str) -> Option<String> {
     if !ASSET_EXTENSIONS.contains(&extension(decoded.trim_end_matches('/')).as_str()) {
         return None;
     }
-    let mut stack: Vec<&str> = if decoded.starts_with('/') { vec![] } else { dir.split('/').filter(|p| !p.is_empty()).collect() };
+    let mut stack: Vec<&str> = if decoded.starts_with('/') {
+        vec![]
+    } else {
+        dir.split('/').filter(|p| !p.is_empty()).collect()
+    };
     for part in decoded.split('/').filter(|p| !p.is_empty()) {
         match part {
             "." => {}
@@ -494,7 +580,11 @@ struct Seek<F: Fn(u8) -> bool> {
 
 impl<F: Fn(u8) -> bool> Seek<F> {
     fn new(test: F) -> Self {
-        Seek { test, from: 0, found: None }
+        Seek {
+            test,
+            from: 0,
+            found: None,
+        }
     }
 
     fn first(&mut self, text: &[u8], start: usize) -> usize {
@@ -516,7 +606,8 @@ impl<F: Fn(u8) -> bool> Seek<F> {
 /// Every place `word` starts (ASCII case folded), in order.
 fn find_all_ci<'a>(text: &'a [u8], word: &'a [u8]) -> impl Iterator<Item = usize> + 'a {
     let first = word[0].to_ascii_lowercase();
-    (0..text.len()).filter(move |&i| text[i].to_ascii_lowercase() == first && starts_ci(text, i, word))
+    (0..text.len())
+        .filter(move |&i| text[i].to_ascii_lowercase() == first && starts_ci(text, i, word))
 }
 
 /// `text` with what's between each `<script ...>` and the `</script>` after
@@ -527,9 +618,15 @@ pub fn without_script_contents(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut copied = 0;
     let mut at = 0;
-    while let Some(open) = (at..bytes.len()).find(|&i| bytes[i] == b'<' && starts_ci(bytes, i, b"<script") && bytes.get(i + 7).is_none_or(|b| !is_word(*b))) {
+    while let Some(open) = (at..bytes.len()).find(|&i| {
+        bytes[i] == b'<'
+            && starts_ci(bytes, i, b"<script")
+            && bytes.get(i + 7).is_none_or(|b| !is_word(*b))
+    }) {
         // No `>`: none for a later tag either.
-        let Some(gt) = (open + 7..bytes.len()).find(|&i| bytes[i] == b'>') else { break };
+        let Some(gt) = (open + 7..bytes.len()).find(|&i| bytes[i] == b'>') else {
+            break;
+        };
         // The `</script>` after the tag.
         let mut close = None;
         let mut i = gt + 1;
@@ -537,7 +634,10 @@ pub fn without_script_contents(text: &str) -> String {
             // An end tag as the browser reads one: `</script` then a space,
             // a `/` or `>`, running to the next `>` (`</script/>` and
             // `</script foo>` close it too: Grok's review, 13 Nov).
-            if bytes[i] == b'<' && starts_ci(bytes, i, b"</script") && matches!(bytes.get(i + 8), Some(b) if is_space(*b) || *b == b'/' || *b == b'>') {
+            if bytes[i] == b'<'
+                && starts_ci(bytes, i, b"</script")
+                && matches!(bytes.get(i + 8), Some(b) if is_space(*b) || *b == b'/' || *b == b'>')
+            {
                 if let Some(gt) = (i + 8..bytes.len()).find(|&j| bytes[j] == b'>') {
                     close = Some((i, gt + 1));
                 }
@@ -586,11 +686,17 @@ pub fn html_references(text: &str, limit: usize) -> Vec<String> {
                 if out.len() >= limit {
                     return false;
                 }
-                if let Some(first) = piece.split(|b| b.is_ascii_whitespace()).find(|s| !s.is_empty()) {
+                if let Some(first) = piece
+                    .split(|b| b.is_ascii_whitespace())
+                    .find(|s| !s.is_empty())
+                {
                     keep(&mut out, first);
                 }
             }
-        } else if [&b"src"[..], b"href", b"poster", b"data"].iter().any(|n| name.eq_ignore_ascii_case(n)) {
+        } else if [&b"src"[..], b"href", b"poster", b"data"]
+            .iter()
+            .any(|n| name.eq_ignore_ascii_case(n))
+        {
             keep(&mut out, value);
         }
         out.len() < limit
@@ -653,9 +759,17 @@ fn css_urls(text: &str, limit: usize) -> Vec<String> {
         let p = after_open.first(bytes, open + 4);
         let mut found = None;
         if p < n && (bytes[p] == b'"' || bytes[p] == b'\'') {
-            let q = if bytes[p] == b'"' { next_dq.first(bytes, p + 1) } else { next_sq.first(bytes, p + 1) };
+            let q = if bytes[p] == b'"' {
+                next_dq.first(bytes, p + 1)
+            } else {
+                next_sq.first(bytes, p + 1)
+            };
             if q < n {
-                let r = if bytes[p] == b'"' { after_dq.first(bytes, q + 1) } else { after_sq.first(bytes, q + 1) };
+                let r = if bytes[p] == b'"' {
+                    after_dq.first(bytes, q + 1)
+                } else {
+                    after_sq.first(bytes, q + 1)
+                };
                 if r < n && bytes[r] == b')' {
                     found = Some((p + 1, q, r));
                 }
@@ -667,7 +781,9 @@ fn css_urls(text: &str, limit: usize) -> Vec<String> {
                 found = Some((p, e, r));
             }
         }
-        let Some((start, end, close)) = found else { continue };
+        let Some((start, end, close)) = found else {
+            continue;
+        };
         keep(&mut out, &bytes[start..end]);
         resume = close + 1;
         if out.len() >= limit {
@@ -684,7 +800,9 @@ fn css_urls(text: &str, limit: usize) -> Vec<String> {
 /// wrongly costs a bar, missing one looks broken.
 pub fn has_scripts(html: &[u8]) -> bool {
     let text = &html[..html.len().min(SCRIPT_SCAN_BYTES)];
-    if find_all_ci(text, b"<script").next().is_some() || find_all_ci(text, b"javascript:").next().is_some() {
+    if find_all_ci(text, b"<script").next().is_some()
+        || find_all_ci(text, b"javascript:").next().is_some()
+    {
         return true;
     }
     // A handler: a space, `on`, letters, spaces, `=`, where the last `<`
@@ -720,7 +838,10 @@ pub fn has_scripts(html: &[u8]) -> bool {
 
 /// SHA-256 of a page's bytes, hex: what a consent to run scripts is for.
 pub fn digest(data: &[u8]) -> String {
-    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// A page file read for the bar over it: whether it has scripts, and the

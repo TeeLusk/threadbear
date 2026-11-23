@@ -7,6 +7,7 @@
 // Every click shows at once: the switch moves and goes back if the runner
 // says no; Add, New recipe, Change it and Remove spin and take no second
 // click until the runner has answered, then open the thread it started.
+use crate::a11y::A11yRole as _;
 use crate::app::Threadbear;
 use crate::home_page::mode_header;
 use crate::mac_switch::MacSwitch;
@@ -18,8 +19,10 @@ use crate::{call, style};
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogButtonProps;
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _, StyledExt as _, WindowExt as _};
-use crate::a11y::A11yRole as _;
+use gpui_kit::component::{
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _, StyledExt as _,
+    WindowExt as _,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
@@ -62,7 +65,14 @@ pub(crate) struct RecipesState {
 
 impl RecipesState {
     pub(crate) fn new() -> Self {
-        RecipesState { list: None, open: None, details: HashMap::new(), busy: HashSet::new(), list_scroll: ScrollHandle::new(), home_scroll: ScrollHandle::new() }
+        RecipesState {
+            list: None,
+            open: None,
+            details: HashMap::new(),
+            busy: HashSet::new(),
+            list_scroll: ScrollHandle::new(),
+            home_scroll: ScrollHandle::new(),
+        }
     }
 
     fn recipe(&self, id: &str) -> Option<&Recipe> {
@@ -86,7 +96,10 @@ impl RecipesState {
 impl Threadbear {
     /// Whether the runner has the experiment on (hello's `experiments`).
     pub(crate) fn recipes_on(&self) -> bool {
-        self.remote.experiments.iter().any(|e| e == rules::EXPERIMENT)
+        self.remote
+            .experiments
+            .iter()
+            .any(|e| e == rules::EXPERIMENT)
     }
 
     /// After hello, on opening the view, and on `recipes.updated`: the list,
@@ -98,10 +111,13 @@ impl Threadbear {
         }
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
-            let Ok(v) = call(client, "recipes.list", json!({})).await else { return };
+            let Ok(v) = call(client, "recipes.list", json!({})).await else {
+                return;
+            };
             this.update(cx, |this, cx| {
                 let list = Recipe::decode_list(&v["recipes"]);
-                let mut wanted: Vec<String> = rules::added(&list).iter().map(|r| r.id.clone()).collect();
+                let mut wanted: Vec<String> =
+                    rules::added(&list).iter().map(|r| r.id.clone()).collect();
                 if let Some(open) = &this.recipes.open {
                     if !wanted.contains(open) {
                         wanted.push(open.clone());
@@ -121,10 +137,14 @@ impl Threadbear {
     fn load_recipe(&mut self, id: String, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
-            let Ok(v) = call(client, "recipes.get", json!({ "id": id })).await else { return };
+            let Ok(v) = call(client, "recipes.get", json!({ "id": id })).await else {
+                return;
+            };
             this.update(cx, |this, cx| {
                 if let Some(detail) = RecipeDetail::decode(&v["recipe"]) {
-                    this.recipes.details.insert(detail.recipe.id.clone(), detail);
+                    this.recipes
+                        .details
+                        .insert(detail.recipe.id.clone(), detail);
                     cx.notify();
                 }
             })
@@ -153,7 +173,9 @@ impl Threadbear {
         if self.recipes.busy.contains(&key) {
             return;
         }
-        let Some(before) = self.recipes.recipe(&id).cloned() else { return };
+        let Some(before) = self.recipes.recipe(&id).cloned() else {
+            return;
+        };
         let guess = rules::guess_on(&before, on);
         self.recipes.replace(guess.clone());
         self.recipes.busy.insert(key.clone());
@@ -184,7 +206,13 @@ impl Threadbear {
     }
 
     /// Add, New recipe and Change it: the runner starts a thread, which opens.
-    fn start_recipe_thread(&mut self, key: String, method: &'static str, params: Value, cx: &mut Context<Self>) {
+    fn start_recipe_thread(
+        &mut self,
+        key: String,
+        method: &'static str,
+        params: Value,
+        cx: &mut Context<Self>,
+    ) {
         if !self.recipes.busy.insert(key.clone()) {
             return;
         }
@@ -198,18 +226,28 @@ impl Threadbear {
                     Ok(v) => {
                         let id = v["threadId"].as_str().unwrap_or_default().to_owned();
                         if id.is_empty() {
-                            t.show_error("The runner didn't say what thread it started.".to_owned(), cx);
+                            t.show_error(
+                                "The runner didn't say what thread it started.".to_owned(),
+                                cx,
+                            );
                         } else {
                             // Listed now when the runner sent it, so it opens
                             // before threads.created.
-                            if let Ok(thread) = serde_json::from_value::<threadbear_core::inbox::ThreadSummary>(v["thread"].clone()) {
+                            if let Ok(thread) = serde_json::from_value::<
+                                threadbear_core::inbox::ThreadSummary,
+                            >(v["thread"].clone())
+                            {
                                 if thread.id == id {
                                     t.threads.insert(id.clone(), std::sync::Arc::new(thread));
                                 }
                             }
                             let (me, window) = (cx.entity().downgrade(), t.main_window);
                             cx.defer(move |cx| {
-                                window.update(cx, |_, window, cx| me.update(cx, |this, cx| this.open(id, window, cx)).ok()).ok();
+                                window
+                                    .update(cx, |_, window, cx| {
+                                        me.update(cx, |this, cx| this.open(id, window, cx)).ok()
+                                    })
+                                    .ok();
                             });
                         }
                         t.load_recipes(cx);
@@ -232,12 +270,19 @@ impl Threadbear {
     }
 
     fn change_recipe(&mut self, id: String, cx: &mut Context<Self>) {
-        self.start_recipe_thread(format!("change:{id}"), "recipes.create", json!({ "editId": id }), cx);
+        self.start_recipe_thread(
+            format!("change:{id}"),
+            "recipes.create",
+            json!({ "editId": id }),
+            cx,
+        );
     }
 
     /// Remove, after asking: its schedules go, its files stay.
     fn remove_recipe(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(recipe) = self.recipes.recipe(&id) else { return };
+        let Some(recipe) = self.recipes.recipe(&id) else {
+            return;
+        };
         let title = format!("Remove \u{201C}{}\u{201D}?", recipe.name);
         let entity = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
@@ -285,7 +330,14 @@ impl Threadbear {
         let list = self.recipes.list.clone().unwrap_or_default();
         let mut rows = v_flex().px(px(OUTER_INSET)).pt(px(4.)).pb(px(32.));
         if self.recipes.list.is_none() {
-            rows = rows.child(div().pl(px(LEADING)).pt(px(10.)).text_size(px(style::size::SIDEBAR_PREVIEW)).text_color(p.secondary).child("Loading…"));
+            rows = rows.child(
+                div()
+                    .pl(px(LEADING))
+                    .pt(px(10.))
+                    .text_size(px(style::size::SIDEBAR_PREVIEW))
+                    .text_color(p.secondary)
+                    .child("Loading…"),
+            );
         }
         let added = rules::added(&list);
         for recipe in &added {
@@ -294,7 +346,8 @@ impl Threadbear {
         if self.recipes.list.is_some() && added.is_empty() {
             rows = rows.child(div().pl(px(LEADING)).pr(px(TRAILING)).pt(px(10.)).text_size(px(style::size::SIDEBAR_PREVIEW)).line_height(px(17.)).text_color(p.secondary).child("None added yet. Browse them and add one, and an agent sets it up with you."));
         }
-        let gallery_lit = self.home_page() == Some(SidebarMode::Recipes) && self.recipes.open.is_none();
+        let gallery_lit =
+            self.home_page() == Some(SidebarMode::Recipes) && self.recipes.open.is_none();
         let side = p.side;
         let new_busy = self.recipes.busy.contains("new");
         v_flex()
@@ -305,25 +358,68 @@ impl Threadbear {
             .child(
                 div()
                     .px(px(OUTER_INSET))
-                    .child(sidebar_button("recipes-new", "plus", "New recipe", "Write a recipe of your own with an agent", new_busy, false, &p, cx.listener(|this, _: &ClickEvent, _, cx| this.new_recipe(cx))))
-                    .child(sidebar_button("recipes-browse", "square.grid.2x2", "Browse recipes", "See every recipe, added or not", false, gallery_lit, &p, cx.listener(|this, _: &ClickEvent, _, cx| this.show_recipes(None, cx)))),
+                    .child(sidebar_button(
+                        "recipes-new",
+                        "plus",
+                        "New recipe",
+                        "Write a recipe of your own with an agent",
+                        new_busy,
+                        false,
+                        &p,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.new_recipe(cx)),
+                    ))
+                    .child(sidebar_button(
+                        "recipes-browse",
+                        "square.grid.2x2",
+                        "Browse recipes",
+                        "See every recipe, added or not",
+                        false,
+                        gallery_lit,
+                        &p,
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.show_recipes(None, cx)),
+                    )),
             )
             .child(
                 div()
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .child(div().id("recipes-list").size_full().overflow_y_scroll().track_scroll(&self.recipes.list_scroll).child(rows))
-                    .child(div().absolute().left_0().right_0().bottom_0().h(px(34.)).bg(linear_gradient(180., linear_color_stop(side.opacity(0.), 0.), linear_color_stop(side, 0.88)))),
+                    .child(
+                        div()
+                            .id("recipes-list")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.recipes.list_scroll)
+                            .child(rows),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .h(px(34.))
+                            .bg(linear_gradient(
+                                180.,
+                                linear_color_stop(side.opacity(0.), 0.),
+                                linear_color_stop(side, 0.88),
+                            )),
+                    ),
             )
             .into_any_element()
     }
 
     /// One recipe added: its icon and name with the switch, how it's going,
     /// then its latest two runs, each opening its thread.
-    fn render_recipe_row(&mut self, recipe: &Recipe, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn render_recipe_row(
+        &mut self,
+        recipe: &Recipe,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = recipe.id.clone();
-        let lit = self.home_page() == Some(SidebarMode::Recipes) && self.recipes.open.as_deref() == Some(id.as_str());
+        let lit = self.home_page() == Some(SidebarMode::Recipes)
+            && self.recipes.open.as_deref() == Some(id.as_str());
         let status = recipe.status_line(Local::now());
         let dot = match recipe.state {
             RecipeState::On => Some(crate::activity_panels::system_green(cx)),
@@ -334,66 +430,187 @@ impl Threadbear {
         let (hover, selected) = (p.hover, p.selected);
         let open_id = id.clone();
         let head = tipped!(
-            v_flex().gap(px(3.)).pl(px(LEADING)).pr(px(TRAILING)).py(px(7.)).rounded(px(6.)).when(lit, move |s| s.bg(selected)).when(!lit, move |s| s.hover(move |s| s.bg(hover))),
+            v_flex()
+                .gap(px(3.))
+                .pl(px(LEADING))
+                .pr(px(TRAILING))
+                .py(px(7.))
+                .rounded(px(6.))
+                .when(lit, move |s| s.bg(selected))
+                .when(!lit, move |s| s.hover(move |s| s.bg(hover))),
             ElementId::Name(format!("recipe-row-{id}").into()),
             format!("Open {}'s page", recipe.name),
             gpui_kit::Role::ListItem
         )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_recipes(Some(open_id.clone()), cx)))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.show_recipes(Some(open_id.clone()), cx)
+        }))
         .child(
             h_flex()
                 .items_center()
                 .gap(px(8.))
-                .child(div().flex_none().text_size(px(15.)).child(recipe.icon.clone()))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(style::size::SIDEBAR_TITLE)).line_height(px(17.)).font_semibold().text_color(p.fg).child(recipe.name.clone()))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(15.))
+                        .child(recipe.icon.clone()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(style::size::SIDEBAR_TITLE))
+                        .line_height(px(17.))
+                        .font_semibold()
+                        .text_color(p.fg)
+                        .child(recipe.name.clone()),
+                )
                 .child(switch),
         )
         .child(
             h_flex()
                 .items_center()
                 .gap(px(6.))
-                .when_some(dot, |s, c| s.child(div().flex_none().size(px(7.)).rounded_full().bg(c)))
-                .child(div().min_w_0().truncate().text_size(px(style::size::SIDEBAR_PREVIEW)).line_height(px(16.)).text_color(p.secondary).child(status)),
+                .when_some(dot, |s, c| {
+                    s.child(div().flex_none().size(px(7.)).rounded_full().bg(c))
+                })
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(style::size::SIDEBAR_PREVIEW))
+                        .line_height(px(16.))
+                        .text_color(p.secondary)
+                        .child(status),
+                ),
         );
         let mut row = v_flex().pt(px(4.)).child(head);
         // Setting up: its thread, to finish it.
-        if let (RecipeState::SettingUp, Some(thread)) = (recipe.state, recipe.setup_thread_id.clone()) {
-            row = row.child(self.recipe_run_line(format!("recipe-setup-{id}"), thread, "Its setup thread".to_owned(), "Open the thread setting it up".to_owned(), None, p, cx));
+        if let (RecipeState::SettingUp, Some(thread)) =
+            (recipe.state, recipe.setup_thread_id.clone())
+        {
+            row = row.child(self.recipe_run_line(
+                format!("recipe-setup-{id}"),
+                thread,
+                "Its setup thread".to_owned(),
+                "Open the thread setting it up".to_owned(),
+                None,
+                p,
+                cx,
+            ));
         }
-        let runs: Vec<_> = self.recipes.details.get(&id).map(|d| d.runs.iter().take(2).cloned().collect()).unwrap_or_default();
+        let runs: Vec<_> = self
+            .recipes
+            .details
+            .get(&id)
+            .map(|d| d.runs.iter().take(2).cloned().collect())
+            .unwrap_or_default();
         for run in runs {
             let when = threadbear_core::sidebar::relative_short(run.at_ms, &Local::now());
             let line = run.headline.clone().unwrap_or_else(|| run.title.clone());
             let mark = run.needs_you.then(|| style::needs_you(cx));
-            row = row.child(self.recipe_run_line(format!("recipe-run-{}", run.thread_id), run.thread_id.clone(), line, format!("Open this run ({})", rules::log_time(run.at_ms)), Some((when, mark)), p, cx));
+            row = row.child(self.recipe_run_line(
+                format!("recipe-run-{}", run.thread_id),
+                run.thread_id.clone(),
+                line,
+                format!("Open this run ({})", rules::log_time(run.at_ms)),
+                Some((when, mark)),
+                p,
+                cx,
+            ));
         }
         row.into_any_element()
     }
 
     /// A run under its recipe in the sidebar, behind a guide line.
     #[allow(clippy::too_many_arguments)]
-    fn recipe_run_line(&mut self, key: String, thread: String, line: String, tip: String, when: Option<(String, Option<Hsla>)>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn recipe_run_line(
+        &mut self,
+        key: String,
+        thread: String,
+        line: String,
+        tip: String,
+        when: Option<(String, Option<Hsla>)>,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (hover, guide) = (p.hover, p.guide);
-        tipped!(h_flex().ml(px(LEADING + 6.)).pl(px(10.)).pr(px(TRAILING)).py(px(4.)).gap(px(6.)).border_l_2().border_color(guide).hover(move |s| s.bg(hover)), ElementId::Name(key.into()), tip, gpui_kit::Role::Link)
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open(thread.clone(), window, cx)))
-            .child(div().flex_1().min_w_0().truncate().text_size(px(style::size::SIDEBAR_PREVIEW)).line_height(px(16.)).text_color(p.secondary).child(line))
-            .when_some(when, |s, (when, mark)| s.child(div().flex_none().text_size(px(style::size::SIDEBAR_META)).text_color(mark.unwrap_or(p.faint)).child(when)))
-            .into_any_element()
+        tipped!(
+            h_flex()
+                .ml(px(LEADING + 6.))
+                .pl(px(10.))
+                .pr(px(TRAILING))
+                .py(px(4.))
+                .gap(px(6.))
+                .border_l_2()
+                .border_color(guide)
+                .hover(move |s| s.bg(hover)),
+            ElementId::Name(key.into()),
+            tip,
+            gpui_kit::Role::Link
+        )
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            this.open(thread.clone(), window, cx)
+        }))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(style::size::SIDEBAR_PREVIEW))
+                .line_height(px(16.))
+                .text_color(p.secondary)
+                .child(line),
+        )
+        .when_some(when, |s, (when, mark)| {
+            s.child(
+                div()
+                    .flex_none()
+                    .text_size(px(style::size::SIDEBAR_META))
+                    .text_color(mark.unwrap_or(p.faint))
+                    .child(when),
+            )
+        })
+        .into_any_element()
     }
 
     /// A recipe's switch, or a spinner while its answer is on its way.
-    fn recipe_switch(&mut self, recipe: &Recipe, place: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn recipe_switch(
+        &mut self,
+        recipe: &Recipe,
+        place: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = recipe.id.clone();
         let busy = self.recipes.busy.contains(&format!("on:{id}"));
         let on = recipe.state.switch_on();
         let tip = match (recipe.state, on) {
-            (RecipeState::SettingUp, _) => "Being set up. Turn it off and it stays off once it's ready".to_owned(),
-            (_, true) => format!("On. Turn it off to pause {}", if recipe.experiment.is_some() { "it" } else { "its schedules" }),
-            (_, false) => format!("Off. Turn it on to {}", if recipe.experiment.is_some() { "start it again" } else { "resume its schedules" }),
+            (RecipeState::SettingUp, _) => {
+                "Being set up. Turn it off and it stays off once it's ready".to_owned()
+            }
+            (_, true) => format!(
+                "On. Turn it off to pause {}",
+                if recipe.experiment.is_some() {
+                    "it"
+                } else {
+                    "its schedules"
+                }
+            ),
+            (_, false) => format!(
+                "Off. Turn it on to {}",
+                if recipe.experiment.is_some() {
+                    "start it again"
+                } else {
+                    "resume its schedules"
+                }
+            ),
         };
         let me = cx.entity().downgrade();
         div()
-            .id(ElementId::Name(format!("recipe-switch-{place}-{id}").into()))
+            .id(ElementId::Name(
+                format!("recipe-switch-{place}-{id}").into(),
+            ))
             .flex_none()
             .test_support()
             .a11y_role(Role::GenericContainer)
@@ -402,10 +619,16 @@ impl Threadbear {
             // The row behind opens the page; the switch is its own.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(|_, _, cx| cx.stop_propagation())
-            .child(MacSwitch::new(SharedString::from(format!("recipe-on-{place}-{id}")), on).outside_form().disabled(busy).on_change(move |on, _, cx| {
-                let id = id.clone();
-                me.update(cx, |this, cx| this.set_recipe_on(id, on, cx)).ok();
-            }))
+            .child(
+                MacSwitch::new(SharedString::from(format!("recipe-on-{place}-{id}")), on)
+                    .outside_form()
+                    .disabled(busy)
+                    .on_change(move |on, _, cx| {
+                        let id = id.clone();
+                        me.update(cx, |this, cx| this.set_recipe_on(id, on, cx))
+                            .ok();
+                    }),
+            )
             .into_any_element()
     }
 
@@ -413,7 +636,11 @@ impl Threadbear {
 
     /// The main panel: a recipe's page, or the gallery.
     pub(crate) fn render_recipes_home(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let page = self.recipes.open.clone().and_then(|id| self.recipes.recipe(&id).cloned());
+        let page = self
+            .recipes
+            .open
+            .clone()
+            .and_then(|id| self.recipes.recipe(&id).cloned());
         let body = match page {
             Some(recipe) => self.render_recipe_page(recipe, cx),
             None => self.render_recipe_gallery(cx),
@@ -423,7 +650,18 @@ impl Threadbear {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.recipes.home_scroll)
-            .child(h_flex().w_full().justify_center().child(v_flex().w_full().max_w(px(1180.)).px(px(32.)).pt(px(28.)).pb(px(48.)).gap(px(18.)).child(body)))
+            .child(
+                h_flex().w_full().justify_center().child(
+                    v_flex()
+                        .w_full()
+                        .max_w(px(1180.))
+                        .px(px(32.))
+                        .pt(px(28.))
+                        .pb(px(48.))
+                        .gap(px(18.))
+                        .child(body),
+                ),
+            )
             .into_any_element()
     }
 
@@ -445,21 +683,39 @@ impl Threadbear {
             .child(div().mt(px(4.)).child(crate::projects_page::icon_push_button("recipes-new-home", "plus", "New recipe", "Write a recipe of your own with an agent", busy, cx, cx.listener(|this, _: &ClickEvent, _, cx| this.new_recipe(cx)))));
         let list = self.recipes.list.clone().unwrap_or_default();
         let body: AnyElement = if self.recipes.list.is_none() {
-            div().text_size(px(style::size::LABEL)).text_color(secondary).child("Loading…").into_any_element()
+            div()
+                .text_size(px(style::size::LABEL))
+                .text_color(secondary)
+                .child("Loading…")
+                .into_any_element()
         } else if list.is_empty() {
-            div().text_size(px(style::size::LABEL)).text_color(secondary).child("No recipes yet. Write one with New recipe.").into_any_element()
+            div()
+                .text_size(px(style::size::LABEL))
+                .text_color(secondary)
+                .child("No recipes yet. Write one with New recipe.")
+                .into_any_element()
         } else {
             self.render_recipe_cards(list, cx)
         };
-        v_flex().gap(px(22.)).child(header).child(body).into_any_element()
+        v_flex()
+            .gap(px(22.))
+            .child(header)
+            .child(body)
+            .into_any_element()
     }
 
     fn render_recipe_cards(&mut self, list: Vec<Recipe>, cx: &mut Context<Self>) -> AnyElement {
         let measured = GRID_WIDTH.with(|w| w.clone());
         let width = measured.get().max(CARD_MIN);
         let columns = (((width + CARD_GAP) / (CARD_MIN + CARD_GAP)).floor() as usize).clamp(1, 3);
-        let card_width = ((width - CARD_GAP * (columns as f32 - 1.)) / columns as f32).min(CARD_MAX);
-        let mut grid = h_flex().w_full().flex_wrap().items_start().gap_x(px(CARD_GAP)).gap_y(px(CARD_GAP));
+        let card_width =
+            ((width - CARD_GAP * (columns as f32 - 1.)) / columns as f32).min(CARD_MAX);
+        let mut grid = h_flex()
+            .w_full()
+            .flex_wrap()
+            .items_start()
+            .gap_x(px(CARD_GAP))
+            .gap_y(px(CARD_GAP));
         for recipe in list {
             grid = grid.child(self.render_recipe_card(recipe, card_width, cx));
         }
@@ -491,7 +747,12 @@ impl Threadbear {
     /// A card: its header with the icon on its edge, its name and tag, what
     /// it does and how it's been going. A click opens its page; + Add sets it
     /// up.
-    fn render_recipe_card(&mut self, recipe: Recipe, width: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn render_recipe_card(
+        &mut self,
+        recipe: Recipe,
+        width: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = recipe.id.clone();
         let card_bg = style::card_background(cx);
         let border = style::card_border(cx);
@@ -501,19 +762,33 @@ impl Threadbear {
         let stat = recipe.stat_line();
         let open_id = id.clone();
         tipped!(
-            v_flex().w(px(width)).rounded(px(14.)).overflow_hidden().bg(card_bg).border_1().border_color(border).cursor_pointer(),
+            v_flex()
+                .w(px(width))
+                .rounded(px(14.))
+                .overflow_hidden()
+                .bg(card_bg)
+                .border_1()
+                .border_color(border)
+                .cursor_pointer(),
             ElementId::Name(format!("recipe-card-{id}").into()),
             format!("Open {}'s page", recipe.name),
             gpui_kit::Role::Button
         )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show_recipes(Some(open_id.clone()), cx)))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.show_recipes(Some(open_id.clone()), cx)
+        }))
         .child(
             div()
                 .relative()
                 .w_full()
                 .h(px(CARD_HEADER))
                 .child(header_fill(&recipe, 14.))
-                .child(icon_tile(&recipe, TILE, cx).absolute().left(px(16.)).bottom(px(-TILE * 0.4))),
+                .child(
+                    icon_tile(&recipe, TILE, cx)
+                        .absolute()
+                        .left(px(16.))
+                        .bottom(px(-TILE * 0.4)),
+                ),
         )
         .child(
             v_flex()
@@ -521,10 +796,41 @@ impl Threadbear {
                 .pt(px(TILE * 0.4 + 12.))
                 .pb(px(14.))
                 .gap(px(6.))
-                .child(h_flex().items_center().gap(px(8.)).child(div().flex_1().min_w_0().truncate().text_size(px(16.)).line_height(px(20.)).font_semibold().child(recipe.name.clone())).child(tag))
-                .child(div().h(px(60.)).text_size(px(style::size::LABEL)).line_height(px(19.)).text_color(secondary).line_clamp(3).child(recipe.description.clone()))
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(16.))
+                                .line_height(px(20.))
+                                .font_semibold()
+                                .child(recipe.name.clone()),
+                        )
+                        .child(tag),
+                )
+                .child(
+                    div()
+                        .h(px(60.))
+                        .text_size(px(style::size::LABEL))
+                        .line_height(px(19.))
+                        .text_color(secondary)
+                        .line_clamp(3)
+                        .child(recipe.description.clone()),
+                )
                 .child(div().h(px(1.)).w_full().bg(border))
-                .child(div().h(px(16.)).truncate().text_size(px(style::size::DETAIL)).line_height(px(16.)).text_color(faint).child(stat)),
+                .child(
+                    div()
+                        .h(px(16.))
+                        .truncate()
+                        .text_size(px(style::size::DETAIL))
+                        .line_height(px(16.))
+                        .text_color(faint)
+                        .child(stat),
+                ),
         )
         .into_any_element()
     }
@@ -536,16 +842,33 @@ impl Threadbear {
             RecipeState::Add => {
                 let busy = self.recipes.busy.contains(&format!("add:{id}"));
                 let link = style::link_text(cx);
-                let tip = format!("Add {}: an agent sets it up with you in a new thread", recipe.name);
-                tipped!(h_flex().flex_none().items_center().gap(px(4.)).px(px(4.)).text_size(px(style::size::LABEL)).font_medium().text_color(link).when(!busy, |s| s.cursor_pointer()), ElementId::Name(format!("recipe-add-{place}-{id}").into()), tip)
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.add_recipe(id.clone(), cx);
-                    }))
-                    .when(busy, |s| s.child(Spinner::new().color(link).with_size(px(11.))))
-                    .child(if busy { "Adding" } else { "+ Add" })
-                    .into_any_element()
+                let tip = format!(
+                    "Add {}: an agent sets it up with you in a new thread",
+                    recipe.name
+                );
+                tipped!(
+                    h_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(4.))
+                        .px(px(4.))
+                        .text_size(px(style::size::LABEL))
+                        .font_medium()
+                        .text_color(link)
+                        .when(!busy, |s| s.cursor_pointer()),
+                    ElementId::Name(format!("recipe-add-{place}-{id}").into()),
+                    tip
+                )
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.add_recipe(id.clone(), cx);
+                }))
+                .when(busy, |s| {
+                    s.child(Spinner::new().color(link).with_size(px(11.)))
+                })
+                .child(if busy { "Adding" } else { "+ Add" })
+                .into_any_element()
             }
             state => {
                 let (color, dot) = match state {
@@ -559,7 +882,9 @@ impl Threadbear {
                     .gap(px(5.))
                     .text_size(px(style::size::LABEL))
                     .text_color(color)
-                    .when(dot, |s| s.child(div().size(px(7.)).rounded_full().bg(color)))
+                    .when(dot, |s| {
+                        s.child(div().size(px(7.)).rounded_full().bg(color))
+                    })
                     .child(recipe.tag())
                     .into_any_element()
             }
@@ -581,12 +906,38 @@ impl Threadbear {
             div()
                 .id("recipe-page-add")
                 .test_support()
-                .child(Button::new("recipe-page-add-button").label("Add").primary().small().loading(busy).disabled(busy).tooltip("An agent sets it up with you in a new thread").on_click(cx.listener(move |this, _, _, cx| this.add_recipe(add_id.clone(), cx))))
+                .child(
+                    Button::new("recipe-page-add-button")
+                        .label("Add")
+                        .primary()
+                        .small()
+                        .loading(busy)
+                        .disabled(busy)
+                        .tooltip("An agent sets it up with you in a new thread")
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.add_recipe(add_id.clone(), cx)),
+                        ),
+                )
                 .into_any_element()
         } else {
-            let label = if recipe.state.switch_on() { "On" } else { "Off" };
+            let label = if recipe.state.switch_on() {
+                "On"
+            } else {
+                "Off"
+            };
             let switch = self.recipe_switch(&recipe, "page", cx);
-            h_flex().items_center().gap(px(8.)).px(px(12.)).py(px(6.)).rounded(px(10.)).bg(hsla(0., 0., 0., 0.35)).text_color(white()).text_size(px(style::size::LABEL)).child(label).child(switch).into_any_element()
+            h_flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(12.))
+                .py(px(6.))
+                .rounded(px(10.))
+                .bg(hsla(0., 0., 0., 0.35))
+                .text_color(white())
+                .text_size(px(style::size::LABEL))
+                .child(label)
+                .child(switch)
+                .into_any_element()
         };
         let banner = div()
             .relative()
@@ -595,20 +946,46 @@ impl Threadbear {
             .mb(px(30.))
             .child(header_fill(&recipe, 16.))
             .child(div().absolute().top(px(16.)).right(px(16.)).child(corner))
-            .child(icon_tile(&recipe, 84., cx).absolute().left(px(24.)).bottom(px(-30.)));
+            .child(
+                icon_tile(&recipe, 84., cx)
+                    .absolute()
+                    .left(px(24.))
+                    .bottom(px(-30.)),
+            );
         let mut byline = recipe.byline();
         if byline.is_empty() {
-            byline = if recipe.yours { "Yours".to_owned() } else { String::new() };
+            byline = if recipe.yours {
+                "Yours".to_owned()
+            } else {
+                String::new()
+            };
         }
         let mut left = v_flex()
             .flex_1()
             .min_w_0()
             .gap(px(10.))
-            .child(div().text_size(px(28.)).line_height(px(34.)).font_semibold().child(recipe.name.clone()))
-            .when(!byline.is_empty(), |s| s.child(div().text_size(px(style::size::DETAIL)).text_color(faint).child(byline.clone())));
+            .child(
+                div()
+                    .text_size(px(28.))
+                    .line_height(px(34.))
+                    .font_semibold()
+                    .child(recipe.name.clone()),
+            )
+            .when(!byline.is_empty(), |s| {
+                s.child(
+                    div()
+                        .text_size(px(style::size::DETAIL))
+                        .text_color(faint)
+                        .child(byline.clone()),
+                )
+            });
         match &detail {
             Some(d) => {
-                let about = if d.about.is_empty() { recipe.description.clone() } else { d.about.clone() };
+                let about = if d.about.is_empty() {
+                    recipe.description.clone()
+                } else {
+                    d.about.clone()
+                };
                 left = left.child(self.recipe_markdown(format!("recipe-about-{id}"), about, cx));
                 if let Some(example) = d.example.clone() {
                     left = left.child(section_title("What a run looks like")).child(
@@ -619,22 +996,60 @@ impl Threadbear {
                             .border_1()
                             .border_color(style::card_border(cx))
                             .bg(style::code_background(cx))
-                            .child(self.recipe_markdown(format!("recipe-example-{id}"), example, cx))
-                            .child(div().text_size(px(style::size::DETAIL)).text_color(faint).child("An example, not yours")),
+                            .child(self.recipe_markdown(
+                                format!("recipe-example-{id}"),
+                                example,
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(style::size::DETAIL))
+                                    .text_color(faint)
+                                    .child("An example, not yours"),
+                            ),
                     );
                 }
             }
-            None => left = left.child(div().text_size(px(style::size::LABEL)).line_height(px(19.)).text_color(secondary).child(recipe.description.clone())),
+            None => {
+                left = left.child(
+                    div()
+                        .text_size(px(style::size::LABEL))
+                        .line_height(px(19.))
+                        .text_color(secondary)
+                        .child(recipe.description.clone()),
+                )
+            }
         }
-        left = left.child(section_title("What it set up")).child(self.render_recipe_setup(&recipe, cx));
+        left = left
+            .child(section_title("What it set up"))
+            .child(self.render_recipe_setup(&recipe, cx));
         left = left.child(self.render_recipe_buttons(&recipe, cx));
         let right = self.render_recipe_runs(&recipe, detail.as_ref(), cx);
-        v_flex().w_full().child(banner).child(h_flex().w_full().items_start().gap(px(28.)).child(left).child(right)).into_any_element()
+        v_flex()
+            .w_full()
+            .child(banner)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap(px(28.))
+                    .child(left)
+                    .child(right),
+            )
+            .into_any_element()
     }
 
     fn recipe_markdown(&mut self, key: String, text: String, cx: &mut Context<Self>) -> AnyElement {
         let base = std::env::var("HOME").unwrap_or_default();
-        crate::open_gate::reading_markdown_view(SharedString::from(key), text, crate::open_gate::Origin::ThisMac, &base).selectable(true).style(crate::rows::reading_style(cx)).into_any_element()
+        crate::open_gate::reading_markdown_view(
+            SharedString::from(key),
+            text,
+            crate::open_gate::Origin::ThisMac,
+            &base,
+        )
+        .selectable(true)
+        .style(crate::rows::reading_style(cx))
+        .into_any_element()
     }
 
     /// Its schedules and its experiment, or what adding it will do.
@@ -647,32 +1062,80 @@ impl Threadbear {
                 .p(px(14.))
                 .rounded(px(12.))
                 .bg(card_bg)
-                .child(h_flex().gap(px(6.)).items_center().child(icon(symbol, 13., secondary)).child(div().text_size(px(style::size::CARD_TITLE)).font_semibold().child(title)))
-                .child(div().text_size(px(style::size::LABEL)).line_height(px(18.)).text_color(secondary).child(line))
+                .child(
+                    h_flex()
+                        .gap(px(6.))
+                        .items_center()
+                        .child(icon(symbol, 13., secondary))
+                        .child(
+                            div()
+                                .text_size(px(style::size::CARD_TITLE))
+                                .font_semibold()
+                                .child(title),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(px(style::size::LABEL))
+                        .line_height(px(18.))
+                        .text_color(secondary)
+                        .child(line),
+                )
         };
         let mut col = v_flex().gap(px(10.));
         let now = Local::now();
         for s in &recipe.schedules {
             let next = match (s.paused, s.next_run_ms) {
                 (true, _) => "paused".to_owned(),
-                (false, Some(at)) => format!("next {}", threadbear_core::schedules::full_time(at, &Local)),
+                (false, Some(at)) => {
+                    format!("next {}", threadbear_core::schedules::full_time(at, &Local))
+                }
                 (false, None) => "no more runs".to_owned(),
             };
-            let line = if s.when_text.is_empty() { next } else { format!("{} · {next}", s.when_text) };
-            col = col.child(card(format!("A schedule: {}", if s.title.is_empty() { recipe.name.clone() } else { s.title.clone() }), line, "clock"));
+            let line = if s.when_text.is_empty() {
+                next
+            } else {
+                format!("{} · {next}", s.when_text)
+            };
+            col = col.child(card(
+                format!(
+                    "A schedule: {}",
+                    if s.title.is_empty() {
+                        recipe.name.clone()
+                    } else {
+                        s.title.clone()
+                    }
+                ),
+                line,
+                "clock",
+            ));
         }
         let _ = now;
         if let Some(exp) = &recipe.experiment {
             let on = recipe.state.switch_on();
-            col = col.child(card("A runner feature".to_owned(), format!("The {exp} experiment, {} with this switch", if on { "on" } else { "off" }), "gearshape"));
+            col = col.child(card(
+                "A runner feature".to_owned(),
+                format!(
+                    "The {exp} experiment, {} with this switch",
+                    if on { "on" } else { "off" }
+                ),
+                "gearshape",
+            ));
         }
         if recipe.schedules.is_empty() && recipe.experiment.is_none() {
             let line = match recipe.state {
-                RecipeState::Add => "Nothing yet. Adding it starts a thread where an agent sets it up with you.",
+                RecipeState::Add => {
+                    "Nothing yet. Adding it starts a thread where an agent sets it up with you."
+                }
                 RecipeState::SettingUp => "Nothing yet. Its setup thread is still at it.",
                 _ => "Nothing the runner knows of.",
             };
-            col = col.child(div().text_size(px(style::size::LABEL)).text_color(secondary).child(line));
+            col = col.child(
+                div()
+                    .text_size(px(style::size::LABEL))
+                    .text_color(secondary)
+                    .child(line),
+            );
         }
         col.into_any_element()
     }
@@ -690,8 +1153,16 @@ impl Threadbear {
                     .secondary()
                     .loading(changing)
                     .disabled(changing)
-                    .tooltip(if recipe.yours { "Start a thread where an agent changes it with you" } else { "Start a thread where an agent makes a changed copy of it, yours to keep" })
-                    .on_click(cx.listener(move |this, _, _, cx| this.change_recipe(change_id.clone(), cx))),
+                    .tooltip(if recipe.yours {
+                        "Start a thread where an agent changes it with you"
+                    } else {
+                        "Start a thread where an agent makes a changed copy of it, yours to keep"
+                    })
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.change_recipe(change_id.clone(), cx)
+                        }),
+                    ),
             ),
         );
         if recipe.state.added() {
@@ -704,8 +1175,12 @@ impl Threadbear {
                         .secondary()
                         .loading(removing)
                         .disabled(removing)
-                        .tooltip("Delete its schedules and take it back to the gallery. Its files stay")
-                        .on_click(cx.listener(move |this, _, window, cx| this.remove_recipe(remove_id.clone(), window, cx))),
+                        .tooltip(
+                            "Delete its schedules and take it back to the gallery. Its files stay",
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.remove_recipe(remove_id.clone(), window, cx)
+                        })),
                 ),
             );
         }
@@ -713,7 +1188,12 @@ impl Threadbear {
     }
 
     /// The right of the page: the last 30 days, its numbers and its log.
-    fn render_recipe_runs(&mut self, recipe: &Recipe, detail: Option<&RecipeDetail>, cx: &mut Context<Self>) -> AnyElement {
+    fn render_recipe_runs(
+        &mut self,
+        recipe: &Recipe,
+        detail: Option<&RecipeDetail>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let secondary = style::secondary_text(cx);
         let faint = style::faint_text(cx);
         let card_bg = style::card_background(cx);
@@ -736,19 +1216,63 @@ impl Threadbear {
             }
             strip = strip.child(row);
         }
-        let key = |color: Hsla, label: &'static str| h_flex().gap(px(5.)).items_center().child(div().size(px(9.)).rounded(px(2.)).bg(color)).child(label);
-        let legend = h_flex().gap(px(12.)).text_size(px(style::size::DETAIL)).text_color(faint).child(key(green, "ran")).child(key(orange, "needed you")).child(key(quiet, "no run"));
+        let key = |color: Hsla, label: &'static str| {
+            h_flex()
+                .gap(px(5.))
+                .items_center()
+                .child(div().size(px(9.)).rounded(px(2.)).bg(color))
+                .child(label)
+        };
+        let legend = h_flex()
+            .gap(px(12.))
+            .text_size(px(style::size::DETAIL))
+            .text_color(faint)
+            .child(key(green, "ran"))
+            .child(key(orange, "needed you"))
+            .child(key(quiet, "no run"));
         let numbers = match detail {
             Some(d) => d.numbers(),
-            None => [(recipe.stats.runs, "runs"), (recipe.stats.needed_you, "needed you"), (recipe.stats.seen, "you opened")],
+            None => [
+                (recipe.stats.runs, "runs"),
+                (recipe.stats.needed_you, "needed you"),
+                (recipe.stats.seen, "you opened"),
+            ],
         };
         let mut tiles = h_flex().w_full().gap(px(8.));
         for (n, label) in numbers {
-            tiles = tiles.child(v_flex().flex_1().p(px(10.)).rounded(px(10.)).bg(card_bg).child(div().text_size(px(20.)).font_semibold().child(n.to_string())).child(div().text_size(px(style::size::DETAIL)).text_color(faint).child(label)));
+            tiles = tiles.child(
+                v_flex()
+                    .flex_1()
+                    .p(px(10.))
+                    .rounded(px(10.))
+                    .bg(card_bg)
+                    .child(
+                        div()
+                            .text_size(px(20.))
+                            .font_semibold()
+                            .child(n.to_string()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(style::size::DETAIL))
+                            .text_color(faint)
+                            .child(label),
+                    ),
+            );
         }
         let mut log = v_flex();
         if runs.is_empty() {
-            log = log.child(div().py(px(6.)).text_size(px(style::size::LABEL)).text_color(secondary).child(if recipe.state.added() { "No runs in the last 30 days." } else { "It hasn't run here yet." }));
+            log = log.child(
+                div()
+                    .py(px(6.))
+                    .text_size(px(style::size::LABEL))
+                    .text_color(secondary)
+                    .child(if recipe.state.added() {
+                        "No runs in the last 30 days."
+                    } else {
+                        "It hasn't run here yet."
+                    }),
+            );
         }
         let hairline = style::hairline(cx);
         let link = style::link_text(cx);
@@ -767,11 +1291,29 @@ impl Threadbear {
                     .border_b_1()
                     .border_color(hairline)
                     .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
-                    .child(div().flex_1().min_w_0().truncate().text_size(px(style::size::LABEL)).child(line))
                     .child(
-                        tipped!(div().flex_none().text_size(px(style::size::LABEL)).text_color(link).cursor_pointer(), ElementId::Name(format!("recipe-log-{}", run.thread_id).into()), "Open this run's thread", gpui_kit::Role::Link)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open(thread.clone(), window, cx)))
-                            .child("Open"),
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(style::size::LABEL))
+                            .child(line),
+                    )
+                    .child(
+                        tipped!(
+                            div()
+                                .flex_none()
+                                .text_size(px(style::size::LABEL))
+                                .text_color(link)
+                                .cursor_pointer(),
+                            ElementId::Name(format!("recipe-log-{}", run.thread_id).into()),
+                            "Open this run's thread",
+                            gpui_kit::Role::Link
+                        )
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.open(thread.clone(), window, cx)
+                        }))
+                        .child("Open"),
                     ),
             );
         }
@@ -814,34 +1356,97 @@ impl Threadbear {
 /// The sidebar's buttons over the list (`SidebarButtonRow`): a plus or a
 /// grid where a row's title starts.
 #[allow(clippy::too_many_arguments)]
-fn sidebar_button(id: &'static str, symbol: &'static str, label: &'static str, tip: &'static str, busy: bool, lit: bool, p: &Palette, on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {
+fn sidebar_button(
+    id: &'static str,
+    symbol: &'static str,
+    label: &'static str,
+    tip: &'static str,
+    busy: bool,
+    lit: bool,
+    p: &Palette,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
     let (hover, selected, secondary, fg) = (p.hover, p.selected, p.secondary, p.fg);
-    let mark: AnyElement = if busy { Spinner::new().color(secondary).with_size(px(12.)).into_any_element() } else { icon(symbol, style::size::SIDEBAR_BUTTON, secondary).into_any_element() };
-    tipped!(h_flex().gap(px(8.)).pl(px(LEADING - 2.)).pr(px(TRAILING)).py(px(7.)).rounded(px(6.)).when(lit, move |s| s.bg(selected)).when(!lit, move |s| s.hover(move |s| s.bg(hover))), id, tip)
-        .when(!busy, |s| s.on_click(on_click))
-        .child(div().w(px(16.)).flex().justify_center().child(mark))
-        .child(div().text_size(px(style::size::SIDEBAR_BUTTON)).line_height(px(17.)).text_color(fg).child(label))
+    let mark: AnyElement = if busy {
+        Spinner::new()
+            .color(secondary)
+            .with_size(px(12.))
+            .into_any_element()
+    } else {
+        icon(symbol, style::size::SIDEBAR_BUTTON, secondary).into_any_element()
+    };
+    tipped!(
+        h_flex()
+            .gap(px(8.))
+            .pl(px(LEADING - 2.))
+            .pr(px(TRAILING))
+            .py(px(7.))
+            .rounded(px(6.))
+            .when(lit, move |s| s.bg(selected))
+            .when(!lit, move |s| s.hover(move |s| s.bg(hover))),
+        id,
+        tip
+    )
+    .when(!busy, |s| s.on_click(on_click))
+    .child(div().w(px(16.)).flex().justify_center().child(mark))
+    .child(
+        div()
+            .text_size(px(style::size::SIDEBAR_BUTTON))
+            .line_height(px(17.))
+            .text_color(fg)
+            .child(label),
+    )
 }
 
 fn section_title(text: &'static str) -> impl IntoElement {
-    div().pt(px(10.)).text_size(px(16.)).line_height(px(20.)).font_semibold().child(text)
+    div()
+        .pt(px(10.))
+        .text_size(px(16.))
+        .line_height(px(20.))
+        .font_semibold()
+        .child(text)
 }
 
 /// The header: its picture when it has one on this Mac, else its colour
 /// fading darker.
 fn header_fill(recipe: &Recipe, radius: f32) -> AnyElement {
     let (a, b) = recipe.header_colors();
-    let gradient = linear_gradient(135., linear_color_stop(Hsla::from(rgb(a)), 0.), linear_color_stop(Hsla::from(rgb(b)), 1.));
-    let fill = div().absolute().top_0().left_0().size_full().rounded_t(px(radius)).bg(gradient);
-    match recipe.header.as_ref().filter(|p| std::path::Path::new(p).is_file()) {
-        Some(path) => fill.overflow_hidden().child(img(PathBuf::from(path)).size_full().object_fit(ObjectFit::Cover)).into_any_element(),
+    let gradient = linear_gradient(
+        135.,
+        linear_color_stop(Hsla::from(rgb(a)), 0.),
+        linear_color_stop(Hsla::from(rgb(b)), 1.),
+    );
+    let fill = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .rounded_t(px(radius))
+        .bg(gradient);
+    match recipe
+        .header
+        .as_ref()
+        .filter(|p| std::path::Path::new(p).is_file())
+    {
+        Some(path) => fill
+            .overflow_hidden()
+            .child(
+                img(PathBuf::from(path))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+            )
+            .into_any_element(),
         None => fill.into_any_element(),
     }
 }
 
 /// The icon on a rounded tile, on the header's bottom edge.
 fn icon_tile(recipe: &Recipe, size: f32, cx: &App) -> Div {
-    let fill = if cx.theme().is_dark() { hsla(240. / 360., 0.04, 0.12, 1.) } else { hsla(0., 0., 0.98, 1.) };
+    let fill = if cx.theme().is_dark() {
+        hsla(240. / 360., 0.04, 0.12, 1.)
+    } else {
+        hsla(0., 0., 0.98, 1.)
+    };
     div()
         .size(px(size))
         .rounded(px(size * 0.25))

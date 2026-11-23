@@ -40,7 +40,11 @@ const OPENERS: &[&str] = &[
 /// connection bar's Start runner, which runs launchctl on the runner's own
 /// LaunchAgent (and `id -u` for the user) with fixed arguments: nothing a link,
 /// a file or the runner names.
-const ALLOWED: &[&str] = &["gpui/src/open_gate.rs", "client/tests/mock_runner.rs", "gpui/src/runner_launcher.rs"];
+const ALLOWED: &[&str] = &[
+    "gpui/src/open_gate.rs",
+    "client/tests/mock_runner.rs",
+    "gpui/src/runner_launcher.rs",
+];
 
 /// Single lines elsewhere, each by its file and the text it holds, allowed
 /// exactly as many times as listed, so anything else in the same file is
@@ -98,11 +102,16 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if path.file_name().is_some_and(|n| n == "target" || n == "golden") {
+            if path
+                .file_name()
+                .is_some_and(|n| n == "target" || n == "golden")
+            {
                 continue;
             }
             rust_files(&path, out);
@@ -114,23 +123,36 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn nothing_opens_outside_the_gate() {
-    let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
+    let desktop = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned();
     let mut files = Vec::new();
     // web/ too: the web runtime's pages are where a link would most want out.
     for crate_dir in ["gpui", "dock", "client", "core/src", "web"] {
         rust_files(&desktop.join(crate_dir), &mut files);
     }
-    assert!(files.iter().any(|f| f.ends_with("gpui/src/open_gate.rs")), "the gate wasn't found, so this test isn't looking in the right place");
+    assert!(
+        files.iter().any(|f| f.ends_with("gpui/src/open_gate.rs")),
+        "the gate wasn't found, so this test isn't looking in the right place"
+    );
     let mut found = Vec::new();
     let mut allowed_seen = vec![0; ALLOWED_LINES.len()];
     for file in &files {
-        let rel = file.strip_prefix(&desktop).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = file
+            .strip_prefix(&desktop)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         if ALLOWED.contains(&rel.as_str()) {
             continue;
         }
         let text = std::fs::read_to_string(file).unwrap();
         for (n, line) in text.lines().enumerate() {
-            if let Some(i) = ALLOWED_LINES.iter().position(|(f, l, _)| *f == rel && line.trim() == *l) {
+            if let Some(i) = ALLOWED_LINES
+                .iter()
+                .position(|(f, l, _)| *f == rel && line.trim() == *l)
+            {
                 allowed_seen[i] += 1;
                 continue;
             }
@@ -168,12 +190,24 @@ fn reply_link_probes_use_the_local_file_gate() {
     let text = std::fs::read_to_string(file).unwrap();
     // A probe or a hover runs before a click has reached the opener. On
     // Windows exists/is_dir/open can already contact an SMB server.
-    for unsafe_probe in ["Path::new(p).exists()", "Path::new(&file.path).exists()", "Path::new(&file.path).is_dir()", "Path::new(&path).is_dir()", "std::fs::File::open(path)"] {
-        assert!(!text.contains(unsafe_probe), "reply link bypasses the local path gate: {unsafe_probe}");
+    for unsafe_probe in [
+        "Path::new(p).exists()",
+        "Path::new(&file.path).exists()",
+        "Path::new(&file.path).is_dir()",
+        "Path::new(&path).is_dir()",
+        "std::fs::File::open(path)",
+    ] {
+        assert!(
+            !text.contains(unsafe_probe),
+            "reply link bypasses the local path gate: {unsafe_probe}"
+        );
     }
     assert!(text.contains("policy::local_metadata"));
     assert!(text.contains("policy::local_read"));
-    assert!(!text.contains("FilePicture::Image(crate::rows::markdown::picture_file("), "hover pictures must use the guarded Windows loader too");
+    assert!(
+        !text.contains("FilePicture::Image(crate::rows::markdown::picture_file("),
+        "hover pictures must use the guarded Windows loader too"
+    );
     let core = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/text_file.rs");
     let text = std::fs::read_to_string(core).unwrap();
     let production = text.split("#[cfg(test)]").next().unwrap();
@@ -183,10 +217,18 @@ fn reply_link_probes_use_the_local_file_gate() {
     assert!(production.contains("open_policy::local_open_for_write("));
     let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/open_gate.rs");
     let text = std::fs::read_to_string(gate).unwrap();
-    let reveal = text.split("pub(crate) fn reveal(").nth(1).unwrap().split("// ----------------------------------------------------------------").next().unwrap();
+    let reveal = text
+        .split("pub(crate) fn reveal(")
+        .nth(1)
+        .unwrap()
+        .split("// ----------------------------------------------------------------")
+        .next()
+        .unwrap();
     assert!(reveal.contains("policy::with_local_path"));
     let watcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/file_watch.rs");
-    assert!(std::fs::read_to_string(watcher).unwrap().contains("open_policy::with_local_path"));
+    assert!(std::fs::read_to_string(watcher)
+        .unwrap()
+        .contains("open_policy::with_local_path"));
     let folders = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/folders.rs");
     let text = std::fs::read_to_string(folders).unwrap();
     assert!(!text.contains("ImageReader::open("));
@@ -214,31 +256,62 @@ fn reply_link_probes_use_the_local_file_gate() {
 /// - nothing there calls NSWorkspace at all.
 #[test]
 fn the_media_views_read_only_what_the_gate_checked() {
-    let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
+    let desktop = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned();
     let mut files = Vec::new();
     for crate_dir in ["gpui", "dock", "client", "core/src", "web"] {
         rust_files(&desktop.join(crate_dir), &mut files);
     }
     let mut found = Vec::new();
-    for file in files.iter().filter(|f| f.extension().is_some_and(|e| e == "m")) {
-        let rel = file.strip_prefix(&desktop).unwrap().to_string_lossy().replace('\\', "/");
+    for file in files
+        .iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "m"))
+    {
+        let rel = file
+            .strip_prefix(&desktop)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         let text = std::fs::read_to_string(file).unwrap();
-        let code: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        let code: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect();
         let has = |needle: &str| code.iter().any(|l| l.contains(needle));
         for line in &code {
-            for opener in ["playerWithURL:", "playerItemWithURL:", "AVPlayer alloc] initWithURL:", "AVPlayerItem alloc] initWithURL:"] {
+            for opener in [
+                "playerWithURL:",
+                "playerItemWithURL:",
+                "AVPlayer alloc] initWithURL:",
+                "AVPlayerItem alloc] initWithURL:",
+            ] {
                 if line.contains(opener) {
                     found.push(format!("{rel}: plays by path: {}", line.trim()));
                 }
             }
-            if line.contains("URLAssetWithURL:") && !line.contains("AVURLAssetReferenceRestrictionsKey : @(AVAssetReferenceRestrictionForbidAll)") {
-                found.push(format!("{rel}: an asset without its references forbidden: {}", line.trim()));
+            if line.contains("URLAssetWithURL:")
+                && !line.contains(
+                    "AVURLAssetReferenceRestrictionsKey : @(AVAssetReferenceRestrictionForbidAll)",
+                )
+            {
+                found.push(format!(
+                    "{rel}: an asset without its references forbidden: {}",
+                    line.trim()
+                ));
             }
             if line.contains("[PDFView alloc]") {
-                found.push(format!("{rel}: a plain PDFView, whose links go to the system: {}", line.trim()));
+                found.push(format!(
+                    "{rel}: a plain PDFView, whose links go to the system: {}",
+                    line.trim()
+                ));
             }
             if line.contains("NSWorkspace") {
-                found.push(format!("{rel}: opens through NSWorkspace, not the gate: {}", line.trim()));
+                found.push(format!(
+                    "{rel}: opens through NSWorkspace, not the gate: {}",
+                    line.trim()
+                ));
             }
             if line.contains("fileURLWithPath:self.path") || line.contains("fileURLWithPath:file") {
                 found.push(format!("{rel}: hands out the real file's path, which can be swapped before it's read: {}", line.trim()));
@@ -254,16 +327,23 @@ fn the_media_views_read_only_what_the_gate_checked() {
                 "- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {",
             ] {
                 if !has(needed) {
-                    found.push(format!("{rel}: a PDF view without `{needed}`, so its links could reach the system"));
+                    found.push(format!(
+                        "{rel}: a PDF view without `{needed}`, so its links could reach the system"
+                    ));
                 }
             }
             // Each of those menu methods puts the menu through the filter
             // before anything else sees it.
             for (i, line) in code.iter().enumerate() {
-                if line.contains("- (NSMenu *)menuForEvent:") || line.contains("- (void)willOpenMenu:") {
+                if line.contains("- (NSMenu *)menuForEvent:")
+                    || line.contains("- (void)willOpenMenu:")
+                {
                     let body: String = code[i..(i + 4).min(code.len())].join("\n");
                     if !body.contains("tb_safe_menu(menu, self.links);") {
-                        found.push(format!("{rel}: a PDF menu that isn't put through tb_safe_menu: {}", line.trim()));
+                        found.push(format!(
+                            "{rel}: a PDF menu that isn't put through tb_safe_menu: {}",
+                            line.trim()
+                        ));
                     }
                 }
             }
@@ -273,12 +353,19 @@ fn the_media_views_read_only_what_the_gate_checked() {
             if line.contains("tb_read_all(") && !line.contains("static NSData *tb_read_all(") {
                 let before: String = code[i.saturating_sub(3)..i].join("\n");
                 if !before.contains("dispatch_get_global_queue(") {
-                    found.push(format!("{rel}: a PDF read where the pane draws, not off the main thread: {}", line.trim()));
+                    found.push(format!(
+                        "{rel}: a PDF read where the pane draws, not off the main thread: {}",
+                        line.trim()
+                    ));
                 }
             }
         }
     }
-    assert!(found.is_empty(), "the media views must read only the gate's file and send their links back to it:\n{}", found.join("\n"));
+    assert!(
+        found.is_empty(),
+        "the media views must read only the gate's file and send their links back to it:\n{}",
+        found.join("\n")
+    );
 }
 
 /// Daybreak 112 (13 Nov 2026): any folder's .app can claim another app's
@@ -289,24 +376,54 @@ fn the_media_views_read_only_what_the_gate_checked() {
 /// owner's signature check, before `/usr/bin/open` sees its path.
 #[test]
 fn fixed_apps_start_only_once_signed_and_icons_never_ask_launch_services() {
-    let desktop = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
-    let gate = std::fs::read_to_string(desktop.join("gpui/src/open_gate.rs")).unwrap().replace("\r\n", "\n");
-    assert!(!gate.contains("iconForFile"), "the gate asks NSWorkspace for an icon");
+    let desktop = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned();
+    let gate = std::fs::read_to_string(desktop.join("gpui/src/open_gate.rs"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert!(
+        !gate.contains("iconForFile"),
+        "the gate asks NSWorkspace for an icon"
+    );
     let mut native = Vec::new();
     rust_files(&desktop.join("gpui"), &mut native);
-    for file in native.iter().filter(|f| f.extension().is_some_and(|e| e == "m")) {
+    for file in native
+        .iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "m"))
+    {
         let text = std::fs::read_to_string(file).unwrap();
-        assert!(!text.contains("iconForFile") && !text.contains("[NSWorkspace"), "{} asks NSWorkspace", file.display());
+        assert!(
+            !text.contains("iconForFile") && !text.contains("[NSWorkspace"),
+            "{} asks NSWorkspace",
+            file.display()
+        );
     }
     let chrome = fn_body(&gate, "fn start_chrome_profile(");
-    let check = chrome.find("signed_as(path, GOOGLE_CHROME)").expect("Chrome is checked");
-    assert!(check < chrome.find("Command::new(\"/usr/bin/open\")").unwrap(), "checked before it's started");
-    assert!(chrome.contains(".arg(&real)"), "the checked path is the one started");
-    assert!(gate.contains("certificate leaf[subject.OU] = \\\"EQHXZ8M8AV\\\""), "Google's team");
+    let check = chrome
+        .find("signed_as(path, GOOGLE_CHROME)")
+        .expect("Chrome is checked");
+    assert!(
+        check < chrome.find("Command::new(\"/usr/bin/open\")").unwrap(),
+        "checked before it's started"
+    );
+    assert!(
+        chrome.contains(".arg(&real)"),
+        "the checked path is the one started"
+    );
+    assert!(
+        gate.contains("certificate leaf[subject.OU] = \\\"EQHXZ8M8AV\\\""),
+        "Google's team"
+    );
     assert!(!gate.contains("URLForApplicationWithBundleIdentifier(&NSString::from_str(threadbear_core::reply_links::CHROME_BUNDLE_ID))"), "Chrome by id, not the running one");
     let simulator = fn_body(&gate, "fn apple_simulator(");
     assert!(simulator.contains("signed_as(path, \"anchor apple and identifier"));
-    assert_eq!(gate.matches("Command::new(\"/usr/bin/open\")").count(), 1, "one place starts an application by path");
+    assert_eq!(
+        gate.matches("Command::new(\"/usr/bin/open\")").count(),
+        1,
+        "one place starts an application by path"
+    );
 }
 
 /// A top-level function's body, up to its closing `}` line. The source is
@@ -316,7 +433,10 @@ fn fixed_apps_start_only_once_signed_and_icons_never_ask_launch_services() {
 /// `\n` first.
 fn fn_body(source: &str, signature: &str) -> String {
     let source = source.replace("\r\n", "\n");
-    let rest = source.split(signature).nth(1).unwrap_or_else(|| panic!("{signature} not found"));
+    let rest = source
+        .split(signature)
+        .nth(1)
+        .unwrap_or_else(|| panic!("{signature} not found"));
     rest.split("\n}\n").next().unwrap().to_owned()
 }
 
@@ -326,7 +446,10 @@ fn a_function_body_ends_at_its_own_brace_with_either_line_ending() {
     for text in [source.to_owned(), source.replace('\n', "\r\n")] {
         let body = fn_body(&text, "fn start_chrome_profile(");
         assert!(body.contains("open(path);"));
-        assert!(!body.contains("signed_as"), "a check in a later function counts for this one");
+        assert!(
+            !body.contains("signed_as"),
+            "a check in a later function counts for this one"
+        );
     }
 }
 
@@ -336,16 +459,40 @@ fn a_function_body_ends_at_its_own_brace_with_either_line_ending() {
 /// on a Mac it opens a reference to the checked inode, never the path.
 #[test]
 fn checked_files_open_by_reference_not_by_path() {
-    let gate = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/open_gate.rs")).unwrap().replace("\r\n", "\n");
+    let gate = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/open_gate.rs"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
     let open_file = fn_body(&gate, "pub(crate) fn open_file(");
-    assert!(!open_file.contains("system_open("), "open_file opens without open_checked:\n{open_file}");
-    assert_eq!(open_file.matches("open_checked(").count(), 3, "the document, a remembered kind and the yes all go through open_checked:\n{open_file}");
+    assert!(
+        !open_file.contains("system_open("),
+        "open_file opens without open_checked:\n{open_file}"
+    );
+    assert_eq!(
+        open_file.matches("open_checked(").count(),
+        3,
+        "the document, a remembered kind and the yes all go through open_checked:\n{open_file}"
+    );
     let checked = fn_body(&gate, "fn open_checked(");
-    assert!(checked.contains("still_same("), "open_checked doesn't look again");
-    let mac = gate.split("#[cfg(target_os = \"macos\")]\nfn open_the_file(").nth(1).expect("the Mac's open_the_file");
+    assert!(
+        checked.contains("still_same("),
+        "open_checked doesn't look again"
+    );
+    let mac = gate
+        .split("#[cfg(target_os = \"macos\")]\nfn open_the_file(")
+        .nth(1)
+        .expect("the Mac's open_the_file");
     let mac = fn_body(&format!("fn open_the_file({mac}"), "fn open_the_file(");
-    assert!(mac.contains("fileReferenceURL()") && mac.contains("reference_id("), "the Mac opens the path, not the checked inode");
+    assert!(
+        mac.contains("fileReferenceURL()") && mac.contains("reference_id("),
+        "the Mac opens the path, not the checked inode"
+    );
     // Only a private copy (a disk with no file references) goes by its path.
     let without_copies = mac.replace("system_open(&copy_url, cx)", "");
-    assert!(!without_copies.contains("system_open(") && !mac.contains("fileURLWithPath(&NSString::from_str(url"), "the Mac hands a path to the system:\n{mac}");
+    assert!(
+        !without_copies.contains("system_open(")
+            && !mac.contains("fileURLWithPath(&NSString::from_str(url"),
+        "the Mac hands a path to the system:\n{mac}"
+    );
 }

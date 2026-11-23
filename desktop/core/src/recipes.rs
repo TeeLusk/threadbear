@@ -115,7 +115,10 @@ pub struct RecipeDetail {
 }
 
 fn text(v: &Value) -> Option<String> {
-    v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
+    v.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 fn time(v: &Value) -> Option<i64> {
@@ -171,7 +174,12 @@ impl Recipe {
 
     /// `recipes.list`'s `recipes`, in the view's order.
     pub fn decode_list(v: &Value) -> Vec<Recipe> {
-        let mut list: Vec<Recipe> = v.as_array().into_iter().flatten().filter_map(Recipe::decode).collect();
+        let mut list: Vec<Recipe> = v
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Recipe::decode)
+            .collect();
         sort(&mut list);
         list
     }
@@ -205,7 +213,11 @@ impl Recipe {
 
     /// The next run of its schedules that aren't paused.
     pub fn next_run_ms(&self) -> Option<i64> {
-        self.schedules.iter().filter(|s| !s.paused).filter_map(|s| s.next_run_ms).min()
+        self.schedules
+            .iter()
+            .filter(|s| !s.paused)
+            .filter_map(|s| s.next_run_ms)
+            .min()
     }
 
     /// The sidebar row's line under its name: what it last did and when it
@@ -255,7 +267,11 @@ impl Recipe {
     /// The header's colours when it has no picture: its own colour fading to
     /// a darker one, or a neutral grey.
     pub fn header_colors(&self) -> (u32, u32) {
-        let base = self.color.as_deref().and_then(parse_hex).unwrap_or(0x5a_60_6e);
+        let base = self
+            .color
+            .as_deref()
+            .and_then(parse_hex)
+            .unwrap_or(0x5a_60_6e);
         (base, darken(base, 0.45))
     }
 }
@@ -268,7 +284,11 @@ pub fn sort(list: &mut [Recipe]) {
         RecipeState::Off => 2,
         RecipeState::Add => 3,
     };
-    list.sort_by(|a, b| rank(a.state).cmp(&rank(b.state)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    list.sort_by(|a, b| {
+        rank(a.state)
+            .cmp(&rank(b.state))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
 }
 
 /// How many are on, for the sidebar's heading ("4 on").
@@ -316,7 +336,13 @@ impl RecipeDetail {
             })
             .collect();
         runs.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
-        Some(RecipeDetail { recipe, about: text(&v["about"]).unwrap_or_default(), example: text(&v["example"]), file: text(&v["file"]).unwrap_or_default(), runs })
+        Some(RecipeDetail {
+            recipe,
+            about: text(&v["about"]).unwrap_or_default(),
+            example: text(&v["example"]),
+            file: text(&v["file"]).unwrap_or_default(),
+            runs,
+        })
     }
 
     /// The page's four numbers: from the runs it was sent, so they match the
@@ -324,7 +350,11 @@ impl RecipeDetail {
     pub fn numbers(&self) -> [(u32, &'static str); 3] {
         let s = &self.recipe.stats;
         if self.runs.is_empty() {
-            return [(s.runs, "runs"), (s.needed_you, "needed you"), (s.seen, "you opened")];
+            return [
+                (s.runs, "runs"),
+                (s.needed_you, "needed you"),
+                (s.seen, "you opened"),
+            ];
         }
         let n = self.runs.len() as u32;
         let needed = self.runs.iter().filter(|r| r.needs_you).count() as u32;
@@ -348,7 +378,9 @@ pub fn strip(runs: &[RecipeRun], now: DateTime<Local>) -> Vec<Day> {
     let today = now.date_naive();
     let mut days = vec![Day::Quiet; DAYS];
     for run in runs {
-        let Some(at) = Local.timestamp_millis_opt(run.at_ms).single() else { continue };
+        let Some(at) = Local.timestamp_millis_opt(run.at_ms).single() else {
+            continue;
+        };
         let back = (today - at.date_naive()).num_days();
         if !(0..DAYS as i64).contains(&back) {
             continue;
@@ -377,7 +409,9 @@ fn clock(at: DateTime<Local>) -> String {
 
 /// "6:30" today, "Thu 6:30" this week, "12 Nov 6:30" further.
 fn day_time(ms: i64, now: DateTime<Local>) -> String {
-    let Some(at) = Local.timestamp_millis_opt(ms).single() else { return String::new() };
+    let Some(at) = Local.timestamp_millis_opt(ms).single() else {
+        return String::new();
+    };
     let days = (at.date_naive() - now.date_naive()).num_days();
     match days {
         0 => clock(at),
@@ -396,8 +430,14 @@ fn plural(n: u32, one: &str, many: &str) -> String {
 /// "Every day at 6:30" read mid-line: "every day at 6:30". A day's or a
 /// month's name ("Sundays at 19:00") keeps its capital.
 fn lower_first(s: &str) -> String {
-    const COMMON: [&str; 8] = ["Every", "Each", "When", "Daily", "Before", "Once", "Twice", "Weekly"];
-    let first = s.split_whitespace().next().unwrap_or("").trim_end_matches(',');
+    const COMMON: [&str; 8] = [
+        "Every", "Each", "When", "Daily", "Before", "Once", "Twice", "Weekly",
+    ];
+    let first = s
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(',');
     if !COMMON.contains(&first) {
         return s.to_owned();
     }
@@ -419,7 +459,9 @@ fn lower_after_first(s: &str, first: bool) -> String {
 /// "#rrggbb" (or "rrggbb") as 0xrrggbb.
 pub fn parse_hex(s: &str) -> Option<u32> {
     let h = s.trim().trim_start_matches('#');
-    (h.len() == 6).then(|| u32::from_str_radix(h, 16).ok()).flatten()
+    (h.len() == 6)
+        .then(|| u32::from_str_radix(h, 16).ok())
+        .flatten()
 }
 
 fn darken(rgb: u32, by: f32) -> u32 {
@@ -437,7 +479,10 @@ mod tests {
     }
 
     fn ms(y: i32, m: u32, d: u32, h: u32, min: u32) -> i64 {
-        Local.with_ymd_and_hms(y, m, d, h, min, 0).unwrap().timestamp_millis()
+        Local
+            .with_ymd_and_hms(y, m, d, h, min, 0)
+            .unwrap()
+            .timestamp_millis()
     }
 
     fn iso(ms: i64) -> String {
@@ -480,7 +525,14 @@ mod tests {
 
     #[test]
     fn the_list_puts_on_first_then_setting_up_off_and_the_rest_by_name() {
-        let v = json!([summary("b", "add"), summary("a", "add"), summary("z", "on"), summary("m", "off"), summary("y", "settingUp"), summary("c", "on")]);
+        let v = json!([
+            summary("b", "add"),
+            summary("a", "add"),
+            summary("z", "on"),
+            summary("m", "off"),
+            summary("y", "settingUp"),
+            summary("c", "on")
+        ]);
         let list = Recipe::decode_list(&v);
         let ids: Vec<&str> = list.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, ["c", "z", "y", "m", "a", "b"]);
@@ -491,7 +543,13 @@ mod tests {
     #[test]
     fn the_switch_guess_turns_schedules_with_it_and_setting_up_stays() {
         let mut r = Recipe::decode(&summary("x", "on")).unwrap();
-        r.schedules.push(RecipeSchedule { id: "s".into(), title: "t".into(), paused: false, next_run_ms: None, when_text: String::new() });
+        r.schedules.push(RecipeSchedule {
+            id: "s".into(),
+            title: "t".into(),
+            paused: false,
+            next_run_ms: None,
+            when_text: String::new(),
+        });
         let off = guess_on(&r, false);
         assert_eq!(off.state, RecipeState::Off);
         assert!(off.schedules[0].paused);
@@ -513,7 +571,10 @@ mod tests {
         assert_eq!(r.status_line(now()), "Off · every Sunday");
         r.when = Some("Sundays at 19:00".into());
         r.state = RecipeState::SettingUp;
-        assert_eq!(r.status_line(now()), "Setting up: open its thread to finish");
+        assert_eq!(
+            r.status_line(now()),
+            "Setting up: open its thread to finish"
+        );
         r.state = RecipeState::On;
         r.when = None;
         assert_eq!(r.status_line(now()), "On, nothing run yet");
@@ -526,11 +587,43 @@ mod tests {
     #[test]
     fn the_strip_marks_each_day_and_keeps_needed_you() {
         let runs = vec![
-            RecipeRun { thread_id: "a".into(), title: String::new(), at_ms: ms(2026, 11, 20, 6, 30), headline: None, needs_you: true, seen: true, archived: false },
-            RecipeRun { thread_id: "b".into(), title: String::new(), at_ms: ms(2026, 11, 20, 8, 0), headline: None, needs_you: false, seen: false, archived: false },
-            RecipeRun { thread_id: "c".into(), title: String::new(), at_ms: ms(2026, 11, 19, 6, 30), headline: None, needs_you: false, seen: true, archived: false },
+            RecipeRun {
+                thread_id: "a".into(),
+                title: String::new(),
+                at_ms: ms(2026, 11, 20, 6, 30),
+                headline: None,
+                needs_you: true,
+                seen: true,
+                archived: false,
+            },
+            RecipeRun {
+                thread_id: "b".into(),
+                title: String::new(),
+                at_ms: ms(2026, 11, 20, 8, 0),
+                headline: None,
+                needs_you: false,
+                seen: false,
+                archived: false,
+            },
+            RecipeRun {
+                thread_id: "c".into(),
+                title: String::new(),
+                at_ms: ms(2026, 11, 19, 6, 30),
+                headline: None,
+                needs_you: false,
+                seen: true,
+                archived: false,
+            },
             // Too old for the strip.
-            RecipeRun { thread_id: "d".into(), title: String::new(), at_ms: ms(2026, 10, 1, 6, 30), headline: None, needs_you: true, seen: true, archived: false },
+            RecipeRun {
+                thread_id: "d".into(),
+                title: String::new(),
+                at_ms: ms(2026, 10, 1, 6, 30),
+                headline: None,
+                needs_you: true,
+                seen: true,
+                archived: false,
+            },
         ];
         let days = strip(&runs, now());
         assert_eq!(days.len(), DAYS);
@@ -553,7 +646,10 @@ mod tests {
         let d = RecipeDetail::decode(&v).unwrap();
         assert_eq!(d.runs.len(), 2);
         assert_eq!(d.runs[0].thread_id, "b");
-        assert_eq!(d.numbers(), [(2, "runs"), (1, "needed you"), (1, "you opened")]);
+        assert_eq!(
+            d.numbers(),
+            [(2, "runs"), (1, "needed you"), (1, "you opened")]
+        );
         assert_eq!(d.example.as_deref(), Some("**Today**"));
         assert_eq!(log_time(ms(2026, 11, 20, 6, 30)), "Fri 20 Nov, 6:30");
     }

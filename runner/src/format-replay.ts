@@ -38,6 +38,13 @@ export type FormatEntry = {
   paths: string[];
   config: string[];
   id?: string;
+  // Made by `# format-tool:` rather than `# format-command:`: a tool that
+  // may also add and delete files in what it formats (splitting one file
+  // into several, scripts/split-protocol.mjs), where a formatter only
+  // changes the files there are. A copy older than this key skips the whole
+  // entry, so it rebases as before and stops at the conflict rather than
+  // carry work across without the files the tool made.
+  adds?: true;
 };
 
 export type FormatCommit = { entry: FormatEntry; commit: string };
@@ -54,20 +61,24 @@ export function parseFormatList(text: string): FormatEntry[] {
   let cur: Partial<FormatEntry> | undefined;
   const finish = (id?: string) => {
     if (cur?.subject && cur.command && cur.paths?.length) {
-      out.push({ subject: cur.subject, command: cur.command, paths: cur.paths, config: cur.config ?? [], ...(id ? { id } : {}) });
+      out.push({ subject: cur.subject, command: cur.command, paths: cur.paths, config: cur.config ?? [], ...(id ? { id } : {}), ...(cur.adds ? { adds: true as const } : {}) });
     }
     cur = undefined;
   };
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
-    const m = /^#\s*format-(subject|command|paths|config):\s*(.*)$/.exec(line);
+    const m = /^#\s*format-(subject|command|tool|paths|config):\s*(.*)$/.exec(line);
     if (m) {
       const [, key, value] = m;
       if (key === 'subject') {
         finish();
         cur = { subject: value.trim() };
       } else if (cur) {
-        if (key === 'command') cur.command = value.trim();
+        if (key === 'command' || key === 'tool') {
+          cur.command = value.trim();
+          if (key === 'tool') cur.adds = true;
+          else delete cur.adds;
+        }
         else cur[key as 'paths' | 'config'] = value.split(/\s+/).filter(Boolean).map((p) => p.replace(/\/+$/, ''));
       }
       continue;
@@ -272,8 +283,9 @@ export class TreeFormatter {
   private async formatOne(tree: string, f: FormatCommit): Promise<{ tree: string; failed?: string }> {
     const parts: string[] = [];
     for (const p of f.entry.paths) {
-      const r = await git(this.cwd, ['rev-parse', '--verify', '--quiet', `${tree}:${p}`]);
-      parts.push(r.ok ? r.stdout.trim() : '-');
+      // Mode, type and id: a path can be a file, whose mode can change alone.
+      const r = await git(this.cwd, ['ls-tree', '-z', tree, '--', p]);
+      parts.push((r.ok && r.stdout.split('\0').find((l) => l.endsWith(`\t${p}`))?.split('\t')[0]) || '-');
     }
     // Nothing it formats is in this tree.
     if (parts.every((p) => p === '-')) return { tree };
@@ -304,7 +316,11 @@ export class TreeFormatter {
         const inIt = (await out(this.cwd, ['ls-files', '-z', '--', p], env)).split('\0').filter(Boolean);
         if (inIt.length) await stdinGit(this.cwd, ['update-index', '-z', '--force-remove', '--stdin'], inIt.join('\0'), env);
         const sub = await git(this.cwd, ['rev-parse', '--verify', '--quiet', `${made.tree}:${p}`]);
-        if (sub.ok) await out(this.cwd, ['read-tree', `--prefix=${p}/`, sub.stdout.trim()], env);
+        if (!sub.ok) continue;
+        // A path can be one file (a tool's format-paths: docs/protocol.md).
+        const entry = (await out(this.cwd, ['ls-tree', '-z', made.tree, '--', p])).split('\0').filter(Boolean)[0] ?? '';
+        if (entry.split(' ')[1] === 'blob') await stdinGit(this.cwd, ['update-index', '-z', '--add', '--index-info'], `${entry}\0`, env);
+        else await out(this.cwd, ['read-tree', `--prefix=${p}/`, sub.stdout.trim()], env);
       }
       return { tree: await out(this.cwd, ['write-tree'], env), failed: made.failed };
     } finally {
@@ -315,7 +331,7 @@ export class TreeFormatter {
   // Checks the folders out into a temp folder with the format commit's
   // config files, runs the command there, and reads back what it changed.
   // Only files the tree already has are read back: a formatter has no
-  // business making new ones.
+  // business making new ones. A tool (format-tool) may, under its paths.
   private async materialize(tree: string, f: FormatCommit): Promise<{ tree: string; failed?: string }> {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-fmt-'));
     const work = path.join(dir, 'tree');
@@ -348,7 +364,16 @@ export class TreeFormatter {
       for (const c of f.entry.config) fs.rmSync(path.join(work, c), { force: true });
       const back = f.entry.config.filter((c) => inTree.has(c));
       if (back.length) await stdinGit(this.cwd, [attr, 'checkout-index', '-f', '-u', '-z', '--stdin', `--prefix=${work}/`], back.join('\0'), env);
-      await out(this.cwd, [attr, `--work-tree=${work}`, 'add', '-u', '--', ...f.entry.paths], env);
+      if (f.entry.adds) {
+        // What the tool made and took away too, under the paths there are
+        // now, before or after (git add refuses a path that's neither).
+        const known = new Set((await out(this.cwd, ['ls-files', '-z', '--', ...f.entry.paths], env)).split('\0').filter(Boolean));
+        const there = f.entry.paths.filter((p) => fs.existsSync(path.join(work, p)) || [...known].some((k) => k === p || k.startsWith(`${p}/`)));
+        // --force: what it made counts even where a .gitignore in the tree says otherwise.
+        if (there.length) await out(this.cwd, [attr, `--work-tree=${work}`, 'add', '-A', '--force', '--', ...there], env);
+      } else {
+        await out(this.cwd, [attr, `--work-tree=${work}`, 'add', '-u', '--', ...f.entry.paths], env);
+      }
       const made = await out(this.cwd, ['write-tree'], env);
       const failed = ran.ok ? undefined : `${f.entry.command} failed: ${lastLines(ran.text, 6)}`;
       return { tree: made, failed };
@@ -431,12 +456,21 @@ export async function carryAcross(cwd: string, a: { base: string; tip: string; o
   if (first.failed.length) {
     return { ok: false, error: `Couldn't format ${short(a.base)}, the commit this work starts from: ${first.failed.join('; ')}`, notes };
   }
+  const landed = await alreadyOn(cwd, a.onto, a.tip, a.base);
   const asCommit = async (tree: string) => out(cwd, ['commit-tree', tree, '-m', 'formatted'], IDENT);
   let prev = first.tree;
   let prevCommit = await asCommit(prev);
   let tip = a.onto;
   let count = 0;
   for (const c of list) {
+    if (landed.has(c)) {
+      // Formatted it may not go on cleanly, and it isn't needed: rebase
+      // leaves it out the same way.
+      notes.push(`${short(c)} (${await out(cwd, ['log', '-1', '--format=%s', c])}) was left out: it's on ${short(a.onto)} already.`);
+      prev = (await formatCommit(cwd, a.formatter, c, prev, notes, '')).tree;
+      prevCommit = await asCommit(prev);
+      continue;
+    }
     const orig = await out(cwd, ['rev-parse', `${c}^{tree}`]);
     const parentTree = await out(cwd, ['rev-parse', `${c}^^{tree}`]).catch(() => '');
     const subject = await out(cwd, ['log', '-1', '--format=%s', c]);
@@ -482,6 +516,9 @@ async function formatCommit(cwd: string, formatter: TreeFormatter, c: string, pr
   const orig = await out(cwd, ['rev-parse', `${c}^{tree}`]);
   const r = await formatter.format(orig);
   if (!r.failed.length) return r;
+  // A tool that moves text to other files can't be half applied (the old
+  // file beside the new ones): stop, and the branch is rebased as it is.
+  if (formatter.formats.some((f) => f.entry.adds)) throw new Error(`${short(c)} (${subject}): ${r.failed.join('; ')}`);
   for (const why of r.failed) notes.push(`${short(c)} (${subject}) was left partly unformatted: ${why}`);
   const changed = (await git(cwd, ['diff', '--name-only', '--no-renames', '-z', `${c}^`, c])).stdout.split('\0').filter(Boolean);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-fmt-pick-'));
@@ -509,6 +546,117 @@ async function formatCommit(cwd: string, formatter: TreeFormatter, c: string, pr
   }
 }
 
+// The commits of `tip` whose change is on `onto` already (landed as a
+// rebased copy), as rebase finds them: by patch id. An empty one never is
+// (rebase keeps those).
+async function alreadyOn(cwd: string, onto: string, tip: string, base: string): Promise<Set<string>> {
+  const marked = await git(cwd, ['rev-list', '--right-only', '--cherry-mark', '--no-merges', `${onto}...${tip}`]);
+  const same = new Set<string>();
+  if (!marked.ok) return same;
+  // And any of base..tip that is on it as it is (the same commit, landed).
+  const own = await git(cwd, ['rev-list', `${onto}..${tip}`]);
+  if (own.ok) {
+    const mine = new Set(own.stdout.split('\n').filter(Boolean));
+    for (const c of (await git(cwd, ['rev-list', `${base}..${tip}`])).stdout.split('\n').filter(Boolean)) if (!mine.has(c)) same.add(c);
+  }
+  for (const line of marked.stdout.split('\n')) {
+    if (line[0] !== '=') continue;
+    const c = line.slice(1).trim();
+    const t = await git(cwd, ['rev-parse', `${c}^{tree}`, `${c}^^{tree}`]);
+    const [a, b] = t.stdout.trim().split('\n');
+    if (a !== b) same.add(c);
+  }
+  return same;
+}
+
+// --------------------------------------------------------------- a branch with one
+
+export type Remade = { ok: true; tip: string; remade: string[]; notes: string[] } | { ok: false; conflict: string[]; at: string; subject: string } | { ok: false; error: string };
+
+// A branch that is itself bringing in a format commit (the commit that ran
+// the formatter, listed in its own .git-blame-ignore-revs and not on `onto`
+// yet) can't be rebased: by the time it lands, main has moved on in the
+// files it rewrote, and its diff conflicts with all of that, though nothing
+// clashes. So that commit is made again instead, by running the same tool
+// on the tree it now goes onto, with its message and author; the branch's
+// other commits are picked as a rebase picks them. Undefined when the branch
+// has no such commit. Touches no working tree; a commit made empty is
+// dropped, as rebase drops it.
+export async function remakeOwn(cwd: string, onto: string, tip: string, opts: { toolsOnly?: boolean } = {}): Promise<Remade | undefined> {
+  const list = await git(cwd, ['show', `${tip}:${FORMAT_LIST}`]);
+  if (!list.ok) return undefined;
+  // Not one already on `onto` (a later commit reusing its words isn't it),
+  // and with toolsOnly, only a format-tool's.
+  const landed = new Set((await out(cwd, ['log', '--no-merges', '--format=%s', onto])).split('\n'));
+  const entries = parseFormatList(list.stdout).filter((e) => !landed.has(e.subject) && (!opts.toolsOnly || e.adds));
+  if (!entries.length) return undefined;
+  // As rebase picks them: less any whose change is on `onto` already.
+  const marked = (await out(cwd, ['rev-list', '--reverse', '--topo-order', '--right-only', '--cherry-mark', '--no-merges', `${onto}...${tip}`])).split('\n').filter(Boolean);
+  if ((await out(cwd, ['rev-list', '--merges', `${onto}..${tip}`])) !== '') return undefined;
+  const picks: { c: string; format?: FormatEntry }[] = [];
+  let any = false;
+  // A subject that's on more than one of them can't say which ran the tool
+  // (a later fix with the same words would be run away): only its id can.
+  const seen = new Map<string, number>();
+  for (const line of marked) {
+    const s = await out(cwd, ['log', '-1', '--format=%s', line.slice(1)]);
+    seen.set(s, (seen.get(s) ?? 0) + 1);
+  }
+  for (const line of marked) {
+    const c = line.slice(1);
+    const tree = await out(cwd, ['rev-parse', `${c}^{tree}`]);
+    const parent = await out(cwd, ['rev-parse', `${c}^^{tree}`]).catch(() => '');
+    if (line[0] === '=' && tree !== parent) continue;
+    const subject = await out(cwd, ['log', '-1', '--format=%s', c]);
+    const entry = entries.find((e) => e.subject === subject && (e.id ? e.id === c : seen.get(subject) === 1));
+    const format = entry && (await onlyWithin(cwd, c, entry)) ? entry : undefined;
+    if (format) any = true;
+    picks.push({ c, format });
+  }
+  if (!any) return undefined;
+  let cur = await out(cwd, ['rev-parse', `${onto}^{commit}`]);
+  const remade: string[] = [];
+  const notes: string[] = [];
+  for (const { c, format } of picks) {
+    const subject = await out(cwd, ['log', '-1', '--format=%s', c]);
+    const curTree = await out(cwd, ['rev-parse', `${cur}^{tree}`]);
+    let tree: string;
+    if (format) {
+      // With the config as it is where it goes (main may have changed it),
+      // as the commit made here is the one later work is carried across.
+      const r = await new TreeFormatter(cwd, [{ entry: format, commit: cur }]).format(curTree);
+      if (r.failed.length) return { ok: false, error: `Couldn't make ${short(c)} (${subject}) again on ${short(onto)}: ${r.failed.join('; ')}` };
+      tree = r.tree;
+      if (tree === curTree) {
+        notes.push(`${short(c)} (${subject}) was left out: run again on ${short(onto)}, it changes nothing.`);
+        continue;
+      }
+      remade.push(c);
+    } else {
+      const merged = await git(cwd, ['merge-tree', '--write-tree', '--name-only', `--merge-base=${c}^`, cur, c]);
+      if (!merged.ok) {
+        if (merged.code !== 1) return { ok: false, error: `git merge-tree failed on ${short(c)}: ${(merged.stderr || merged.stdout).trim().split('\n')[0]}` };
+        const files: string[] = [];
+        for (const l of merged.stdout.split('\n').slice(1)) {
+          if (!l.trim()) break;
+          files.push(l.trim());
+        }
+        return { ok: false, conflict: [...new Set(files)], at: c, subject };
+      }
+      tree = merged.stdout.split('\n')[0].trim();
+      const wasEmpty = (await out(cwd, ['rev-parse', `${c}^{tree}`])) === (await out(cwd, ['rev-parse', `${c}^^{tree}`]).catch(() => ''));
+      if (!wasEmpty && tree === curTree) continue;
+    }
+    const meta = await out(cwd, ['log', '-1', '--format=%an%x00%ae%x00%ad', '--date=raw', c]);
+    const message = (await git(cwd, ['log', '-1', '--format=%B', c])).stdout.replace(/\n+$/, '');
+    const [name, email, date] = meta.split('\0');
+    cur = await out(cwd, ['commit-tree', tree, '-p', cur, '-m', message], { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date });
+  }
+  // Run again here it changed nothing: not a format commit to bring in.
+  if (!remade.length) return undefined;
+  return { ok: true, tip: cur, remade, notes };
+}
+
 // Only for the throwaway commits that hold a formatted tree for merge-tree.
 const IDENT = { GIT_AUTHOR_NAME: 'format', GIT_AUTHOR_EMAIL: 'format@localhost', GIT_COMMITTER_NAME: 'format', GIT_COMMITTER_EMAIL: 'format@localhost', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
 
@@ -516,12 +664,13 @@ const IDENT = { GIT_AUTHOR_NAME: 'format', GIT_AUTHOR_EMAIL: 'format@localhost',
 // base (whose parent is the real base), so an ordinary `git rebase --onto
 // <onto> <first>` puts them on `onto` with conflicts a person can sort out
 // as usual. Returns the formatted base and tip.
-export async function formattedChain(cwd: string, base: string, tip: string, formatter: TreeFormatter): Promise<{ first: string; tip: string; notes: string[] }> {
+export async function formattedChain(cwd: string, base: string, tip: string, formatter: TreeFormatter): Promise<{ first: string; tip: string; notes: string[]; copies: Map<string, string> }> {
   const notes: string[] = [];
   const baseTree = (await formatter.format(await out(cwd, ['rev-parse', `${base}^{tree}`]))).tree;
   const first = await out(cwd, ['commit-tree', baseTree, '-p', base, '-m', `Formatted copy of ${short(base)} (replay-over-format.sh)`]);
   let cur = first;
   let prev = baseTree;
+  const copies = new Map<string, string>();
   for (const c of (await out(cwd, ['rev-list', '--reverse', '--topo-order', `${base}..${tip}`])).split('\n').filter(Boolean)) {
     const subject = await out(cwd, ['log', '-1', '--format=%s', c]);
     const r = await formatCommit(cwd, formatter, c, prev, notes, subject);
@@ -537,8 +686,9 @@ export async function formattedChain(cwd: string, base: string, tip: string, for
     const message = (await git(cwd, ['log', '-1', '--format=%B', c])).stdout.replace(/\n+$/, '');
     const [name, email, date] = meta.split('\0');
     cur = await out(cwd, ['commit-tree', r.tree, '-p', cur, '-m', message], { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: date });
+    copies.set(c, cur);
   }
-  return { first, tip: cur, notes };
+  return { first, tip: cur, notes, copies };
 }
 
 // --------------------------------------------------------------- merging across
@@ -703,11 +853,26 @@ async function cli(argv: string[]): Promise<number> {
   const chain = await formattedChain(top, base, head, formatter);
   for (const n of chain.notes) say(n);
   await out(top, ['reset', '--keep', chain.tip]);
-  const rb = await git(top, ['rebase', '--onto', onto, chain.first]);
+  // Commits already on `onto` are left out of the rebase, as a plain one
+  // would leave them: their formatted copies don't match by patch id, so
+  // the todo list drops them by name. Each pick still merges from its own
+  // parent, so what comes after is right.
+  const landed = await alreadyOn(top, onto, head, base);
+  const drop = [...landed].map((c) => chain.copies.get(c)).filter((c): c is string => Boolean(c));
+  for (const c of landed) say(`${short(c)} is on ${onto} already, so it's left out.`);
+  const editor = `node -e ${shellQuote(`const fs=require('fs');const f=process.argv[1];const drop=${JSON.stringify(drop)};fs.writeFileSync(f,fs.readFileSync(f,'utf8').split('\\n').filter((l)=>!drop.includes((l.split(' ')[1]||''))).join('\\n'))`)}`;
+  // Full ids and the long command names in the todo, whatever the config says.
+  const rb = drop.length
+    ? await git(top, ['-c', 'core.abbrev=no', '-c', 'rebase.abbreviateCommands=false', 'rebase', '-i', '--onto', onto, chain.first], { GIT_SEQUENCE_EDITOR: editor })
+    : await git(top, ['rebase', '--onto', onto, chain.first]);
   process.stdout.write(rb.stdout);
   process.stderr.write(rb.stderr);
   say(rb.ok ? `Done. It was at ${short(head)} before.` : `Sort out the conflict, then git rebase --continue. To give up instead: git rebase --abort, then git reset --hard ${short(head)} (the abort alone leaves ${branch} on the formatted copies).`);
   return rb.ok ? 0 : 1;
+}
+
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 function same(a: string, b: string): boolean {

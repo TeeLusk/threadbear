@@ -120,6 +120,14 @@ jobs:
       # the file's toolchain.
       - name: Rust toolchain
         run: rustup toolchain install && rustc --version
+      # Formatting is the same on every system, so Linux's first job checks it.
+      - name: Rust formatting
+        if: runner.os == 'Linux' && !matrix.specsOnly
+        run: |
+          cargo fmt --manifest-path desktop/Cargo.toml --all -- --check || {
+            echo "::error::desktop/ is not formatted as cargo fmt writes it. Fix: cd desktop && cargo fmt --all, then commit what it changed."
+            exit 1
+          }
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop

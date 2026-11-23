@@ -144,6 +144,7 @@ import { mailPart, type MailPart } from './runner/mail.ts';
 import { coldCompactPart, compactionResult, type ColdCompactPart, type Precompact } from './runner/cold-compact.ts';
 import { COPIED_REFUSAL, neutraliseCopied, realCopy } from './real-copy.ts';
 import type { YearTokenAnswer, YearTokenParams } from './year-token-maker.ts';
+import { placeBucket, placeOf } from './place.ts';
 
 export type Notification =
   | { method: 'thread.updated'; params: { thread: ThreadSummary } }
@@ -1647,9 +1648,7 @@ export class Runner {
   }
 
   bucket(rec: ThreadRecord): 'inbox' | 'snoozed' | 'archived' {
-    if (rec.archivedAt) return 'archived';
-    if (rec.snoozedUntil && Date.parse(rec.snoozedUntil) > this.clock.now()) return 'snoozed';
-    return 'inbox';
+    return placeBucket(placeOf(rec), this.clock.now());
   }
 
   search(query: string, limit = 50): ThreadSummary[] {
@@ -1927,20 +1926,10 @@ export class Runner {
     // Sending to a snoozed or archived thread brings it back. A schedule's
     // message notes it came out of the archive, so the run can put it back
     // if it ends with nothing for Mike (the end of the turn, below).
-    if (rec.archivedAt && opts.origin === 'schedule') rec.unarchivedBySchedule = { by: rec.archivedBy };
-    if (fromMike(text, opts)) delete rec.unarchivedBySchedule;
-    if (rec.snoozedUntil || rec.archivedAt) {
-      delete rec.snoozedUntil;
-      delete rec.snoozedUntilRestart;
-      delete rec.untilRelease;
-      delete rec.wakeWhen;
-      delete rec.waitingOn;
-      delete rec.hibernatedForApp;
-      delete rec.archivedAt;
-      rt.releaseWhenIdle = false;
-    }
-    // Answering it from his phone without opening it counts as having seen it woke.
-    if (fromMike(text, opts)) delete rec.woke;
+    // Answering it from his phone without opening it counts as having seen
+    // it woke (place.ts, message).
+    if (placeOf(rec).kind !== 'inbox') rt.releaseWhenIdle = false;
+    this.park(st, { kind: 'message', fromSchedule: opts.origin === 'schedule', fromMike: fromMike(text, opts) });
     this.supersedeReviews(st, text, opts);
     // He has seen the reply a waiting panel went with.
     if (rec.panelRequest && fromMike(text, opts)) {
@@ -3211,9 +3200,9 @@ export class Runner {
     if (rec.unarchivedBySchedule) {
       const by = rec.unarchivedBySchedule.by;
       const goingOn = !!limitHit || !!netLost || movedOff || (outcome === 'completed' && said?.needs === 'nothing');
-      if (!goingOn || rec.archivedAt) delete rec.unarchivedBySchedule;
+      if (!goingOn || rec.archivedAt) this.park(st, { kind: 'scheduleRunEnded' });
       else if (!rec.queue.length && !rt.turn && finished && !review && !rec.labReviewOwed && !this.stopping) {
-        delete rec.unarchivedBySchedule;
+        this.park(st, { kind: 'scheduleRunEnded' });
         this.emit(st, { type: 'system.note', text: 'Back in the archive: the scheduled run ended with nothing for you.' });
         this.update({ threadId: rec.id, archived: true, archivedBy: by ?? 'threadbear' });
       }
@@ -3239,7 +3228,7 @@ export class Runner {
       this.update({ threadId: rec.id, snoozedUntil: new Date(this.clock.now() + APP_RESTART_MAX_AGE_MS).toISOString() });
       // After update, which clears it with the rest of a wait: the app shows
       // it under Running, as its work isn't over until Mike's running it.
-      rec.hibernatedForApp = true;
+      this.park(st, { kind: 'forApp' });
       this.markDirty(st);
     }
     // An invalid wait may leave the thread awake; do not strand its queue.
@@ -3332,7 +3321,7 @@ export class Runner {
     // A crash or a Stop ends a scheduled run for good: it stays in the
     // inbox, and a later run can't put it back in the archive (the end of
     // a turn, above).
-    if (rec.unarchivedBySchedule) delete rec.unarchivedBySchedule;
+    if (rec.unarchivedBySchedule) this.park(st, { kind: 'scheduleRunEnded' });
     const interrupted = turn.interruptRequested;
     if (!interrupted) this.emit(st, { type: 'error', message }, turn.turnId);
     const body: EventBody = {
@@ -3802,27 +3791,18 @@ export class Runner {
       );
     }
     if (params.snoozedUntil !== undefined) {
-      // Kept through a change of wake time, so the note on waking counts
-      // from when it first went away.
-      if (params.snoozedUntil !== null && this.bucket(rec) !== 'snoozed') rec.snoozedAt = this.isoNow();
-      delete rec.woke;
-      delete rec.snoozedUntilRestart;
-      delete rec.untilRelease;
-      delete rec.wakeWhen;
-      delete rec.waitingOn;
-      delete rec.hibernatedForApp;
-      if (params.snoozedUntil === null) delete rec.snoozedUntil;
+      // Any wait it had ends; a snooze from the inbox or the archive starts
+      // counting from now (place.ts, snooze).
+      if (params.snoozedUntil === null) this.park(st, { kind: 'unsnooze' });
       else if (params.snoozedUntil === 'restart' || params.snoozedUntil === 'release') {
-        rec.snoozedUntil = UNTIL_RESTART;
-        rec.snoozedUntilRestart = true;
         // Until a start on another release than this one. From a source
         // checkout there's no release to tell apart, so any start does.
-        if (params.snoozedUntil === 'release' && this.release) rec.untilRelease = this.release;
+        this.park(st, { kind: 'snooze', until: { kind: 'restart', ...(params.snoozedUntil === 'release' && this.release ? { release: this.release } : {}) } });
         stop = true;
       } else {
         const t = Date.parse(params.snoozedUntil);
         if (Number.isNaN(t)) throw new RpcError(ErrorCode.badParams, 'snoozedUntil must be an ISO time, "restart" or "release"');
-        rec.snoozedUntil = new Date(t).toISOString();
+        this.park(st, { kind: 'snooze', until: { kind: 'time', at: new Date(t).toISOString() } });
         stop = true;
       }
       this.armSnoozeTimer();
@@ -3830,8 +3810,7 @@ export class Runner {
     let archiving = false;
     if (params.archived !== undefined) {
       // Mike (or an agent) archived or unarchived it himself: that settles
-      // where it lives, not the schedule run that brought it back.
-      delete rec.unarchivedBySchedule;
+      // where it lives, not the schedule run that brought it back (place.ts).
       if (params.archived) {
         archiving = !rec.archivedAt;
         const by = params.archivedBy ?? 'mike';
@@ -3841,16 +3820,12 @@ export class Runner {
         if (archiving && by === 'mike') this.noteInboxArchive(st, this.looseEndsCard(st), verdict);
         // Said in the thread, for the agent or a sweeper reading it later.
         if (verdict && (archiving || verdict !== rec.archiveVerdict)) this.emit(st, { type: 'system.note', text: ARCHIVE_NOTES[verdict] });
-        rec.archivedAt = this.isoNow();
-        rec.archivedBy = by;
-        if (verdict) rec.archiveVerdict = verdict;
-        else delete rec.archiveVerdict;
+        this.park(st, { kind: 'archive', by, ...(verdict ? { verdict } : {}) });
         stop = true;
       } else {
         // Brought back out by hand: it stays out, however its next turn ends
         // (runner/quiet-inbox.ts).
-        if (rec.archivedAt) rec.keptOut = true;
-        delete rec.archivedAt;
+        this.park(st, { kind: 'unarchive' });
       }
     }
     if (archiving) {
@@ -4005,7 +3980,7 @@ export class Runner {
     const last = Math.max(rec.lastSeq, this.store.log(threadId).lastSeq);
     rec.lastSeenSeq = Math.max(rec.lastSeenSeq, Math.min(Math.floor(seq), last));
     rec.forceUnread = false;
-    delete rec.woke;
+    this.park(st, { kind: 'seen' });
     this.markDirty(st);
     return { thread: this.summary(st) };
   }

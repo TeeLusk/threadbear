@@ -49,6 +49,53 @@ Deliberately left out: the runner-owned copies of threads (`threads`,
 `threadIndex`: `status`, `archivedAt`, `starredAt`, `view`). The runner is
 their source of truth; the backend only mirrors them.
 
+## On the runner
+
+The runner's own lifecycles are plain types, no library: a discriminated
+union with a `kind` and one function that makes every move, like
+`runner/src/moves.ts` and `runner/src/update.ts`.
+
+**Where a thread is parked** (`runner/src/place.ts`, 20 Nov 2026): in the
+inbox, snoozed (hibernating) or archived. The record keeps its fourteen
+fields as they were (`snoozedUntil`, `snoozedUntilRestart`, `untilRelease`,
+`wakeWhen`, `waitingOn`, `hibernatedForApp`, `snoozedAt`, `woke`,
+`wakeChecked`, `archivedAt`, `archivedBy`, `archiveVerdict`,
+`unarchivedBySchedule`, `keptOut`), as the apps, Convex, forks and older
+runners read them by name; `placeOf` reads them as a `Place`, and every write
+is an event through `parkRecord` (`Runner.park`), which `place.test.ts`
+holds the rest of `runner/src` to. A sleep goes on inside the archive.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "inbox" as inbox
+  state "snoozed" as snoozed
+  note right of snoozed
+until a time, the runner restarting (or
+a new release), words (a time, a topic or
+both), threads finishing (with a time at
+the latest), or the app restarting
+  end note
+  state "archived" as archived
+  note right of archived
+may still hold a sleep, which ends
+quietly when it's due
+  end note
+  [*] --> inbox
+  inbox --> snoozed: snooze
+  snoozed --> snoozed: snooze, wordsAsked/Answered, waitOn, forApp, checked
+  snoozed --> inbox: wake, unsnooze, wordsFailed, message, reviewAnswered
+  inbox --> archived: archive
+  snoozed --> archived: archive (sleep kept)
+  archived --> archived: archive again, snooze, unsnooze, wake (sleep ends)
+  archived --> inbox: unarchive (keptOut), message, reviewAnswered
+  archived --> snoozed: unarchive with a sleep still due
+```
+
+Next on the runner, most worth it first: a turn's reply phase (end_turn's
+needs, snooze, waitFor, archive and the rest), the CLI session's life, sync's
+command intake and the worktree slot.
+
 ## Moving them onto @convex-dev/state-machines
 
 Mike's apps put lifecycles on his state machines library, vendored in

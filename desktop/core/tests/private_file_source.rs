@@ -69,7 +69,7 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ),
     (
         "core/src/open_policy.rs",
-        "{ std::fs::OpenOptions::new().write(true).open(path) }",
+        "std::fs::OpenOptions::new().write(true).open(path)",
         1,
     ),
     (

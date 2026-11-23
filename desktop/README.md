@@ -133,6 +133,26 @@ scripts/remote.sh cloud -- bash -c 'cd desktop && cargo test -p threadbear-gpui 
 threadbear-client` on its check host whenever something under `desktop/`
 changed, and the full check adds `cargo check --workspace --all-targets`.
 
+### Formatting
+
+The Rust is formatted by `cargo fmt` (`rustfmt.toml`: the defaults with the
+crates' edition), with the toolchain `../rust-toolchain.toml` pins, which
+rustup fetches by itself. `../check.sh` (so `tb land`, `--quick` included)
+and the Desktop workflow fail a change it would reformat. Before committing
+Rust:
+
+```bash
+cd desktop && cargo fmt --all
+```
+
+It's light, so it runs on the M5 too (`taskpolicy -b` in front). The
+generated CEF loader (`web/src/mac/loader.rs`) and `vendor/` are left as
+they are. Everything was formatted at once in one commit, listed in
+`../.git-blame-ignore-revs` (`git config blame.ignoreRevsFile
+.git-blame-ignore-revs` makes blame look past it). A branch from before it
+lands across it by itself; `../scripts/replay-over-format.sh` does the same
+by hand.
+
 `scripts/spec.sh` is the one-command version for use through `remote.sh`: it
 builds the app (Swift or GPUI), keeps its own copy of the GPUI binary so another
 checkout's build can't swap it mid-run (the cargo target folder is shared), and

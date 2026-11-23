@@ -109,6 +109,13 @@ stays. Separate repos do not block one another.
    same in the worktree and stops at the conflict for `git rebase
    --continue`. A commit the formatter can't parse is left as it is there
    and said. Waiting landings are stacked into a group check the same way.
+   The same goes for a tool that moves text between files rather than
+   formatting it (`# format-tool:`, like the split of docs/protocol.md
+   into docs/protocol/ by `scripts/split-protocol.mjs`): an edit made to the
+   single file comes across into the file its section went to. The branch
+   that brings in such a commit itself, rather than rebasing it onto a
+   main that has moved on in what it rewrote, has it made again there with
+   the same tool, its other commits picked as usual.
    Then it refuses a commit whose `Important:` line git doesn't read as a
    trailer (not in the last paragraph with `Co-Authored-By`), as a release
    would not flag it and forks wouldn't hear. And it holds a landing while

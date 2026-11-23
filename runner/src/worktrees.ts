@@ -15,7 +15,7 @@ import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
 import { mainCheckoutOf as linkedMainCheckout } from './patch-trust.ts';
 import { untrustedGitArgs } from './safe-git.ts';
-import { carryAcross, crossings, mergeAcross, touchesFormatted, TreeFormatter, type FormatCommit } from './format-replay.ts';
+import { carryAcross, crossings, mergeAcross, remakeOwn, touchesFormatted, TreeFormatter, type FormatCommit } from './format-replay.ts';
 import { LAND_TIMES_FILE, joinQueue, leaveQueue, queueDir, readEntry, readRunning, ridesFree, setRunning, typicalCheckSeconds, waiting, waitingLine, writeEntry, type QueueEntry } from './land-queue.ts';
 
 // What a thread's record keeps about its worktree.
@@ -984,18 +984,31 @@ async function prepare(
       const carried = await carryFormatted(t, base, cross, out);
       if (carried) return fail(...carried);
     }
-    const rebase = await git(t.path, ['rebase', base]);
+    // A tool's commit of its own (format-tool: the split of docs/protocol.md)
+    // is always made again on main, even where a rebase would go through:
+    // a section main added since has to go where the tool puts it.
+    const tool = await remadeOwn(t, base, out, true);
+    if (Array.isArray(tool)) return fail(...tool);
+    const rebase = tool === 'done' ? { ok: true, stdout: '', stderr: '' } : await git(t.path, ['rebase', base]);
     if (!rebase.ok) {
       const conflicted = (await gitOut(t.path, ['diff', '--name-only', '--diff-filter=U'])) ?? '';
       await git(t.path, ['rebase', '--abort']);
-      if (conflicted) {
-        return fail(
-          `Rebasing ${t.branch} on ${MAIN} ran into conflicts in:`,
-          ...conflicted.split('\n').map((f) => `  ${f}`),
-          `The rebase was undone, so ${t.branch} is as it was and ${MAIN} wasn't touched.${crossHint || ` Run git rebase ${MAIN} in ${t.path}, sort out those files and finish the rebase.`} Then run tb land again.`,
-        );
+      // A branch bringing in a format commit of its own (the split of
+      // docs/protocol.md, say) conflicts with whatever main changed since in
+      // the files it rewrote: that commit is made again on main instead, by
+      // its own tool (format-replay.ts, remakeOwn).
+      const remade = conflicted ? await remadeOwn(t, base, out) : undefined;
+      if (Array.isArray(remade)) return fail(...remade);
+      if (remade !== 'done') {
+        if (conflicted) {
+          return fail(
+            `Rebasing ${t.branch} on ${MAIN} ran into conflicts in:`,
+            ...conflicted.split('\n').map((f) => `  ${f}`),
+            `The rebase was undone, so ${t.branch} is as it was and ${MAIN} wasn't touched.${crossHint || ` Run git rebase ${MAIN} in ${t.path}, sort out those files and finish the rebase.`} Then run tb land again.`,
+          );
+        }
+        return fail(`git rebase ${MAIN} failed in ${t.path}, so nothing landed: ${firstLine(rebase.stderr || rebase.stdout)}`);
       }
-      return fail(`git rebase ${MAIN} failed in ${t.path}, so nothing landed: ${firstLine(rebase.stderr || rebase.stdout)}`);
     }
   }
 
@@ -1031,6 +1044,39 @@ async function prepare(
   const commit = await gitOut(t.path, ['rev-parse', 'HEAD']);
   if (!commit) return fail(`Couldn't read HEAD in ${t.path}.`);
   return { hasMerge, base, commit, commits };
+}
+
+// A branch with a format commit of its own whose rebase conflicted, with
+// that commit made again on main (format-replay.ts, remakeOwn): 'done' once
+// the branch is moved there, the lines to fail with on a real conflict in
+// its other commits, or undefined when it has no such commit (or it
+// couldn't be remade, which leaves the rebase's conflict to say).
+async function remadeOwn(t: LandTarget, main: string, out: (line: string) => void, toolsOnly = false): Promise<'done' | string[] | undefined> {
+  const before = await gitOut(t.path, ['rev-parse', t.branch]);
+  if (!before) return undefined;
+  try {
+    const r = await remakeOwn(t.path, main, before, { toolsOnly });
+    if (!r) return undefined;
+    if (!r.ok) {
+      if ('error' in r) {
+        out(r.error);
+        return undefined;
+      }
+      return [
+        `${t.branch} brings in a format commit, made again on ${MAIN}, but ${r.at.slice(0, 10)} (${r.subject}) conflicts with ${MAIN} in:`,
+        ...r.conflict.map((f) => `  ${f}`),
+        `Nothing changed, so ${t.branch} is as it was. Sort out those files (git rebase ${MAIN}, and for the format commit run its tool again rather than merge it), then run tb land again.`,
+      ];
+    }
+    const moved = await git(t.path, ['reset', '--keep', r.tip]);
+    if (!moved.ok) return [`Couldn't move ${t.branch} to its remade commits in ${t.path}, so nothing landed: ${firstLine(moved.stderr || moved.stdout)}`];
+    for (const n of r.notes) out(n);
+    out(`Made ${r.remade.map((c) => c.slice(0, 10)).join(', ')} again on ${MAIN} with the tool its .git-blame-ignore-revs entry names, as main has moved on in what it rewrites (${t.branch} was at ${before.slice(0, 10)}).`);
+    return 'done';
+  } catch (e) {
+    out(`Couldn't make its format commit again (${e instanceof Error ? e.message : String(e)}).`);
+    return undefined;
+  }
 }
 
 // The branch's commits carried across the format commits main has and it

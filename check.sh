@@ -584,7 +584,7 @@ fi
 # (cargo check of the GPUI app, the dock and every test), a few minutes from
 # cold. On a check host cargo's target folder is kept between runs
 # (scripts/check-remote.sh), so --quick stays about a minute.
-DESKTOP_NEEDS='^desktop/|^features/support/sample\.png$|^site/app-doc-slugs\.json$|^app/Tools/mock-runner/|^runner/src/|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/Art/|^app/Sources/Threadbear/Resources/Rich/'
+DESKTOP_NEEDS='^desktop/|^rust-toolchain\.toml$|^features/support/sample\.png$|^site/app-doc-slugs\.json$|^app/Tools/mock-runner/|^runner/src/|^app/Tests/Fixtures/|^app/Sources/Threadbear/Resources/Art/|^app/Sources/Threadbear/Resources/Rich/'
 # What cargo builds from outside desktop/ (include_bytes!, include_str!), folders
 # or files, for the hashing below.
 DESKTOP_BUILT_IN=(app/Sources/Threadbear/Resources/Art app/Sources/Threadbear/Resources/Rich site/app-doc-slugs.json features/support/sample.png)
@@ -636,6 +636,30 @@ cargo_step() {
   step "$name" "$ROOT/desktop" "${LIMITED[@]}" "$CARGO" "$@"
   [ -z "$record" ] || [ "$FAILED" != "$before" ] || mv "$sums" "$record"
 }
+# desktop/'s Rust as cargo fmt writes it (desktop/rustfmt.toml, with the
+# rustfmt of rust-toolchain.toml), --quick included: no build, a few seconds,
+# so it runs wherever this does, this Mac included. The log ends with the fix.
+if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
+  if needed '^desktop/|^rust-toolchain\.toml$'; then
+    FMT_CARGO="$(command -v cargo || true)"
+    [ -n "$FMT_CARGO" ] || [ ! -x "$HOME/.cargo/bin/cargo" ] || FMT_CARGO="$HOME/.cargo/bin/cargo"
+    if [ -n "$FMT_CARGO" ]; then
+      step "desktop format" "$ROOT/desktop" bash -c '"$1" fmt --all -- --check && exit 0
+        printf "\ndesktop/ is not formatted as cargo fmt writes it (the diff is above).\nFix: cd desktop && cargo fmt --all, then commit what it changed.\n"
+        exit 1' _ "$FMT_CARGO"
+    elif [ -n "${THREADBEAR_CHECK_CHANGED_FILE:-}" ]; then
+      log="$LOGS/desktop-format.log"
+      echo "No cargo on this check host, and desktop/ changed: rustup.rs installs it." >"$log"
+      printf 'FAIL  %-20s       %s\n' "desktop format" "$log"
+      FAILED="${FAILED}desktop format|$log
+"
+    else
+      skip "desktop format" "no cargo here: rustup.rs installs it"
+    fi
+  else
+    skip "desktop format" "nothing in desktop/ changed"
+  fi
+fi
 if [ "$APP_ONLY" = 0 ] && [ "$RUNNER_ONLY" = 0 ]; then
   if ! needed "$DESKTOP_NEEDS"; then
     skip "desktop core tests" "nothing desktop/ reads changed"

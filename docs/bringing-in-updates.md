@@ -112,8 +112,12 @@ copy's tree run through the same formatter as the result, then the release:
 none of the formatting clashes, and Mike's commits keep their ids. A clash
 it stops at is sorted out as below, then `git commit` and run it again. It
 needs the formatter the list names (`cargo fmt` from rustup for the Rust
-one; rustup fetches the pinned toolchain itself). If this checkout doesn't
-have the script yet, run the release's own copy:
+one; rustup fetches the pinned toolchain itself). The split of
+docs/protocol.md into docs/protocol/ is one too (`# format-tool:`, run by
+node): your edits to the single file land in the file their section went
+to. A copy of the script older than the split doesn't know that kind
+and would leave the split as a conflict, so run the release's own copy. If
+this checkout doesn't have the script yet, the same:
 
 ```sh
 git show <commit>:runner/src/format-replay.ts > "${TMPDIR:-/tmp}/format-replay.ts"

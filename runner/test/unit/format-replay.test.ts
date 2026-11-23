@@ -276,3 +276,47 @@ test('a commit the formatter gives up on entirely keeps the formatting of every 
   assert.equal(sh(main, `git show ${first}:src/a.rs`), 'fn a() {}');
   assert.equal(sh(main, `git rev-parse ${r.tip}^{tree}`), formattedTree(main, fmt, tip));
 });
+
+test('a commit already on main (landed as a copy before the format commit) is left out, as rebase leaves it', async () => {
+  const { main, fmt, list } = setup();
+  commit(main, { 'src/a.rs': 'fn  a()  {\n    one();\n}\n', 'fmt.toml': 'style = 1\n', '.git-blame-ignore-revs': list }, 'Code');
+  const p = sh(main, 'git rev-parse HEAD');
+  const t = makeBranch(main);
+  commit(t.path, { 'src/a.rs': 'fn  a()  {\n    one();\n    two(  );\n}\n' }, 'Two');
+  commit(t.path, { 'src/b.rs': 'fn  b() {}\n' }, 'Add b');
+  // Main takes the first as a copy, then changes the same lines further, then formats.
+  sh(main, `git cherry-pick -x ${sh(t.path, 'git rev-parse HEAD^')}`);
+  commit(main, { 'src/a.rs': 'fn  a()  {\n    one();\n    two(  3 );\n}\n' }, 'Three');
+  formatOnMain(main, fmt);
+  const tip = sh(t.path, 'git rev-parse HEAD');
+  const r = await carryAcross(main, { base: p, tip, onto: sh(main, 'git rev-parse main'), formatter: new TreeFormatter(main, await crossings(main, tip, 'main')) });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.equal(r.count, 1);
+  assert.match(r.notes.join('\n'), /\(Two\) was left out: it's on/);
+  assert.equal(sh(main, `git show ${r.tip}:src/a.rs`), 'fn a() {\n one();\n two( 3 );\n}');
+  assert.equal(sh(main, `git log -1 --format=%s ${r.tip}`), 'Add b');
+});
+
+test('the script\'s rebase leaves out a commit already on main as well, past a real conflict', () => {
+  const { main, fmt, list } = setup();
+  const script = path.join(import.meta.dirname, '..', '..', '..', 'scripts', 'replay-over-format.sh');
+  commit(main, { 'src/a.rs': 'fn  a()  {}\n', 'src/b.rs': 'fn  b()  {\n    one();\n}\n', 'fmt.toml': 'style = 1\n', '.git-blame-ignore-revs': list }, 'Code');
+  const t = makeBranch(main);
+  commit(t.path, { 'src/b.rs': 'fn  b()  {\n    one();\n    two(  );\n}\n' }, 'Two');
+  commit(t.path, { 'src/a.rs': 'fn  a()  { ours }\n' }, 'Ours');
+  sh(main, `git cherry-pick -x ${sh(t.path, 'git rev-parse HEAD^')}`);
+  commit(main, { 'src/b.rs': 'fn  b()  {\n    one();\n    two(  3 );\n}\n' }, 'Three');
+  formatOnMain(main, fmt);
+  commit(main, { 'src/a.rs': 'fn a() { theirs }\n' }, 'Theirs');
+  let output = '';
+  try {
+    execFileSync(script, [], { cwd: t.path, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_CONFIG_PARAMETERS: "'rebase.abbreviatecommands'='true' 'core.abbrev'='4'" } });
+  } catch (e) {
+    output = String((e as { stdout?: string }).stdout ?? '');
+  }
+  assert.match(output, /is on main already, so it's left out/);
+  write(t.path, { 'src/a.rs': 'fn a() { both }\n' });
+  sh(t.path, 'git add src/a.rs && GIT_EDITOR=true git rebase --continue');
+  assert.equal(sh(t.path, 'git log --format=%s -2'), 'Ours\nTheirs');
+  assert.equal(sh(t.path, 'git show HEAD:src/b.rs'), 'fn b() {\n one();\n two( 3 );\n}');
+});

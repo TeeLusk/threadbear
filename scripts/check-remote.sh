@@ -462,7 +462,7 @@ if [ "$RUNNER_ONLY" = 1 ] && [ -z "$SHOTS" ]; then linux_ok=1; fi
 # this a failure on the Linux box could never be looked into there (Codex's
 # review, 17 Nov). With --all too: tb land asks for it on main's run there,
 # and with --only it only forces the steps named (Codex's review, 17 Nov).
-LINUX_STEPS='^(runner typecheck|app tools parse|convex typecheck|web typecheck|web tests|site build|feature pairing|runner unit tests|desktop core tests|desktop app check|desktop app check \(as installed\)|[a-z ]+ packages)$'
+LINUX_STEPS='^(runner typecheck|app tools parse|convex typecheck|web typecheck|web tests|site build|feature pairing|runner unit tests|desktop format|desktop core tests|desktop app check|desktop app check \(as installed\)|[a-z ]+ packages)$'
 if [ -n "$ONLY" ] && [ "$QUICK" = 1 ] && [ -z "$SHOTS" ]; then
   linux_ok=1
   only_rest="$ONLY;"

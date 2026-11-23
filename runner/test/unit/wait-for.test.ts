@@ -249,3 +249,16 @@ test('waitFor until: an ordinary finish is not enough; the librarian saying it h
   assert.match(text, /Saved 4\.1 MB\./);
   assert.equal(h.runner.waitMet(waiter, target, 'again', 'it reports the I/O saving'), false, 'only once');
 });
+
+// Before place.ts, update cleared a thread's waits (and its "Woke up") before
+// it read the time, and then refused it: the thread slept on to its latest
+// time with nothing it was waiting for (20 Nov 2026).
+test('waitFor: a snooze time that is no time is refused before the wait is touched', () => {
+  const { h, waiter, target, turn } = setup();
+  turn(waiter, { needs: 'nothing', waitFor: [target] });
+  const before = h.runner.get(waiter);
+  assert.throws(() => h.runner.update({ threadId: waiter, snoozedUntil: 'next tuesday-ish' }), /ISO time/);
+  const after = h.runner.get(waiter);
+  assert.deepEqual(after.waitingOn, before.waitingOn);
+  assert.equal(after.snoozedUntil, before.snoozedUntil);
+});

@@ -573,6 +573,7 @@ through the deploy script (Releases and deploys, above).
 | `src/release.ts`, `src/restart.ts` | The release this runner is, `lastGood` and rollback notices; `runner.restart`, `runner.status` and the resume after a restart. |
 | `src/runner.ts` | The Runner: startup, threads, turns, the queue, the CLI's output, update and delete, events, summaries. |
 | `src/runner/*.ts` | The rest of the Runner's methods, one area a file (pools, worktrees, patches, approvals, reviews, handovers, hibernation and so on). Each is an object of methods whose `this` is the Runner; runner.ts merges their types into the class and puts them on its prototype. A new method for one of those areas goes in its file. |
+| `src/place.ts` | Where a thread is parked (inbox, snoozed, archived): the `Place` type, `movePlace`, and `parkRecord`, the only writer of those record fields (docs/lifecycles.md, "On the runner"). |
 | `src/rpc.ts` | WebSocket JSON-RPC server, auth, subscriptions. |
 | `src/adapters/types.ts` | The adapter interface. Codex will be a second implementation. |
 | `src/adapters/claude/adapter.ts` | Claude Agent SDK session: options, input queue, `canUseTool`, interrupt, release. |

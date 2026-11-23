@@ -101,6 +101,37 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/swift_import.rs", "let out = Command::new(\"/usr/bin/defaults\").args([\"export\", \"com.mikerosoft.threadbear\", \"-\"]).stderr(Stdio::null()).output().map_err(|e| format!(\"couldn't run defaults: {e}\"))?;", 1),
 ];
 
+/// Code with its layout taken out: no whitespace, and no comma before a
+/// closing bracket (rustfmt adds one when it puts a list on lines of its own),
+/// so an allowed statement reads the same however it's laid out.
+fn squash(code: &str) -> String {
+    let joined: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+    joined
+        .replace(",)", ")")
+        .replace(",]", "]")
+        .replace(",}", "}")
+}
+
+/// How many of `lines`, from the first, hold `statement` (written on one line
+/// in ALLOWED_LINES), or None if they don't start with it.
+fn statement_at(lines: &[&str], statement: &str) -> Option<usize> {
+    let want = squash(statement);
+    let mut so_far = String::new();
+    for (i, line) in lines.iter().enumerate().take(40) {
+        so_far.push_str(line.trim());
+        so_far.push('\n');
+        let have = squash(&so_far);
+        if have.len() >= want.len() {
+            return have.starts_with(&want).then_some(i + 1);
+        }
+        // (A comma at the end so far may be one a closing bracket drops.)
+        if !want.starts_with(have.trim_end_matches(',')) {
+            return None;
+        }
+    }
+    None
+}
+
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -148,14 +179,22 @@ fn nothing_opens_outside_the_gate() {
             continue;
         }
         let text = std::fs::read_to_string(file).unwrap();
-        for (n, line) in text.lines().enumerate() {
-            if let Some(i) = ALLOWED_LINES
+        let lines: Vec<&str> = text.lines().collect();
+        let mut n = 0;
+        while n < lines.len() {
+            let line = lines[n];
+            // An allowed statement, however rustfmt spreads it over lines.
+            if let Some((i, used)) = ALLOWED_LINES
                 .iter()
-                .position(|(f, l, _)| *f == rel && line.trim() == *l)
+                .enumerate()
+                .filter(|(_, (f, _, _))| *f == rel)
+                .find_map(|(i, (_, l, _))| statement_at(&lines[n..], l).map(|used| (i, used)))
             {
                 allowed_seen[i] += 1;
+                n += used;
                 continue;
             }
+            n += 1;
             // Comments may name them; `file://` itself has a `//` in it, so
             // only whole comment lines are passed over.
             if line.trim_start().starts_with("//") {
@@ -163,7 +202,7 @@ fn nothing_opens_outside_the_gate() {
             }
             for opener in OPENERS {
                 if line.contains(opener) {
-                    found.push(format!("{rel}:{}: {}", n + 1, line.trim()));
+                    found.push(format!("{rel}:{}: {}", n, line.trim()));
                 }
             }
         }
@@ -418,7 +457,7 @@ fn fixed_apps_start_only_once_signed_and_icons_never_ask_launch_services() {
     );
     assert!(!gate.contains("URLForApplicationWithBundleIdentifier(&NSString::from_str(threadbear_core::reply_links::CHROME_BUNDLE_ID))"), "Chrome by id, not the running one");
     let simulator = fn_body(&gate, "fn apple_simulator(");
-    assert!(simulator.contains("signed_as(path, \"anchor apple and identifier"));
+    assert!(squash(&simulator).contains(&squash("signed_as(path, \"anchor apple and identifier")));
     assert_eq!(
         gate.matches("Command::new(\"/usr/bin/open\")").count(),
         1,

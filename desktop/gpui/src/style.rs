@@ -1456,9 +1456,31 @@ mod group_hover_text_source_tests {
                 } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("style.rs")
                 {
                     let text = std::fs::read_to_string(&path).unwrap();
-                    for (n, line) in text.lines().enumerate() {
+                    let lines: Vec<&str> = text.lines().collect();
+                    for (n, line) in lines.iter().enumerate() {
                         if let Some(at) = line.find(".group_hover(") {
-                            if line[at..].contains("text_color") {
+                            // The call's own brackets, which rustfmt may
+                            // spread over the lines after.
+                            let rest = std::iter::once(&line[at + ".group_hover".len()..])
+                                .chain(lines[n + 1..].iter().take(20).copied())
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let mut depth = 0;
+                            let mut end = rest.len();
+                            for (i, c) in rest.char_indices() {
+                                match c {
+                                    '(' => depth += 1,
+                                    ')' => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            end = i;
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if rest[..end].contains("text_color") {
                                 bad.push(format!("{}:{}", path.display(), n + 1));
                             }
                         }

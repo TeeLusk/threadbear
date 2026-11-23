@@ -11,7 +11,11 @@
 #                   rebase it on the way to GitHub, so the id is filled in
 #                   from origin/main afterwards)
 #   format-command  what made it, run from the top of a copy of the tree
-#   format-paths    the folders it formats (and only reads from)
+#   format-tool     instead of format-command: a tool that may also add and
+#                   delete files under its paths (a copy older than this key
+#                   skips the entry, so it stops at the conflict rather than
+#                   lose the files the tool made)
+#   format-paths    the folders (or files) it formats (and only reads from)
 #   format-config   files taken from the format commit itself while
 #                   formatting an older tree, so it's formatted the same way
 # The tree's own config files are put back afterwards. A format commit
@@ -21,3 +25,8 @@
 # format-command: cd desktop && cargo fmt --all
 # format-paths: desktop
 # format-config: rust-toolchain.toml desktop/rustfmt.toml
+
+# format-subject: Split docs/protocol.md into a file per area, moving text only
+# format-tool: node scripts/split-protocol.mjs
+# format-paths: docs/protocol.md docs/protocol
+# format-config: scripts/split-protocol.mjs

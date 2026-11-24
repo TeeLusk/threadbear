@@ -192,7 +192,7 @@ impl Threadbear {
             }
         };
         let args = json!({ "tab": tab.tab_id, "to": thread });
-        let (tab_id, lent_thread) = (tab.tab_id, thread.clone());
+        let (tab_id, lent_thread) = (tab.tab_id, thread);
         let failed_for_answer = failed.clone();
         let asked = crate::agent_browser::model(cx).is_some_and(|bear| {
             bear.update(cx, |bear, cx| {

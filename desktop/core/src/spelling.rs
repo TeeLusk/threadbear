@@ -55,7 +55,7 @@ pub fn link_targets(text: &str) -> Vec<Range<usize>> {
     let mut from = 0;
     while let Some(at) = text[from..].find("](") {
         let start = from + at + 2;
-        match text[start..].find(|c: char| c == ')' || c == '\n') {
+        match text[start..].find([')', '\n']) {
             Some(len) if text[start + len..].starts_with(')') => {
                 found.push(start..start + len);
                 from = start + len + 1;

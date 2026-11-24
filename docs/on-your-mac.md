@@ -85,7 +85,7 @@ File references are where to look.
   output is in setup's terminal, or that thread. `rustup self uninstall` takes Rust off again.
 - **The GPUI app's web runtime, only if you install it** (its Install web
   runtime button, or Settings > General > Web runtime; nothing is fetched
-  until you press one): Chromium, as CEF's official minimal build 156.0.26,
+  until you press one): Chromium, as CEF's official minimal build 156.0.31,
   downloaded once from Spotify's CEF builds (135 MB, checked against the
   size and hashes pinned in `desktop/core/src/web_runtime.rs` before
   anything is unpacked), into

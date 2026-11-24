@@ -10,10 +10,14 @@ const at = Date.parse('2026-11-13T00:00:00Z');
 const version = (v: string, date: string, channel = 'stable') => ({ cef_version: v, channel, files: [{ type: 'minimal', last_modified: date }] });
 const index = (...versions: unknown[]) => ({ macosarm64: { versions } });
 const old = version(PIN, '2026-11-07T00:00:00Z');
-const newer = '156.0.28+g57389f0+chromium-156.0.8078.88';
+// Keep the synthetic candidates ahead of the pin when the runtime is bumped.
+const nextMajor = Number(PIN.split('.')[0]) + 1;
+const earlier = `${nextMajor}.0.1+gabc+chromium-${nextMajor}.0.9000.1`;
+const newer = `${nextMajor}.0.2+gabc+chromium-${nextMajor}.0.9000.2`;
+const beta = `${nextMajor + 1}.0.1+gabc+chromium-${nextMajor + 1}.0.9000.1`;
 
 test('reports the earliest newer stable, ignoring beta and order', () => {
-  const got = inspectIndex(index(version('158.0.1+gabc+chromium-158.0.8127.18', '2026-10-01', 'beta'), version(newer, '2026-11-11'), old, version('156.0.27+gabc+chromium-156.0.8078.88', '2026-11-10')), 'macosarm64', at);
+  const got = inspectIndex(index(version(beta, '2026-10-01', 'beta'), version(newer, '2026-11-11'), old, version(earlier, '2026-11-10')), 'macosarm64', at);
   assert.equal(got.latest, newer);
   assert.equal(got.behindSince, Date.parse('2026-11-10'));
   assert.equal(inspectIndex(index(old), 'macosarm64', at).behindSince, undefined);
@@ -39,11 +43,11 @@ test('warns after two weeks, retains warning offline and across restart, clears 
     await check.check();
     assert.equal(check.problem(), undefined);
     clock.advance(14 * DAY_MS);
-    assert.match(check.problem()!, /156.0.28/);
+    assert.ok(check.problem()?.includes(`stable ${newer.split('+')[0]}`));
     offline = true;
     await check.check();
     check = new WebRuntimeUpdates(deps);
-    assert.match(check.problem()!, /156.0.28/);
+    assert.ok(check.problem()?.includes(`stable ${newer.split('+')[0]}`));
     offline = false; current = true;
     await check.check();
     assert.equal(check.problem(), undefined);

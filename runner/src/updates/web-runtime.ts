@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import type { Clock, TimerHandle } from '../clock.ts';
 import { atomicWriteFileSync, readJsonSync } from '../fsutil.ts';
 
-export const PIN = '156.0.26+g8ea0c73+chromium-156.0.8078.88';
+export const PIN = '156.0.31+ge603d97+chromium-156.0.8078.100';
 export const DAY_MS = 24 * 60 * 60_000;
 const INDEX = 'https://cef-builds.spotifycdn.com/index.json';
 type Checked = { latest: string; behindSince?: number };

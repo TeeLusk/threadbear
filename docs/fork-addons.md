@@ -9,7 +9,7 @@ Keep it short: each add-on is a clash to settle on every release. On
 doing the same thing (see "Taken out" below). Before adding one, check
 whether Mike's release already does it.
 
-Last checked: 22 Nov 2026, bringing in Mike's release 2026-11-22.
+Last checked: 23 Nov 2026 (Mike's release 2026-11-22).
 
 ## Kept
 
@@ -24,6 +24,7 @@ Last checked: 22 Nov 2026, bringing in Mike's release 2026-11-22.
 | Composer spelling menu fix | Spelling menu items go to the box that opened them | GPUI app (0b1cd5eb) |
 | `#` thread picker | Typing # in the message box picks a thread and puts its id in the message | GPUI app (9a48cf5b) |
 | GPUI installed-build fix | Lets the @ tab picker build without the automation feature (Mike's check.sh now checks the installed build itself) | GPUI app (11270d9c's app.rs line) |
+| No runner tests on self-update | The runner's self-update always skips its tests, not only for commits a landing tested: bring-ins are build-only, so Mike's way would run the full runner tests after each one (hours here) | runner `update.ts`, "Fork patch (TeeLusk)" (settled in 796b5f29) |
 
 ## Taken out on 20 Nov 2026
 
@@ -43,7 +44,6 @@ Reverted on main, so `git revert <revert commit>` brings one back.
 | Older git (sm-agx2) | This Mac has git 2.54 |
 | Claude in Chrome for threads | Agents use BrowserBear |
 | Staged app build banner, and the Swift app halves of the kept add-ons | The Swift app is frozen; Tyler uses the GPUI app |
-| No local checks in auto-update | Mike's updater already skips them for landed commits |
 | PlanetScale panel | Now Tyler's own patch, `~/.threadbear/patches/planetscale.ts` |
 
 ## Taken out on 22 Nov 2026

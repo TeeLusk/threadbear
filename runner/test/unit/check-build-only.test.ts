@@ -32,7 +32,7 @@ function checkout(mergeTitle: string) {
   put('runner/test/unit/ok.test.ts', "import { test } from 'node:test';\ntest('ok', () => {});\n");
   put('package.json', JSON.stringify({ scripts: { 'convex:typecheck': 'true', 'web:typecheck': 'true', 'web:test': 'true' } }));
   put('app/Tools/ok.mjs', '');
-  put('app/Tools/mock-runner/ok.mjs', '');
+  put('mock-runner/ok.mjs', '');
   put('.gitignore', 'node_modules\n.tb-check*\n');
   const git = (...args: string[]) => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], {

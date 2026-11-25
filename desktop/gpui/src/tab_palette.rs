@@ -449,7 +449,7 @@ impl Composer {
     ) -> bool {
         // With no @ picker open, the # thread picker may want it (thread_palette.rs).
         let Some(view) = self.tab_view(cx) else {
-            return self.thread_palette_key(key, window, cx);
+            return self.thread_picker_key(key, window, cx);
         };
         let matches = view.matches();
         if matches.is_empty() && key != PaletteKey::Escape {

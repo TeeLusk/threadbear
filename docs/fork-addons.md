@@ -9,7 +9,7 @@ Keep it short: each add-on is a clash to settle on every release. On
 doing the same thing (see "Taken out" below). Before adding one, check
 whether Mike's release already does it.
 
-Last checked: 23 Nov 2026 (Mike's release 2026-11-22).
+Last checked: Mike's release 2026-11-25.
 
 ## Kept
 
@@ -22,7 +22,6 @@ Last checked: 23 Nov 2026 (Mike's release 2026-11-22).
 | Build-only bring-ins | Landing one of Mike's releases only typechecks and builds, no tests | `check.sh --build`, on by itself for a "Bring in Mike's release" merge (e002e4de) |
 | BrowserBear for web pages | Agents are told to use BrowserBear rather than other browser tools | runner (e4320257) |
 | Composer spelling menu fix | Spelling menu items go to the box that opened them | GPUI app (0b1cd5eb) |
-| `#` thread picker | Typing # in the message box picks a thread and puts its id in the message | GPUI app (9a48cf5b) |
 | GPUI installed-build fix | Lets the @ tab picker build without the automation feature (Mike's check.sh now checks the installed build itself) | GPUI app (11270d9c's app.rs line) |
 | No runner tests on self-update | The runner's self-update always skips its tests, not only for commits a landing tested: bring-ins are build-only, so Mike's way would run the full runner tests after each one (hours here) | runner `update.ts`, "Fork patch (TeeLusk)" (settled in 796b5f29) |
 
@@ -53,6 +52,13 @@ Reverted on main, so `git revert <revert commit>` brings one back.
 | Annotated page into the message box (ec905fbc) | Tyler never got it working from the panel |
 | Panel layouts per project (Ville, a9d7d15b) | Only in the frozen Swift app; the GPUI app never had it |
 | tb land fix (sm-agx2, ad0ab215) | Mike's own version of it is already on main |
+
+## Taken out with Mike’s 25 Nov release
+
+| Add-on | Why |
+| --- | --- |
+| `#` thread picker | Mike's picker inserts a titled thread link as a chip. |
+| CEF 156.0.31 update | Mike's runtime and Rust bindings match the fork's pins. |
 
 ## Patches
 

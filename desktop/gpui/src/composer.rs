@@ -265,7 +265,7 @@ impl Composer {
                 InputEvent::Change => {
                     this.palette_text_changed(cx);
                     this.tab_text_changed(cx);
-                    this.thread_text_changed(cx);
+                    this.thread_picker_text_changed(cx);
                     // Marks, and a correction as a word ends (composer_spelling.rs).
                     this.spelling_after_edit(window, cx);
                     // Kept across a quit (drafts.rs).
@@ -2638,14 +2638,15 @@ impl Render for Composer {
         // message: a chip each, so it's plain they do (composer_drafts.rs).
         let draft_chips = self.render_draft_chips(cx);
         let needs_you = self.open_card(cx).is_some_and(|c| !c.is_done());
-        // The slash palette, or else the @ tab picker (tab_palette.rs), or
-        // else the # thread picker (thread_palette.rs).
-        let palette = match self.render_palette(window, cx) {
-            Some(palette) => Some(palette),
-            None => match self.render_tab_palette(window, cx) {
-                Some(palette) => Some(palette),
-                None => self.render_thread_palette(window, cx),
-            },
+        // The slash palette or @ picker, on the box's top edge, or else
+        // the # thread picker, on the text's (thread_palette.rs).
+        let palette = self
+            .render_palette(window, cx)
+            .or_else(|| self.render_tab_palette(window, cx));
+        let thread_picker = if palette.is_none() {
+            self.render_thread_picker(window, cx)
+        } else {
+            None
         };
         let width = self.card_width.clone();
         let top = self.box_top.clone();
@@ -2675,7 +2676,16 @@ impl Render for Composer {
             .children(answer_chips)
             .children(draft_chips)
             .when_some(strip, |s, strip| s.child(strip))
-            .child(self.render_text_field(locked, cx))
+            // The # picker hangs off the text, not the box's top: with a
+            // card or chips over the text it sat a card's height away from
+            // the # it was typed at (Mike, 24 Nov).
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .child(self.render_text_field(locked, cx))
+                    .children(thread_picker),
+            )
             .child(controls);
         // The transcript's reading column: 780 wide at most, centred, with
         // the same side insets once the window is narrower.

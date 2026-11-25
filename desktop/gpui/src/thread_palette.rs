@@ -1,9 +1,11 @@
-// The # picker over the message box: Tyler's threads, those whose title,
-// folder or id has what's typed after the # (threadbear_core::thread_mentions).
-// Arrows move, Return or Tab or a click picks one, Esc closes it. Picking one
-// puts a link to the thread, with its title, where the #word was, so the agent can read or message
-// that thread. Drawn as the @ tab picker is (tab_palette.rs), which, like the
-// slash palette, goes first.
+// The # thread picker over the message box: type # at the start of a word and
+// the other threads are listed, latest first, narrowed by what's typed after
+// it (threadbear_core::thread_mentions). Up and Down move, Return, Tab or a
+// click puts the thread in as its chip (the link `[title](thread:<id>)`, as a
+// pasted id goes in), and Esc closes it. It only shows while something
+// matches, so a # in other words ("issue #12") doesn't get in the way, and
+// the slash palette goes first. Drawn as the slash palette's layer is
+// (slash_palette.rs), with the keys reaching it from the box the same way.
 use crate::composer::Composer;
 use crate::style::{self, size};
 use crate::tips::Tip as _;
@@ -16,76 +18,66 @@ use crate::style::px;
 #[cfg(feature = "automation")]
 use serde_json::{json, Value};
 use std::sync::Arc;
-use threadbear_core::inbox::ThreadSummary;
+use threadbear_core::inbox::{folder_name, ThreadSummary};
+use threadbear_core::inline_chips::draft_pieces;
 use threadbear_core::slash::PaletteKey;
-use threadbear_core::tab_mentions::height;
-use threadbear_core::thread_mentions::{self as mentions, Query};
+use threadbear_core::thread_mentions::{self as mentions, Typed};
 
 impl Composer {
-    /// The "#word" before the cursor while the picker is open: not while the
-    /// slash palette or the @ tab picker is, not with a selection, and not
-    /// once Esc closed it at this text.
-    fn thread_query(&self, cx: &App) -> Option<Query> {
+    /// The "#word" before the cursor and the threads it matches, while the
+    /// picker is open: not with a selection, not once Esc closed it at this
+    /// text, and not with nothing to list.
+    fn thread_picker_open(&self, cx: &App) -> Option<(Typed, Vec<Arc<ThreadSummary>>)> {
         let state = self.input.read(cx);
-        let text = state.value().to_string();
-        if self.thread_picker.closed_at.as_deref() == Some(text.as_str())
-            || self.palette_typed(&text).is_some()
-        {
-            return None;
-        }
         if !state.selected_range().is_empty() {
             return None;
         }
-        mentions::query(&text, state.cursor())
-    }
-
-    /// The threads matching what's typed, read each time it's drawn.
-    fn thread_matches(&self, query: &Query, cx: &App) -> Vec<Arc<ThreadSummary>> {
-        let Some(app) = self.app.upgrade() else {
-            return vec![];
-        };
+        let text = state.value();
+        if self.thread_picker.closed_at.as_deref() == Some(text.as_ref()) {
+            return None;
+        }
+        let typed = mentions::typed(&text, state.cursor())?;
+        let app = self.app.upgrade()?;
         let all: Vec<Arc<ThreadSummary>> = app.read(cx).threads.values().cloned().collect();
-        mentions::matches(&all, &query.text, self.thread_id.as_deref())
+        let found = mentions::matches(&all, &typed.query, self.thread_id.as_deref());
+        (!found.is_empty()).then_some((typed, found))
     }
 
-    /// Esc closed the picker at that text only: any change reopens it.
-    pub(crate) fn thread_text_changed(&mut self, cx: &mut Context<Self>) {
-        let text = self.input.read(cx).value().to_string();
+    /// Esc closed the picker at that text only: any change reopens it. And
+    /// the arrows' pick goes once the picker closes.
+    pub(crate) fn thread_picker_text_changed(&mut self, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).value();
         if self
             .thread_picker
             .closed_at
             .as_deref()
-            .is_some_and(|c| c != text)
+            .is_some_and(|c| c != text.as_ref())
         {
             self.thread_picker.closed_at = None;
         }
-        if self.thread_query(cx).is_none() {
+        if self.thread_picker_open(cx).is_none() {
             self.thread_picker.selected = None;
         }
     }
 
-    /// Arrows, Tab, Return and Esc while the picker is open. With nothing to
-    /// pick, Return sends and the arrows move the cursor, as if it weren't
-    /// open; Esc still closes it.
-    pub(crate) fn thread_palette_key(
+    /// Arrows, Tab, Return and Esc while the picker is open. False lets the
+    /// box have the key as usual.
+    pub(crate) fn thread_picker_key(
         &mut self,
         key: PaletteKey,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(query) = self.thread_query(cx) else {
+        let Some((_, found)) = self.thread_picker_open(cx) else {
             return false;
         };
-        let matches = self.thread_matches(&query, cx);
-        if matches.is_empty() && key != PaletteKey::Escape {
-            return false;
-        }
         let text = self.input.read(cx).value().to_string();
-        if let Some(thread) = mentions::handle_key(key, &matches, &mut self.thread_picker, &text) {
-            self.pick_thread(thread, window, cx);
+        if let Some(thread) = mentions::handle_key(key, &found, &mut self.thread_picker, &text) {
+            self.pick_thread(&thread, window, cx);
         }
+        // Keep the pick in sight as the arrows move it.
         if matches!(key, PaletteKey::Up | PaletteKey::Down) {
-            if let Some(index) = matches
+            if let Some(index) = found
                 .iter()
                 .position(|t| self.thread_picker.selected.as_deref() == Some(t.id.as_str()))
             {
@@ -96,125 +88,97 @@ impl Composer {
         true
     }
 
-    /// Puts a link to the thread where the #word was, as one undo.
-    pub(crate) fn pick_thread(
-        &mut self,
-        thread: Arc<ThreadSummary>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(query) = self.thread_query(cx) else {
+    /// Puts the thread's chip where the #word was, with a space after it to
+    /// carry on typing.
+    fn pick_thread(&mut self, thread: &ThreadSummary, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((typed, _)) = self.thread_picker_open(cx) else {
             return;
         };
         self.thread_picker = Default::default();
-        let reference = mentions::reference(&thread) + " ";
-        self.input.update(cx, |s, cx| {
-            s.set_selected_range(query.start..query.end, cx);
-            s.replace(reference, window, cx);
-            s.focus(window, cx);
-            crate::web_panels::keyboard_to_app(window);
-        });
-        cx.notify();
+        let cursor = self.input.read(cx).cursor();
+        self.input
+            .update(cx, |s, cx| s.set_selected_range(typed.start..cursor, cx));
+        self.insert_pieces(
+            draft_pieces(&mentions::reference(thread), 0),
+            &[],
+            window,
+            cx,
+        );
     }
 
     /// The picker's layer over the box, or None while it's closed.
-    pub(crate) fn render_thread_palette(
+    pub(crate) fn render_thread_picker(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let query = self.thread_query(cx)?;
-        let matches = self.thread_matches(&query, cx);
-        let picked = mentions::picked(&matches, &self.thread_picker).map(|t| t.id.clone());
-        let zoom = style::zoomed(1.);
-        let viewport = window.viewport_size();
-        let width = f64::from(self.card_width.get() / zoom);
-        let height = height(matches.len().max(1), f64::from(viewport.height / zoom));
-        // No taller than the room over the box (the new-thread page).
+        let (_, found) = self.thread_picker_open(cx)?;
+        let picked = mentions::picked(&found, &self.thread_picker).map(|t| t.id.clone());
+        // In points, as the slash palette works them out (slash_palette.rs).
+        let zoom = style::zoom_scale();
+        let window_height = f64::from(window.viewport_size().height / zoom);
+        let height = mentions::height(found.len(), window_height);
+        // No taller than the room over the box (the new-thread page): the
+        // text sits lower, so that's never more than it has.
         let room = f64::from(self.box_top.get() / zoom) - 16.;
-        let height = if room > 0. {
-            height.min(room.max(160.))
-        } else {
-            height
-        };
-        let content = if matches.is_empty() {
-            let note = mentions::empty_text(&query.text);
-            div()
-                .id("thread-palette-note")
-                .test_support()
-                .role(Role::ListItem)
-                .aria_label(SharedString::from(note.clone()))
-                .p(px(16.))
-                .w_full()
-                .text_size(px(size::LABEL + 1.))
-                .text_color(style::secondary_text(cx))
-                .child(note)
-                .into_any_element()
-        } else {
-            let mut list = v_flex().w_full();
-            for thread in &matches {
-                let row = self.render_thread_row(
-                    thread,
-                    picked.as_deref() == Some(thread.id.as_str()),
-                    cx,
-                );
-                list = list.child(row);
-            }
-            div()
-                .id("thread-palette-list")
-                .size_full()
-                .py(px(6.))
-                .overflow_y_scroll()
-                .track_scroll(&self.thread_scroll)
-                .child(list)
-                .into_any_element()
-        };
+        let height = height.min(room.max(0.));
+        let mut rows = v_flex().w_full();
+        for thread in &found {
+            let on = picked.as_deref() == Some(thread.id.as_str());
+            rows = rows.child(self.render_thread_picker_row(thread, on, cx));
+        }
         let panel = div()
-            .id("thread-palette")
+            .id("thread-picker")
             .size_full()
-            .rounded(px(14.))
+            .rounded(px(crate::slash_resize::RADIUS))
             .overflow_hidden()
             .bg(cx.theme().background)
             .border_1()
             .border_color(style::hairline(cx))
             .shadow_lg()
+            // Keep clicks out of the transcript under it.
             .occlude()
-            .child(content);
+            .child(
+                div()
+                    .id("thread-picker-list")
+                    .size_full()
+                    .py(px(6.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.thread_scroll)
+                    .child(rows),
+            );
+        // On the text's top edge, out to the box's sides, and as far over
+        // the text as it was over the box, so with nothing over the text it
+        // sits where it did, 8 over the box, and with a card or chips there
+        // it covers them, next to the # (Mike, 24 Nov).
+        let inset = style::COMPOSER_PADDING;
         Some(
             deferred(
                 div()
                     .absolute()
-                    .left_0()
-                    .right_0()
+                    .left(px(-inset))
+                    .right(px(-inset))
                     .bottom_full()
-                    .mb(px(8.))
+                    .mb(px(inset + 8.))
                     .h(px(height as f32))
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .bottom_0()
-                            .left_0()
-                            .w(px(width as f32))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(panel),
-                    ),
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(panel),
             )
             .with_priority(2)
             .into_any_element(),
         )
     }
 
-    fn render_thread_row(
+    fn render_thread_picker_row(
         &mut self,
         thread: &Arc<ThreadSummary>,
         on: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let title = mentions::shown_title(thread);
-        let folder = mentions::folder(thread);
+        let folder = folder_name(&thread.cwd);
         let place = if thread.archived_at.is_some() {
-            format!("{folder} · archived")
+            format!("{folder}, archived")
         } else {
             folder
         };
@@ -224,39 +188,34 @@ impl Composer {
             style::primary_opacity(cx, 0.05),
         );
         let text = if on { gpui_kit::white() } else { fg };
-        let tip: SharedString =
-            format!("Puts a link to this thread ({}) in the message", thread.id).into();
+        let tip: SharedString = format!("Put a link to \"{title}\" in the message (Return)").into();
         let picked = thread.clone();
         h_flex()
-            .id(SharedString::from(format!("thread-row-{}", thread.id)))
+            .id(SharedString::from(format!(
+                "thread-picker-row-{}",
+                thread.id
+            )))
             .test_support()
             .role(Role::ListItem)
-            .aria_label(SharedString::from(format!("{title}, {place}")))
+            .aria_label(tip.clone())
             .w_full()
+            .h(px(mentions::ROW_HEIGHT as f32))
             .gap(px(10.))
             .px(px(14.))
-            .py(px(6.))
             .cursor_pointer()
             .text_color(text)
             .when(on, |s| s.bg(accent))
             .when(!on, |s| s.hover(move |s| s.bg(hover)))
             .tip(tip)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.pick_thread(picked.clone(), window, cx)
+                this.pick_thread(&picked, window, cx);
             }))
             .child(
-                div()
-                    .flex_none()
-                    .size(px(16.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .opacity(0.5)
-                    .child(
-                        crate::icons::symbol("bubble.left")
-                            .size(px(14.))
-                            .text_color(text),
-                    ),
+                div().flex_none().opacity(0.6).child(
+                    crate::icons::symbol("bubble.left")
+                        .size(px(14.))
+                        .text_color(text),
+                ),
             )
             .child(
                 v_flex()
@@ -267,7 +226,6 @@ impl Composer {
                         div()
                             .truncate()
                             .text_size(px(size::LABEL + 1.))
-                            .font_weight(FontWeight::MEDIUM)
                             .child(title),
                     )
                     .child(
@@ -280,19 +238,21 @@ impl Composer {
             )
     }
 
-    /// `dump`'s picker, while it's open.
+    /// `dump`'s # picker, while it's open.
     #[cfg(feature = "automation")]
-    pub(crate) fn thread_palette_dump(&self, cx: &App) -> Value {
-        let Some(query) = self.thread_query(cx) else {
+    pub(crate) fn thread_picker_dump(&self, cx: &App) -> Value {
+        let Some((typed, found)) = self.thread_picker_open(cx) else {
             return Value::Null;
         };
-        let matches = self.thread_matches(&query, cx);
-        let picked = mentions::picked(&matches, &self.thread_picker).map(|t| t.id.clone());
+        let picked = mentions::picked(&found, &self.thread_picker).map(|t| t.id.clone());
         json!({
-            "query": query.text,
-            "threads": matches.iter().map(|t| json!({ "id": t.id, "title": mentions::shown_title(t), "folder": mentions::folder(t) })).collect::<Vec<_>>(),
+            "query": typed.query,
+            "threads": found.iter().map(|t| json!({
+                "id": t.id,
+                "title": mentions::shown_title(t),
+                "folder": folder_name(&t.cwd),
+            })).collect::<Vec<_>>(),
             "picked": picked,
-            "note": matches.is_empty().then(|| mentions::empty_text(&query.text)),
         })
     }
 }

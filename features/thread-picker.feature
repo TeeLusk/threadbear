@@ -1,35 +1,43 @@
-Feature: Mentioning another thread with #
+Feature: Naming another thread with #
   As someone whose threads build on each other
   I want to type # in the message box and pick one of my threads
-  So a link to it goes in my message, for the agent to read or message it
+  So a link to it goes in my message, for the agent to read
 
   Background:
     Given the app is connected to a runner with the demo threads
+    And I open the thread "Morning brief"
 
-  # GPUI only: the Swift app has no # picker.
+  # The GPUI app's alone: the Swift app is frozen.
 
-  @thread.picker @swift-pending
+  @composer.threadpicker @swift-pending
   Scenario: Typing # lists my other threads, and what I type narrows them by title or folder
-    When I open the thread "Morning brief"
-    And I type "See #" in the composer
+    When I type "see #" in the composer
     Then the thread picker lists "Stop Keep Awake asking for my password"
     And the thread picker doesn't list "Morning brief"
     When I type "photo" in the composer
-    Then the thread picker lists only "Tidy up the build scripts, Make uploads resume after a crash"
-    When I press Escape
-    Then the thread picker is closed
+    Then the thread picker lists "Make uploads resume after a crash"
+    And the thread picker doesn't list "Stop Keep Awake asking for my password"
 
-  @thread.picker @swift-pending
-  Scenario: Picking a thread puts a link to it in the message
-    When I open the thread "Morning brief"
-    And I type "Ask #keep" in the composer
-    And the thread picker lists only "Stop Keep Awake asking for my password"
-    And I press Return
-    Then the composer says "Ask [Stop Keep Awake asking for my password](thread:demo_keep_awake) "
+  @composer.threadpicker @swift-pending
+  Scenario: Return puts the thread in as its chip
+    When I type "ask #keep" in the composer
+    Then the thread picker's threads are "Stop Keep Awake asking for my password"
+    When I press Return
+    Then the composer's chips are "thread: Stop Keep Awake asking for my password"
+    And the composer says "ask [Stop Keep Awake asking for my password](thread:demo_keep_awake) "
     And the thread picker is closed
 
-  @thread.picker @swift-pending
-  Scenario: A # with nothing that matches says so, and Return still sends
-    When I open the thread "Morning brief"
-    And I type "#zzzz" in the composer
-    Then the thread picker says "No thread matches #zzzz."
+  @composer.threadpicker @swift-pending
+  Scenario: Clicking a thread in the picker puts it in as its chip
+    When I type "#keep" in the composer
+    And I click "Stop Keep Awake asking for my password" in the thread picker
+    Then the composer's chips are "thread: Stop Keep Awake asking for my password"
+
+  @composer.threadpicker @swift-pending
+  Scenario: Esc closes the picker, and a # that matches no thread doesn't open it
+    When I type "#keep" in the composer
+    Then the thread picker's threads are "Stop Keep Awake asking for my password"
+    When I press Escape
+    Then the thread picker is closed
+    When I type "fixes #zzzz" in the composer, replacing what's there
+    Then the thread picker is closed

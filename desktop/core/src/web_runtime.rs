@@ -27,7 +27,7 @@ pub const CDN: &str = "https://cef-builds.spotifycdn.com";
 
 /// One system's build, pinned. `sha1` is what Spotify's index.json (and the
 /// `.sha1` file beside the archive) says; `sha256` was worked out from the
-/// file that matched it, on 23 Nov 2026, so a download is checked against a
+/// file that matched it, on 24 Nov 2026, so a download is checked against a
 /// hash that isn't SHA-1 alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Archive {
@@ -581,7 +581,7 @@ fn framework_path(entry: &Path, top: &str) -> Result<Option<PathBuf>, InstallErr
 /// The framework out of a checked archive (`file`, at its start) into
 /// `dest`: its files, with their executable bit but no set-id bits or
 /// owners, and its folders. Nothing else. CEF's framework has no links
-/// (156.0.26's two archives have none, of either kind), and a link is how an
+/// (156.0.31's two archives have none, of either kind), and a link is how an
 /// archive gets a later entry written somewhere else: checks of where links
 /// point were got round twice in review (Codex, 11 Nov: `a -> .`, then
 /// `escape -> a/..`, then a file written to `escape/planted-file`; then two

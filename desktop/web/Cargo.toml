@@ -19,8 +19,9 @@ ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
 futures = "=0.3.34"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# cef-rs (tauri-apps/cef-rs, MIT or Apache-2.0): Rust bindings to CEF's C API.
-# 156.7.0+156.0.31 was made from CEF 156.0.31, which is desktop/core's
+# cef-rs (tauri-apps/cef-rs, MIT or Apache-2.0): Rust bindings to CEF's C API,
+# at the version Ghostex's Mac path and the gpui-web-spike branch run:
+# 156.7.0+156.0.31, made from CEF 156.0.31, which is desktop/core's
 # CEF_VERSION (Cargo ignores the +156.0.31 in a requirement, so it's written
 # here instead; Cargo.lock has it). No default features: its bundling tool and
 # resource helpers aren't wanted.
